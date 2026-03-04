@@ -5,27 +5,19 @@
 AFTRER CLONING
 npm install
 
-ONLY MISSING PART IS LOGIN HISTORY AND LOGOUT HISTORY
-FORGOT PASSWORD
+## SAMPLE USERS
 
-```
-nest new apicenter-shared-auth-api
+SYTEM ADMIN
+johndoedoe@gmail.com
 
-# Core Auth
-npm install @nestjs/config @nestjs/jwt passport passport-jwt bcryptjs
+ADMIN
+rickgrimes@gmail.com
 
-# DTO validation
-npm install class-validator class-transformer
+HR MANAGER
+chiarraalteri@gmail.com
 
-# Swagger
-npm install @nestjs/swagger swagger-ui-express
-
-# Supabase
-npm install @supabase/supabase-js
-
-# Dev types
-npm install --save-dev @types/passport-jwt @types/bcryptjs
-```
+EMPLOYEE
+ludovicastorti@gmail.com
 
 ## Compile and run the project
 
