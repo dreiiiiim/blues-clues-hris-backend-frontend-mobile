@@ -31,9 +31,11 @@ export const LoginScreen = ({ navigation }: any) => {
     await saveSession(res.user, rememberMe);
 
     switch (res.user.role) {
-      case "employee": navigation.replace("EmployeeDashboard",  { session: res.user }); break;
-      case "hr":       navigation.replace("HROfficerDashboard", { session: res.user }); break;
-      case "manager":  navigation.replace("ManagerDashboard",   { session: res.user }); break;
+      case "employee":     navigation.replace("EmployeeDashboard",    { session: res.user }); break;
+      case "hr":           navigation.replace("HROfficerDashboard",   { session: res.user }); break;
+      case "manager":      navigation.replace("ManagerDashboard",     { session: res.user }); break;
+      case "system_admin":
+      case "admin":        navigation.replace("SystemAdminDashboard", { session: res.user }); break;
     }
   }
 

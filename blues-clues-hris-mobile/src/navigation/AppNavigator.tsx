@@ -11,26 +11,30 @@ import { ForgotPasswordScreen }     from "../screens/ForgotPasswordScreen";
 import { EmployeeDashboardScreen }  from "../screens/EmployeeDashboardScreen";
 import { HROfficerDashboardScreen } from "../screens/HROfficerDashboardScreen";
 import { ManagerDashboardScreen }   from "../screens/ManagerDashboardScreen";
-import { ApplicantDashboardScreen } from "../screens/ApplicantDashboardScreen";
+import { ApplicantDashboardScreen }    from "../screens/ApplicantDashboardScreen";
+import { SystemAdminDashboardScreen }  from "../screens/SystemAdminDashboardScreen";
 
 export type RootStackParamList = {
   Login: undefined;
   SignUp: undefined;
   ForgotPassword: undefined;
-  EmployeeDashboard:  { session: UserSession };
-  HROfficerDashboard: { session: UserSession };
-  ManagerDashboard:   { session: UserSession };
-  ApplicantDashboard: { session: UserSession };
+  EmployeeDashboard:     { session: UserSession };
+  HROfficerDashboard:    { session: UserSession };
+  ManagerDashboard:      { session: UserSession };
+  ApplicantDashboard:    { session: UserSession };
+  SystemAdminDashboard:  { session: UserSession };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // Maps role → screen name
 const ROLE_SCREEN: Record<string, keyof RootStackParamList> = {
-  employee:  "EmployeeDashboard",
-  hr:        "HROfficerDashboard",
-  manager:   "ManagerDashboard",
-  applicant: "ApplicantDashboard",
+  employee:     "EmployeeDashboard",
+  hr:           "HROfficerDashboard",
+  manager:      "ManagerDashboard",
+  applicant:    "ApplicantDashboard",
+  system_admin: "SystemAdminDashboard",
+  admin:        "SystemAdminDashboard",
 };
 
 export const AppNavigator = () => {
@@ -92,6 +96,11 @@ export const AppNavigator = () => {
           name="ApplicantDashboard"
           component={ApplicantDashboardScreen}
           initialParams={initialRoute === "ApplicantDashboard" ? { session: initialSession } : undefined}
+        />
+        <Stack.Screen
+          name="SystemAdminDashboard"
+          component={SystemAdminDashboardScreen}
+          initialParams={initialRoute === "SystemAdminDashboard" ? { session: initialSession } : undefined}
         />
       </Stack.Navigator>
     </NavigationContainer>

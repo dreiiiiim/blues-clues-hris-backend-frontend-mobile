@@ -1,7 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { API_BASE_URL } from "../lib/api";
 
-export type UserRole = "hr" | "manager" | "employee" | "applicant" | "system_admin";
+export type UserRole = "hr" | "manager" | "employee" | "applicant" | "system_admin" | "admin";
 
 export interface UserSession {
   email: string;
@@ -40,6 +40,8 @@ function roleNameToKey(roleName?: string): UserRole | null {
       return "applicant";
     case "System Admin":
       return "system_admin";
+    case "Admin":
+      return "admin";
     default:
       if (roleName?.toLowerCase().includes("manager")) return "manager";
       return null;
