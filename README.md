@@ -47,7 +47,8 @@ Swagger docs at `http://localhost:5000/api/docs`
 Open a second terminal:
 
 ```bash
-cd frontend/manager-dashboard
+cd frontend
+cd blues-clues-hris-frontend-web
 npm install
 npm run dev
 ```
