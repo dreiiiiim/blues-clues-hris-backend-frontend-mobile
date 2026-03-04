@@ -70,11 +70,15 @@ npx expo start -c
 SCAN QR CODE USING EXPO GO APP
 ```
 
+### 5. IMPORTANT
 
+ALWAYS DO THIS BEFORE ADDING FEATURES ETC.
+
+```bash
+git pull origin main
+```
 
 ## MORE INFO LANG PERO NASA ABOVE LANG NAMAN NEED PARA MARUN
-
-
 
 ## Environment Variables
 
