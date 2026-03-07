@@ -13,7 +13,7 @@ export class UsersService {
   async findAll(companyId: string) {
     const { data, error } = await this.supabaseService.getClient()
       .from('user_profile')
-      .select('user_id, first_name, last_name, email, role_id, is_active')
+      .select('user_id, first_name, last_name, email, role_id')
       .eq('company_id', companyId)
       .order('first_name');
 
@@ -24,7 +24,7 @@ export class UsersService {
   async findOne(id: string, companyId: string) {
     const { data, error } = await this.supabaseService.getClient()
       .from('user_profile')
-      .select('user_id, first_name, last_name, email, role_id, is_active')
+      .select('user_id, first_name, last_name, email, role_id')
       .eq('user_id', id)
       .eq('company_id', companyId) // prevents cross-company lookups
       .maybeSingle();

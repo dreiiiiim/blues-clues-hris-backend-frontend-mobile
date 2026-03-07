@@ -20,7 +20,6 @@ type Employee = {
   last_name: string | null;
   email: string;
   role_id: number;
-  is_active: boolean;
 };
 
 export default function ManagerDashboardPage() {
@@ -116,9 +115,7 @@ export default function ManagerDashboardPage() {
                     </td>
                     <td className="px-6 py-4 text-muted-foreground">{row.email}</td>
                     <td className="px-6 py-4">
-                      <Badge variant={row.is_active ? "default" : "secondary"} className="text-[9px]">
-                        {row.is_active ? "Active" : "Inactive"}
-                      </Badge>
+                      <Badge variant="default" className="text-[9px]">Active</Badge>
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary">
