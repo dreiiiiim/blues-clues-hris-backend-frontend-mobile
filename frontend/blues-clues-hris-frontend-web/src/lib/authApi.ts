@@ -14,7 +14,7 @@ export async function loginApi(body: {
   password: string;
   rememberMe: boolean;
 }) {
-  const res = await fetch(`${API_BASE_URL}/login`, {
+  const res = await fetch(`${API_BASE_URL}/login`, { //api base url basically ung url sa api.ts 
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -31,7 +31,7 @@ export async function refreshApi() {
   const refresh_token = getRefreshToken();
   if (!refresh_token) throw new Error("No refresh token");
 
-  const res = await fetch(`${API_BASE_URL}/refresh`, {
+  const res = await fetch(`${API_BASE_URL}/refresh`, {//call refresh sa auth.service.ts
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ refresh_token }),

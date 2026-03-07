@@ -2,7 +2,10 @@
 
 import { useState, useLayoutEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { getRefreshToken, getUserInfo } from "@/lib/authStorage";
+import { getRefreshToken, clearAuthStorage, saveUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
+import { authFetch } from "@/lib/authApi";
+import { API_BASE_URL } from "@/lib/api";
+import { roleToPath } from "@/lib/roleMap";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 
@@ -19,32 +22,56 @@ export default function SharedDashboardLayout({
   const [isAuthorized, setIsAuthorized] = useState(false);
 
   useLayoutEffect(() => {
-    const token = getRefreshToken();
-    const userInfo = getUserInfo();
+    const refreshToken = getRefreshToken();
 
-    if (!token || !userInfo) {
+    if (!refreshToken) {
       router.replace("/login");
       return;
     }
 
-    const userRole = userInfo.role as UserRole;
+    const verify = async () => {
+      const res = await authFetch(`${API_BASE_URL}/me`);
+      if (!res.ok) {
+        clearAuthStorage();
+        router.replace("/login");
+        return;
+      }
 
-    // Strict Persona Guard: prevents a Manager from viewing /hr pages, etc.
-    const isAccessingWrongDashboard =
-      (pathname.startsWith("/hr") && userRole !== "hr") ||
-      (pathname.startsWith("/manager") && userRole !== "manager") ||
-      (pathname.startsWith("/employee") && userRole !== "employee") ||
-      (pathname.startsWith("/applicant") && userRole !== "applicant") ||
-      (pathname.startsWith("/admin") && !pathname.startsWith("/system-admin") && userRole !== "admin") ||
-      (pathname.startsWith("/system-admin") && userRole !== "system-admin");
+      const me = await res.json();
+      if (!me?.role_name) {
+        clearAuthStorage();
+        router.replace("/login");
+        return;
+      }
 
-    if (isAccessingWrongDashboard) {
-      router.replace(`/${userRole}`);
-      return;
-    }
+      const userRole = roleToPath(me.role_name).replace("/", "") as UserRole;
 
-    setRole(userRole);
-    setIsAuthorized(true);
+      // Strict Persona Guard: prevents a Manager from viewing /hr pages, etc.
+      const isAccessingWrongDashboard =
+        (pathname.startsWith("/hr") && userRole !== "hr") ||
+        (pathname.startsWith("/manager") && userRole !== "manager") ||
+        (pathname.startsWith("/employee") && userRole !== "employee") ||
+        (pathname.startsWith("/applicant") && userRole !== "applicant") ||
+        (pathname.startsWith("/admin") && !pathname.startsWith("/system-admin") && userRole !== "admin") ||
+        (pathname.startsWith("/system-admin") && userRole !== "system-admin");
+
+      if (isAccessingWrongDashboard) {
+        router.replace(`/${userRole}`);
+        return;
+      }
+
+      // overwrite user_info with real server data — corrects any DevTools edits
+      const tokenPayload = parseJwt(getAccessToken() ?? "");
+      const firstName = tokenPayload?.first_name ?? "";
+      const lastName = tokenPayload?.last_name ?? "";
+      const name = [firstName, lastName].filter(Boolean).join(" ") || me.username || "";
+      saveUserInfo({ name, email: me.email ?? "", role: userRole });
+
+      setRole(userRole);
+      setIsAuthorized(true);
+    };
+
+    verify();
   }, [pathname, router]);
 
   if (!isAuthorized || !role) {

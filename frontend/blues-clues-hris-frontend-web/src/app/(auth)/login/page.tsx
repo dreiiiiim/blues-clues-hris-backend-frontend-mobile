@@ -43,7 +43,7 @@ export default function EmployeeLoginPage() {
     setIsLoading(true);
 
     try {
-      const { access_token, refresh_token } = await loginApi({
+      const { access_token, refresh_token } = await loginApi({//calls login api sa authApi.ts
         identifier,
         password,
         rememberMe,
@@ -72,7 +72,9 @@ export default function EmployeeLoginPage() {
       const lastName = payload.last_name ?? "";
       const name = [firstName, lastName].filter(Boolean).join(" ") || me.username || identifier;
 
-      saveUserInfo({ name, email: me.email ?? "", role });
+      saveUserInfo({ name, email: me.email ?? "", role });// me.email passed to saveUserInfo
+  //                         ↑
+  //                    this is where me() gives the email to saveUserInfo
       router.push(`/${role}`);
     } catch (err: any) {
       setError(err?.message || "Invalid credentials. Please try again.");

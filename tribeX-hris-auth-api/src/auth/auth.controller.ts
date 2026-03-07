@@ -30,7 +30,7 @@ export class AuthController {
   }
 
   @UseGuards(ThrottlerGuard)
-  @Post('logout')
+  @Post('logout')//calls logout sa auth.service.ts
   logout(@Body() body: { refresh_token: string }, @Req() req: Request) {
     return this.authService.logout(body.refresh_token, req);
   }
