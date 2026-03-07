@@ -9,9 +9,12 @@ import { API_BASE_URL } from "@/lib/api";
 import { roleToPath } from "@/lib/roleMap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
+// TODO (Sprint 2): swap GoogleSignInButton for GoogleLogin once Client ID is available
+// import { GoogleLogin } from "@react-oauth/google";
 import { Card, CardContent } from "@/components/ui/card";
 import { Search, Briefcase, TrendingUp, AlertCircle, Loader2 } from "lucide-react";
-
 
 export default function ApplicantPortalAuth() {
   const router = useRouter();
@@ -72,52 +75,85 @@ export default function ApplicantPortalAuth() {
     }
   };
 
+  // TODO (Sprint 2 - Frontend): wire credentialResponse.credential to googleLoginApi()
+  // once backend endpoint POST /api/tribeX/auth/v1/auth/google is ready.
+  const handleGoogleSignIn = (credentialResponse: any) => {
+    // TODO: googleLoginApi(credentialResponse.credential)
+  };
+
   return (
     <div className="flex min-h-screen bg-muted/10 animate-in fade-in duration-500">
+      {/* Left panel */}
       <div className="hidden lg:flex flex-col w-1/2 bg-primary/5 p-16 border-r border-border relative">
         <div className="mb-auto relative z-10">
-           <h1 className="text-5xl font-bold mb-6 tracking-tighter leading-tight">Join our<br/>growing team.</h1>
-           <p className="text-muted-foreground mb-12 max-w-sm text-lg leading-relaxed">
-             Discover opportunities that match your skills and take the next step in your professional journey.
-           </p>
-           <div className="space-y-10">
-             <FeatureItem icon={Search} title="Explore Roles" desc="Find the perfect fit for your expertise in our open positions." />
-             <FeatureItem icon={Briefcase} title="Track Application" desc="Get real-time updates and notifications on your status." />
-             <FeatureItem icon={TrendingUp} title="Grow With Us" desc="Develop your career in a dynamic, forward-thinking environment." />
-           </div>
+          <h1 className="text-5xl font-bold mb-6 tracking-tighter leading-tight">Join our<br />growing team.</h1>
+          <p className="text-muted-foreground mb-12 max-w-sm text-lg leading-relaxed">
+            Discover opportunities that match your skills and take the next step in your professional journey.
+          </p>
+          <div className="space-y-10">
+            <FeatureItem icon={Search}    title="Explore Roles"      desc="Find the perfect fit for your expertise in our open positions." />
+            <FeatureItem icon={Briefcase} title="Track Application"  desc="Get real-time updates and notifications on your status." />
+            <FeatureItem icon={TrendingUp} title="Grow With Us"      desc="Develop your career in a dynamic, forward-thinking environment." />
+          </div>
         </div>
         <p className="text-[10px] font-bold text-muted-foreground/40 uppercase tracking-widest relative z-10">
           © 2026 HR Information Systems Portal
         </p>
       </div>
 
+      {/* Right panel */}
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-card/30">
         <div className="w-full max-w-md space-y-10">
           <div className="text-center space-y-2">
             <h2 className="text-5xl font-bold tracking-tight">Applicant Portal</h2>
             <p className="text-lg text-muted-foreground">
-               {isSignUp ? "Create your candidate profile" : "Welcome back, please sign in"}
+              {isSignUp ? "Create your candidate profile" : "Welcome back, please sign in"}
             </p>
           </div>
 
           {error && (
-            <div className="bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium p-4 rounded-xl flex items-center gap-3 animate-in shake-in">
+            <div className="bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium p-4 rounded-xl flex items-center gap-3">
               <AlertCircle className="h-4 w-4 shrink-0" />
               <span>{error}</span>
             </div>
           )}
 
+          {/* Google SSO Button */}
+          {/* TODO (Sprint 2): replace GoogleSignInButton with GoogleLogin once Client ID is available */}
+          {/* <div className="flex justify-center">
+            <GoogleLogin
+              onSuccess={handleGoogleSignIn}
+              onError={() => setError("Google sign-in failed. Please try again.")}
+              useOneTap={false}
+              text="signin_with_google"
+              shape="rectangular"
+              size="large"
+              width="368"
+            />
+          </div> */}
+          <GoogleSignInButton disabled={isLoading} onClick={() => {}} />
+
+          {/* Divider */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              or
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
+          {/* Sign In / Sign Up tabs */}
           <div className="flex p-1 bg-muted/60 rounded-xl border border-border">
             <button
               type="button"
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${!isSignUp ? 'bg-background shadow-md text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${!isSignUp ? "bg-background shadow-md text-primary" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => { setIsSignUp(false); setError(""); }}
             >
               Sign In
             </button>
             <button
               type="button"
-              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${isSignUp ? 'bg-background shadow-md text-primary' : 'text-muted-foreground hover:text-foreground'}`}
+              className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${isSignUp ? "bg-background shadow-md text-primary" : "text-muted-foreground hover:text-foreground"}`}
               onClick={() => { setIsSignUp(true); setError(""); }}
             >
               Sign Up
@@ -146,27 +182,34 @@ export default function ApplicantPortalAuth() {
 
             <div className="space-y-2">
               <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Security Password</label>
-              <Input
-                type="password"
+              <PasswordInput
                 placeholder="••••••••"
                 className="h-11 bg-background"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
                 required
               />
             </div>
 
-            <Button type="submit" className="w-full h-12 text-sm font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg mt-2" disabled={isLoading}>
-              {isLoading ? <Loader2 className="h-5 w-5 animate-spin" /> : (isSignUp ? "Create Account →" : "Sign In to Portal →")}
+            <Button
+              type="submit"
+              className="w-full h-12 text-sm font-bold bg-primary hover:bg-primary/90 text-primary-foreground shadow-lg mt-2"
+              disabled={isLoading}
+            >
+              {isLoading
+                ? <Loader2 className="h-5 w-5 animate-spin" />
+                : (isSignUp ? "Create Account →" : "Sign In to Portal →")
+              }
             </Button>
           </form>
 
           <div className="text-center pt-4">
-              <Link href="/login">
-                <Button variant="ghost" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-all">
-                  ← Internal Staff Login
-                </Button>
-              </Link>
+            <Link href="/login">
+              <Button variant="ghost" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-primary transition-all">
+                ← Internal Staff Login
+              </Button>
+            </Link>
           </div>
         </div>
       </div>
