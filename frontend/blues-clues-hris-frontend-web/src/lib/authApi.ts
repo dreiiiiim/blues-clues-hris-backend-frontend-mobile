@@ -27,6 +27,31 @@ export async function loginApi(body: {
   return data as { access_token: string; refresh_token: string };
 }
 
+// TODO (Sprint 2 - Backend): implement Google OAuth endpoint
+// Expected endpoint: POST /api/tribeX/auth/v1/auth/google
+//
+// Request payload:
+// { token: string } — Google ID token from @react-oauth/google credentialResponse.credential
+//
+// Expected response (same shape as loginApi):
+// { access_token: string, refresh_token: string }
+//
+// Backend should:
+// 1. Verify the Google token via Google's tokeninfo API or googleapis SDK
+// 2. Find or create the user record matched by Google email
+// 3. Ensure the user has an active staff role (reject applicants)
+// 4. Return access_token + refresh_token same as regular login
+export async function googleLoginApi(googleToken: string) {
+  const res = await fetch(`${API_BASE_URL}/auth/google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: googleToken }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Google login failed");
+  return data as { access_token: string; refresh_token: string };
+}
+
 export async function refreshApi() {
   const refresh_token = getRefreshToken();
   if (!refresh_token) throw new Error("No refresh token");

@@ -9,6 +9,10 @@ import { API_BASE_URL } from "@/lib/api";
 import { roleToPath } from "@/lib/roleMap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
+import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
+// TODO (Sprint 2): swap GoogleSignInButton for GoogleLogin once Client ID is available
+// import { GoogleLogin } from "@react-oauth/google";
 import {
   Card,
   CardContent,
@@ -17,8 +21,7 @@ import {
   CardDescription,
   CardFooter,
 } from "@/components/ui/card";
-import { User, Lock, AlertCircle, Loader2 } from "lucide-react";
-
+import { User, AlertCircle, Loader2 } from "lucide-react";
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
@@ -43,7 +46,7 @@ export default function EmployeeLoginPage() {
     setIsLoading(true);
 
     try {
-      const { access_token, refresh_token } = await loginApi({//calls login api sa authApi.ts
+      const { access_token, refresh_token } = await loginApi({
         identifier,
         password,
         rememberMe,
@@ -72,15 +75,22 @@ export default function EmployeeLoginPage() {
       const lastName = payload.last_name ?? "";
       const name = [firstName, lastName].filter(Boolean).join(" ") || me.username || identifier;
 
-      saveUserInfo({ name, email: me.email ?? "", role });// me.email passed to saveUserInfo
-  //                         ↑
-  //                    this is where me() gives the email to saveUserInfo
+      saveUserInfo({ name, email: me.email ?? "", role });
       router.push(`/${role}`);
     } catch (err: any) {
       setError(err?.message || "Invalid credentials. Please try again.");
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // TODO (Sprint 2 - Frontend): wire credentialResponse.credential to googleLoginApi()
+  // in src/lib/authApi.ts once backend endpoint POST /api/tribeX/auth/v1/auth/google is ready.
+  // credentialResponse.credential is the Google ID token — pass it directly to googleLoginApi().
+  // On success, follow same post-login flow as handleLogin():
+  // setTokens() → parseJwt() → saveUserInfo() → router.push()
+  const handleGoogleSignIn = (credentialResponse: any) => {
+    // TODO: googleLoginApi(credentialResponse.credential)
   };
 
   return (
@@ -95,29 +105,46 @@ export default function EmployeeLoginPage() {
               HR Information Systems
             </span>
           </div>
-
-          <CardTitle className="text-2xl font-bold">
-            Welcome back
-          </CardTitle>
-          <CardDescription>
-            Please sign in to your staff account
-          </CardDescription>
+          <CardTitle className="text-2xl font-bold">Welcome back</CardTitle>
+          <CardDescription>Please sign in to your staff account</CardDescription>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="space-y-4">
+
+          {error && (
+            <div className="bg-destructive/10 border border-destructive/20 text-destructive text-sm p-3 rounded-md flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
+
+          {/* Google SSO Button */}
+          {/* TODO (Sprint 2): replace GoogleSignInButton with GoogleLogin once Client ID is available */}
+          {/* <div className="flex justify-center">
+            <GoogleLogin
+              onSuccess={handleGoogleSignIn}
+              onError={() => setError("Google sign-in failed. Please try again.")}
+              useOneTap={false}
+              text="signin_with_google"
+              shape="rectangular"
+              size="large"
+              width="368"
+            />
+          </div> */}
+          <GoogleSignInButton disabled={isLoading} onClick={() => {}} />
+
+          {/* Divider */}
+          <div className="flex items-center gap-3">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+              or
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+
           <form onSubmit={handleLogin} className="space-y-4">
-
-            {error && (
-              <div className="bg-destructive/10 border border-destructive/20 text-destructive text-sm p-3 rounded-md flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
             <div className="space-y-2">
-              <label className="text-sm font-semibold">
-                Email or Username
-              </label>
+              <label className="text-sm font-semibold">Email or Username</label>
               <div className="relative">
                 <User className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
@@ -133,21 +160,14 @@ export default function EmployeeLoginPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-semibold">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="password"
-                  placeholder="••••••••"
-                  className="pl-9"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  disabled={isLoading}
-                  required
-                />
-              </div>
+              <label className="text-sm font-semibold">Password</label>
+              <PasswordInput
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
+                required
+              />
             </div>
 
             <div className="flex items-center justify-between text-sm py-2">
@@ -158,15 +178,9 @@ export default function EmployeeLoginPage() {
                   onChange={(e) => setRememberMe(e.target.checked)}
                   className="rounded border-border text-primary focus:ring-primary"
                 />
-                <span className="text-muted-foreground font-medium">
-                  Remember me
-                </span>
+                <span className="text-muted-foreground font-medium">Remember me</span>
               </label>
-
-              <Link
-                href="/forgot-password"
-                className="text-primary hover:underline font-semibold"
-              >
+              <Link href="/forgot-password" className="text-primary hover:underline font-semibold">
                 Forgot password?
               </Link>
             </div>
