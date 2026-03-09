@@ -2,7 +2,7 @@
 
 import { useLayoutEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { getRefreshToken } from "@/lib/authStorage";
+import { getAccessToken } from "@/lib/authStorage";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 
@@ -16,7 +16,7 @@ export default function PortalLayout({
   const isLoginPage = pathname.includes("/login");
 
   useLayoutEffect(() => {
-    if (!isLoginPage && !getRefreshToken()) {
+    if (!isLoginPage && !getAccessToken()) {
       router.replace("/applicant/login");
     }
   }, [isLoginPage, router]);

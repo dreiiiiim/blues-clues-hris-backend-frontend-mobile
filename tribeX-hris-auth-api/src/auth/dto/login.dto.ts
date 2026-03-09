@@ -16,12 +16,13 @@
 
 
 
-import { IsNotEmpty, IsString, MinLength, IsBoolean} from 'class-validator';
+import { IsNotEmpty, IsString, MinLength, IsBoolean, Matches } from 'class-validator';
 
 export class LoginDto {
 
   @IsString()
   @IsNotEmpty()
+  @Matches(/^[a-zA-Z0-9._@\-]+$/, { message: 'Invalid identifier format' })
   identifier: string; // email OR username OR employee_id
 
   @IsString()

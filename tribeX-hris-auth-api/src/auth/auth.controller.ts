@@ -7,11 +7,25 @@ import {
   UnauthorizedException,
   UseGuards,
   Req,
+  Res,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
+
+const COOKIE_NAME = 'refresh_token';
+
+function setCookieOptions(rememberMe: boolean) {
+  const isProd = process.env.NODE_ENV === 'production';
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: isProd ? 'none' : 'lax',
+    maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000,
+    path: '/api/tribeX/auth',
+  } as const;
+}
 
 @Controller()
 export class AuthController {
@@ -19,25 +33,46 @@ export class AuthController {
 
   @UseGuards(ThrottlerGuard)
   @Post('login')
-  login(@Body() loginDto: LoginDto, @Req() req: Request) {
-    return this.authService.login(loginDto, req);
+  async login(
+    @Body() loginDto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { access_token, refresh_token } = await this.authService.login(loginDto, req);
+
+    res.cookie(COOKIE_NAME, refresh_token, setCookieOptions(loginDto.rememberMe ?? false));
+
+    return { access_token };
   }
 
   @UseGuards(ThrottlerGuard)
   @Post('refresh')
-  refresh(@Body() body: { refresh_token: string }) {
-    return this.authService.refresh(body.refresh_token);
+  async refresh(@Req() req: Request) {
+    const token: string | undefined = (req.cookies as Record<string, string>)[COOKIE_NAME];
+
+    if (!token) throw new UnauthorizedException('No refresh token cookie');
+
+    return this.authService.refresh(token);
   }
 
   @UseGuards(ThrottlerGuard)
-  @Post('logout')//calls logout sa auth.service.ts
-  logout(
-    @Body() body: { refresh_token: string },
+  @Post('logout')
+  async logout(
     @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
     @Headers('authorization') authHeader?: string,
   ) {
+    const refreshToken: string | undefined = (req.cookies as Record<string, string>)[COOKIE_NAME];
+
+    if (!refreshToken) throw new UnauthorizedException('No refresh token cookie');
+
     const accessToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : undefined;
-    return this.authService.logout(body.refresh_token, req, accessToken);
+
+    await this.authService.logout(refreshToken, req, accessToken);
+
+    res.clearCookie(COOKIE_NAME, { path: '/api/tribeX/auth' });
+
+    return { message: 'Logged out' };
   }
 
   @Post('set-password')

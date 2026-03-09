@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { loginApi, authFetch } from "@/lib/authApi";
-import { setTokens, saveUserInfo, parseJwt, getRefreshToken, getUserInfo } from "@/lib/authStorage";
+import { setTokens, saveUserInfo, parseJwt, getAccessToken, getUserInfo } from "@/lib/authStorage";
 import { API_BASE_URL } from "@/lib/api";
 import { roleToPath } from "@/lib/roleMap";
 import { Button } from "@/components/ui/button";
@@ -20,7 +20,7 @@ export default function ApplicantPortalAuth() {
   const router = useRouter();
 
   useEffect(() => {
-    const token = getRefreshToken();
+    const token = getAccessToken();
     const userInfo = getUserInfo();
     if (token && userInfo && userInfo.role === "applicant") {
       router.replace("/applicant/dashboard");
@@ -39,13 +39,13 @@ export default function ApplicantPortalAuth() {
     setIsLoading(true);
 
     try {
-      const { access_token, refresh_token } = await loginApi({
+      const { access_token } = await loginApi({
         identifier: email,
         password,
         rememberMe: false,
       });
 
-      setTokens({ access_token, refresh_token, rememberMe: false });
+      setTokens({ access_token, rememberMe: false });
 
       const payload = parseJwt(access_token);
       if (!payload) throw new Error("Invalid token received from server.");

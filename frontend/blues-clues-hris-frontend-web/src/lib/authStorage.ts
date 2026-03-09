@@ -1,6 +1,4 @@
 // src/lib/authStorage.ts
-export const ACCESS_KEY = "access_token";
-export const REFRESH_KEY = "refresh_token";
 export const USER_KEY = "user_info";
 
 export interface StoredUser {
@@ -9,67 +7,46 @@ export interface StoredUser {
   role: string;
 }
 
-export function getStorage() {
-  // refresh token will exist in either sessionStorage or localStorage
-  if (typeof window === "undefined") return null;
-  if (sessionStorage.getItem(REFRESH_KEY)) return sessionStorage;
-  if (localStorage.getItem(REFRESH_KEY)) return localStorage;
-  return sessionStorage; // default
+// Access token lives ONLY in memory — never written to sessionStorage or localStorage.
+// It is re-fetched via the HttpOnly refresh_token cookie whenever the page reloads.
+let _accessToken: string | null = null;
+let _rememberMe = false; // track preference for user_info persistence
+
+export function setTokens(params: { access_token: string; rememberMe: boolean }) {
+  _accessToken = params.access_token;
+  _rememberMe = params.rememberMe;
 }
 
-export function clearAuthStorage() {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(ACCESS_KEY);
-  localStorage.removeItem(REFRESH_KEY);
-  localStorage.removeItem(USER_KEY);
-  sessionStorage.removeItem(ACCESS_KEY);
-  sessionStorage.removeItem(REFRESH_KEY);
-  sessionStorage.removeItem(USER_KEY);
-}
-
-export function setTokens(params: {
-  access_token: string;
-  refresh_token: string;
-  rememberMe: boolean;
-}) {
-  if (typeof window === "undefined") return;
-
-  clearAuthStorage();
-
-  const storage = params.rememberMe ? localStorage : sessionStorage;
-  storage.setItem(ACCESS_KEY, params.access_token);
-  storage.setItem(REFRESH_KEY, params.refresh_token);
-}
-
-export function getAccessToken() {
-  if (typeof window === "undefined") return null;
-  return sessionStorage.getItem(ACCESS_KEY) || localStorage.getItem(ACCESS_KEY);
-}
-
-export function getRefreshToken() {
-  if (typeof window === "undefined") return null;
-  return sessionStorage.getItem(REFRESH_KEY) || localStorage.getItem(REFRESH_KEY);
+export function getAccessToken(): string | null {
+  return _accessToken;
 }
 
 export function writeAccessToken(access_token: string) {
-  if (typeof window === "undefined") return;
-
-  // Keep access token in same storage as refresh token
-  if (sessionStorage.getItem(REFRESH_KEY)) sessionStorage.setItem(ACCESS_KEY, access_token);
-  else if (localStorage.getItem(REFRESH_KEY)) localStorage.setItem(ACCESS_KEY, access_token);
-  else sessionStorage.setItem(ACCESS_KEY, access_token);
+  _accessToken = access_token;
 }
 
-export function saveUserInfo(info: StoredUser) {// stores as "user_info" in storage
+export function clearAuthStorage() {
+  _accessToken = null;
+  _rememberMe = false;
   if (typeof window === "undefined") return;
-  const storage = getStorage() ?? sessionStorage;
+  // Clean up any legacy tokens that may have been stored in old versions
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("refresh_token");
+  localStorage.removeItem(USER_KEY);
+  sessionStorage.removeItem("access_token");
+  sessionStorage.removeItem("refresh_token");
+  sessionStorage.removeItem(USER_KEY);
+}
+
+export function saveUserInfo(info: StoredUser) {
+  if (typeof window === "undefined") return;
+  const storage = _rememberMe ? localStorage : sessionStorage;
   storage.setItem(USER_KEY, JSON.stringify(info));
 }
 
 export function getUserInfo(): StoredUser | null {
   if (typeof window === "undefined") return null;
-  const data =
-    sessionStorage.getItem(USER_KEY) || localStorage.getItem(USER_KEY);
+  const data = sessionStorage.getItem(USER_KEY) || localStorage.getItem(USER_KEY);
   if (!data) return null;
   try {
     return JSON.parse(data) as StoredUser;

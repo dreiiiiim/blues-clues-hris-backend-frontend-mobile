@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { getAccessToken, getRefreshToken, parseJwt, clearAuthStorage } from "@/lib/authStorage";
+import { getAccessToken, parseJwt, clearAuthStorage } from "@/lib/authStorage";
+import { refreshApi } from "@/lib/authApi";
 import { roleToPath } from "@/lib/roleMap";
 
 type Props = {
@@ -15,18 +16,21 @@ export default function AuthGuard({ children, allowedRoles }: Props) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const access = getAccessToken();
-    const refresh = getRefreshToken();
+    (async () => {
+      let access = getAccessToken();
 
-    // no tokens at all => force login
-    if (!access && !refresh) {
-      clearAuthStorage();
-      router.replace("/login");
-      return;
-    }
+      // Token lost from memory (e.g. page refresh) — try silent refresh via HttpOnly cookie
+      if (!access) {
+        try {
+          const result = await refreshApi();
+          access = result.access_token;
+        } catch {
+          clearAuthStorage();
+          router.replace("/login");
+          return;
+        }
+      }
 
-    // if access exists, validate role_name and route
-    if (access) {
       const decoded = parseJwt(access);
       const roleName = decoded?.role_name as string | undefined;
 
@@ -45,12 +49,7 @@ export default function AuthGuard({ children, allowedRoles }: Props) {
       }
 
       setReady(true);
-      return;
-    }
-
-    // If access is missing but refresh exists, allow page to render
-    // NOTE: the first API call using authFetch will refresh automatically.
-    setReady(true);
+    })();
   }, [router, allowedRoles]);
 
   if (!ready) return null; // or a spinner
