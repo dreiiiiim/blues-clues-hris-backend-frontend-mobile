@@ -47,4 +47,39 @@ export class MailService {
       throw new Error('Failed to send invite email');
     }
   }
+
+  async sendVerificationEmail(to: string, verifyLink: string) {
+    const { error } = await this.resend.emails.send({
+      from: this.from,
+      to,
+      subject: 'Verify your Blues Clues HRIS applicant account',
+      html: `
+        <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
+          <h2>Verify your email</h2>
+          <p>Thank you for applying through <strong>Blues Clues HRIS</strong>.</p>
+          <p>Please confirm your email address by clicking the button below.</p>
+          <a href="${verifyLink}" style="
+            display: inline-block;
+            margin-top: 16px;
+            padding: 12px 24px;
+            background-color: #2563eb;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+          ">
+            Verify Email
+          </a>
+          <p style="margin-top: 24px; color: #6b7280; font-size: 12px;">
+            This link expires soon. If you did not create this account, you can ignore this email.
+          </p>
+        </div>
+      `,
+    });
+
+    if (error) {
+      this.logger.error('Failed to send verification email', error);
+      throw new Error('Failed to send verification email');
+    }
+  }
 }
