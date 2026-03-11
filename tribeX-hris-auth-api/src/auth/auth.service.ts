@@ -337,7 +337,7 @@ export class AuthService {
     // Set the password and mark email as verified
     const { error: updateError } = await supabase
       .from('user_profile')
-      .update({ password_hash, email_verified: true })
+      .update({ password_hash, account_status: 'Active' })
       .eq('user_id', invite.user_id);
 
     if (updateError) throw new Error(updateError.message);

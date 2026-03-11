@@ -1,11 +1,28 @@
 // for creating users, not for login, login is in auth module
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class CreateUserDto {
+  @IsString() @IsNotEmpty()
   email: string;
+
+  @IsString() @IsNotEmpty()
   first_name: string;
+
+  @IsString() @IsNotEmpty()
   last_name: string;
-  role_id: string;         // character varying in DB (e.g. "3", "4")
-  company_id?: string;     // only used by System Admin — Admin gets this from their JWT
-  department_id?: string;  // optional — can be assigned later
-  start_date?: string;     // optional — ISO date string e.g. "2026-03-09"
+
+  @IsString() @IsNotEmpty()
+  username: string;
+
+  @IsString() @IsNotEmpty()
+  role_id: string; // varchar in DB ("RID010"), not a number
+
+  @IsString() @IsOptional()
+  company_id?: string; // only required when System Admin creates a user
+
+  @IsString() @IsOptional()
+  department_id?: string;
+
+  @IsString() @IsOptional()
+  start_date?: string; // ISO date string, e.g. "2024-07-01"
 }

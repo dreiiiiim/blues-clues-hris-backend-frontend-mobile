@@ -54,20 +54,20 @@ export class UsersController {
       );
     }
 
-    return this.usersService.create(createUserDto, companyId);
+    return this.usersService.create(createUserDto, companyId, req.user.sub_userid);
   }
 
   @UseGuards(RolesGuard)
   @Roles(...ADMIN_ONLY)
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
+  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto, @Req() req: any) {
+    return this.usersService.update(id, updateUserDto, req.user.company_id, req.user.sub_userid);
   }
 
   @UseGuards(RolesGuard)
   @Roles(...ADMIN_ONLY)
   @Delete(':id')
   async remove(@Param('id') id: string, @Req() req: any) {
-    return this.usersService.remove(id, req.user.company_id);
+    return this.usersService.remove(id, req.user.company_id, req.user.sub_userid);
   }
 }

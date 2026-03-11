@@ -1,16 +1,16 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
-import { VersioningType } from '@nestjs/common';
+import { VersioningType, ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const cookieParser = require('cookie-parser');
-
+import cookieParser from 'cookie-parser';
+ 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(cookieParser());
+  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
-  // ✅ CORS (allow Next.js dev server — set CORS_ORIGINS env var for production)
+
   const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:3000').split(',');
   app.enableCors({
     origin: allowedOrigins,
@@ -19,16 +19,20 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
 
-  // Required path convention
+ 
+
+  // Required path convention sa mga api
   app.setGlobalPrefix('api/tribeX/auth');
 
-  // Required versioning (/v1)
+  
+
+  
   app.enableVersioning({
     type: VersioningType.URI,
     defaultVersion: '1',
   });
 
-  // Swagger/OpenAPI
+  // Swagger na needed
   const config = new DocumentBuilder()
     .setTitle('Blue Tribe Authentication APIs')
     .setDescription('Authentication endpoints for shared platform usage.')

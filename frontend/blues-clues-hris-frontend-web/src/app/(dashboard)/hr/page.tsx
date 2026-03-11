@@ -18,7 +18,8 @@ type Employee = {
   first_name: string | null;
   last_name: string | null;
   email: string;
-  role_id: number;
+  role_id: string;
+  account_status: string | null;
 };
 
 export default function HRDashboardPage() {
@@ -115,7 +116,7 @@ export default function HRDashboardPage() {
                     </td>
                     <td className="px-6 py-4 text-muted-foreground">{row.email}</td>
                     <td className="px-6 py-4">
-                      <Badge variant="default" className="text-[9px]">Active</Badge>
+                      <StatusBadge status={row.account_status} />
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary">
@@ -147,6 +148,15 @@ export default function HRDashboardPage() {
       </Card>
     </div>
   );
+}
+
+function StatusBadge({ status }: { status?: string | null }) {
+  const s = status?.toLowerCase();
+  if (s === 'active')
+    return <Badge className="text-[9px] bg-green-100 hover:bg-green-100 text-green-700 border border-green-200">Active</Badge>;
+  if (s === 'inactive')
+    return <Badge className="text-[9px] bg-red-100 hover:bg-red-100 text-red-700 border border-red-200">Inactive</Badge>;
+  return <Badge className="text-[9px] bg-amber-100 hover:bg-amber-100 text-amber-700 border border-amber-200">Pending</Badge>;
 }
 
 function MetricCard({ icon: Icon, label, value, sub, trend, isAlert }: any) {
