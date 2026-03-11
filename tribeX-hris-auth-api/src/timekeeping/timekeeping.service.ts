@@ -30,7 +30,9 @@ function getIp(req?: any): string | null {
 }
 
 function todayDate(): string {
-  return new Date().toISOString().split('T')[0];
+  // Use Philippine Standard Time (UTC+8) — toISOString() would return UTC and record
+  // the wrong date for punches made after midnight local time (4PM UTC prior day).
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
 }
 
 @Injectable()

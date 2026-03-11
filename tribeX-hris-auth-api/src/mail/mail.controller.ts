@@ -1,7 +1,9 @@
-import { Controller, Get, Query, BadRequestException, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Query, BadRequestException, ForbiddenException, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from './mail.service';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
+@UseGuards(JwtAuthGuard)
 @Controller('mail')
 export class MailController {
   constructor(

@@ -39,6 +39,8 @@ export class UsersController {
   }
 
   @Get(':id')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
   findOne(@Param('id') id: string, @Req() req: any) {
     return this.usersService.findOne(id, req.user.company_id);
   }

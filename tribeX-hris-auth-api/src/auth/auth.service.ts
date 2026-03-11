@@ -180,10 +180,12 @@ export class AuthService {
       .eq('user_id', decoded.sub_userid)
       .eq('token_hash', token_hash);
 
-    // Blacklist the access token so it cannot be used after logout
+    // Blacklist the access token so it cannot be used after logout.
+    // verifyAsync (not decode) is used so that unsigned/tampered strings cannot
+    // pollute the blacklist table with junk rows.
     if (accessToken) {
       try {
-        const accessDecoded: any = this.jwtService.decode(accessToken);
+        const accessDecoded: any = await this.jwtService.verifyAsync(accessToken);
         if (accessDecoded?.exp) {
           await supabase.from('token_blacklist').insert({
             token_hash: sha256(accessToken),

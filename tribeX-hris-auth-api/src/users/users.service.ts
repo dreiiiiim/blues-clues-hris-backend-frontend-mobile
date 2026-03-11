@@ -71,25 +71,14 @@ export class UsersService {
     const supabase = this.supabaseService.getClient();
     const user_id = crypto.randomUUID();
 
-    // Get the next employee ID from the sequence table — never reuses numbers
-    // even if users are deleted or archived, preventing ID conflicts on reactivation
-    const { data: seq, error: seqError } = await supabase
-      .from('employee_id_sequence')
-      .select('last_number')
-      .eq('company_id', companyId)
-      .maybeSingle();
+    // Atomically increment the sequence counter in a single DB round-trip.
+    // Using a Postgres RPC prevents the read-modify-write race that would produce
+    // duplicate employee_id values under concurrent requests.
+    const { data: nextNumber, error: seqError } = await supabase
+      .rpc('get_next_employee_number', { p_company_id: companyId });
 
     if (seqError) throw new Error(seqError.message);
-
-    const nextNumber = (seq?.last_number ?? 0) + 1;
     const employee_id = `empno-${String(nextNumber).padStart(5, '0')}`;
-
-    // Upsert the sequence — insert if first user in company, update otherwise
-    const { error: upsertError } = await supabase
-      .from('employee_id_sequence')
-      .upsert({ company_id: companyId, last_number: nextNumber });
-
-    if (upsertError) throw new Error(upsertError.message);
 
     // Check username is not already taken (username is globally unique across all companies)
     const { data: existingUsername } = await supabase
