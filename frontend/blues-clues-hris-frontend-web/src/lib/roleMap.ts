@@ -13,6 +13,7 @@ export function roleToPath(roleName?: string) {
     case "Applicant":
       return "/applicant";
     case "Manager":
+    case "Group Head":
       return "/manager";
     default:
       return "/login";

@@ -18,6 +18,7 @@ export default function EmployeeDashboardPage() {
 
   useWelcomeToast(session?.name || "Employee", "Staff Portal");
 
+  // TODO: replace with GET /employees/:id — needs start_date, onboarding completion %
   const checklist = [
     { title: "Upload Identification Documents", status: "Pending", icon: Upload,   locked: false },
     { title: "Review Employee Handbook",        status: "Pending", icon: FileText,  locked: false },
@@ -29,7 +30,6 @@ export default function EmployeeDashboardPage() {
   return (
     <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-500">
 
-      {/* Welcome Banner */}
       <div className="relative bg-primary overflow-hidden rounded-2xl p-8 text-white shadow-lg h-52 flex flex-col justify-center border border-white/10">
         <div className="absolute top-0 right-10 w-64 h-64 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4 blur-3xl" />
         <div className="absolute bottom-0 right-32 w-40 h-40 bg-white/10 rounded-full translate-y-1/2 translate-x-1/4 blur-2xl" />
@@ -43,7 +43,6 @@ export default function EmployeeDashboardPage() {
 
       <div className="grid md:grid-cols-[1fr_1.5fr] gap-6 items-start">
 
-        {/* Profile Card */}
         <Card className="border-border shadow-sm rounded-xl bg-card">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3">
@@ -54,13 +53,13 @@ export default function EmployeeDashboardPage() {
             </div>
           </CardHeader>
           <CardContent className="space-y-3">
-            <ProfileField label="FULL NAME"    value={session?.name || "---"} />
-            <ProfileField label="ROLE"         value={session?.role === "employee" ? "Internal Staff" : session?.role || "---"} />
-            <ProfileField label="MEMBER SINCE" value="February 2026" />
+            <ProfileField label="FULL NAME"    value={session?.name || "—"} />
+            <ProfileField label="ROLE"         value={session?.role === "employee" ? "Internal Staff" : session?.role || "—"} />
+            {/* TODO: replace "—" with start_date from GET /employees/:id */}
+            <ProfileField label="MEMBER SINCE" value="—" />
           </CardContent>
         </Card>
 
-        {/* Onboarding Checklist */}
         <Card className="border-border shadow-sm rounded-xl bg-card">
           <CardHeader className="pb-2">
             <div className="flex items-center justify-between">
@@ -70,9 +69,10 @@ export default function EmployeeDashboardPage() {
                 </div>
                 <CardTitle className="text-lg font-bold">Onboarding Progress</CardTitle>
               </div>
+              {/* TODO: replace with real completion % from GET /employees/:id */}
               <span className="font-bold text-primary text-sm bg-primary/5 px-3 py-1 rounded-full">0% Complete</span>
             </div>
-            <Progress value={5} className="mt-6 h-2" />
+            <Progress value={0} className="mt-6 h-2" />
           </CardHeader>
           <CardContent className="mt-4 space-y-3">
             {checklist.map((item, idx) => (

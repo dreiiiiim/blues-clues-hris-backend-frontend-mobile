@@ -52,6 +52,7 @@ export function clearAuthStorage() {
   sessionStorage.removeItem("access_token");
   sessionStorage.removeItem("refresh_token");
   sessionStorage.removeItem(USER_KEY);
+  sessionStorage.removeItem("welcome_shown"); // reset per-session welcome toast
 }
 
 export function saveUserInfo(info: StoredUser) {

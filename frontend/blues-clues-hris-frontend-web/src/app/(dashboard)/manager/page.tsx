@@ -19,7 +19,7 @@ type Employee = {
   first_name: string | null;
   last_name: string | null;
   email: string;
-  role_id: string;
+  role_id: number;
   account_status: string | null;
 };
 
@@ -29,6 +29,7 @@ export default function ManagerDashboardPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const itemsPerPage = 5;
 
   const user = getUserInfo();
@@ -44,7 +45,7 @@ export default function ManagerDashboardPage() {
         setEmployees(Array.isArray(emps) ? emps.filter((e: Employee) => e.email !== user?.email) : []);
         setTotalCount(stats?.total ?? null);
       })
-      .catch(() => {})
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -63,9 +64,10 @@ export default function ManagerDashboardPage() {
     <div className="space-y-6 animate-in fade-in duration-500">
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <MetricCard icon={Users}       label="My Team Size"        value={totalCount !== null ? String(totalCount) : "—"} sub="Company Members" trend={totalCount !== null ? `${totalCount} total` : "Loading..."} />
-        <MetricCard icon={Clock}       label="Pending Requests"    value="—" sub="Time-off approvals" trend="Coming soon" isAlert />
-        <MetricCard icon={CheckCircle} label="Approvals Needed"    value="—" sub="Performance reviews" trend="Coming soon" />
+        <MetricCard icon={Users}       label="My Team Size"     value={totalCount !== null ? String(totalCount) : "—"} sub="Company Members"    trend={totalCount !== null ? `${totalCount} total` : "Loading..."} />
+        {/* TODO: wire to dedicated endpoint when available */}
+        <MetricCard icon={Clock}       label="Pending Requests" value="—" sub="Time-off approvals"  trend="Coming soon" isAlert />
+        <MetricCard icon={CheckCircle} label="Approvals Needed" value="—" sub="Performance reviews" trend="Coming soon" />
       </div>
 
       <Card className="border-border overflow-hidden">
@@ -102,6 +104,8 @@ export default function ManagerDashboardPage() {
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-sm">Loading team...</td></tr>
+              ) : fetchError ? (
+                <tr><td colSpan={4} className="px-6 py-8 text-center text-destructive text-sm">Failed to load team data. Please refresh or contact support.</td></tr>
               ) : currentTableData.length === 0 ? (
                 <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-sm">No team members found.</td></tr>
               ) : currentTableData.map((row) => {

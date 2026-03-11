@@ -156,7 +156,7 @@ function SetPasswordForm() {
 
         <CardFooter className="flex flex-col items-center gap-3 pt-6 border-t border-border bg-muted/30 rounded-b-xl">
           <p className="text-xs text-muted-foreground text-center">
-            This link expires in <span className="font-semibold">48 hours</span>. Contact your administrator if it has expired.
+            This link has a limited validity period. Contact your administrator if it has expired.
           </p>
         </CardFooter>
       </Card>

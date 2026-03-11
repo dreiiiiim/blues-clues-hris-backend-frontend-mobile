@@ -71,8 +71,12 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "Users", href: "/admin/users", icon: Users },
   ],
   "system-admin": [
-    { name: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
-    { name: "Users", href: "/system-admin/users", icon: Users },
+    { name: "Dashboard",     href: "/system-admin",              icon: LayoutDashboard },
+    { name: "User Management", href: "/system-admin/users",      icon: Users },
+    { name: "Subscriptions", href: "/system-admin/subscriptions", icon: DollarSign },
+    { name: "Audit Logs",   href: "/system-admin/audit-logs",    icon: BarChart },
+    { name: "Security",     href: "/system-admin/security",      icon: Layers },
+    { name: "Global Settings", href: "/system-admin/settings",   icon: ClipboardCheck },
   ],
 };
 
@@ -90,12 +94,17 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
     router.push("/login");
   };
 
-  const linkStyle = (href: string) =>
-    `flex items-center gap-3 px-3 py-2.5 rounded-md font-medium text-sm transition-all ${
-      pathname === href
+  const ROOT_PATHS = ["/system-admin", "/admin", "/hr", "/manager", "/employee"];
+  const linkStyle = (href: string) => {
+    const isActive = ROOT_PATHS.includes(href)
+      ? pathname === href
+      : pathname === href || pathname.startsWith(href + "/");
+    return `flex items-center gap-3 px-3 py-2.5 rounded-md font-medium text-sm transition-all ${
+      isActive
         ? "bg-sidebar-primary text-sidebar-foreground shadow-sm"
         : "text-sidebar-foreground/70 hover:text-sidebar-foreground hover:bg-sidebar-accent"
     }`;
+  };
 
   const currentMenu = MENU_CONFIG[persona] || [];
 

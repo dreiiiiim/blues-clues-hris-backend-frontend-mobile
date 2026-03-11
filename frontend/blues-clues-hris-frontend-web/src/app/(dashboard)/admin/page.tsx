@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { parseJwt, getAccessToken } from "@/lib/authStorage";
+import { getUserInfo } from "@/lib/authStorage";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
@@ -9,30 +9,23 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Settings, LayoutDashboard } from "lucide-react";
 
 export default function AdminDashboardPage() {
-  const [adminName, setAdminName] = useState("Admin");
+  const user      = getUserInfo();
+  const adminName = user?.name || "Admin";
   const [totalUsers, setTotalUsers] = useState<number | null>(null);
+  const [fetchError, setFetchError] = useState(false);
+
+  useWelcomeToast(adminName, "Admin Portal");
 
   useEffect(() => {
-    const token = getAccessToken();
-    if (!token) return;
-    const decoded = parseJwt(token);
-    const first = decoded?.first_name || "";
-    const last  = decoded?.last_name  || "";
-    const full  = (first + " " + last).trim();
-    setAdminName(full || decoded?.username || decoded?.email || "Admin");
-
     authFetch(`${API_BASE_URL}/users/stats`)
       .then(r => r.json())
       .then(data => setTotalUsers(data?.total ?? null))
-      .catch(() => {});
+      .catch(() => setFetchError(true));
   }, []);
-
-  useWelcomeToast(adminName, "Admin Portal");
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
 
-      {/* Welcome Banner */}
       <div className="relative bg-[#7c3aed] overflow-hidden rounded-xl p-8 text-white shadow-sm h-48 flex flex-col justify-center">
         <div className="absolute top-0 right-10 w-48 h-48 bg-white/10 rounded-full -translate-y-1/4 translate-x-1/4" />
         <div className="absolute bottom-0 right-32 w-32 h-32 bg-white/10 rounded-full translate-y-1/2 translate-x-1/4" />
@@ -44,7 +37,14 @@ export default function AdminDashboardPage() {
         </div>
       </div>
 
+      {fetchError && (
+        <p className="text-sm text-destructive text-center py-2">
+          Failed to load dashboard data. Please refresh or contact support.
+        </p>
+      )}
+
       <div className="grid md:grid-cols-3 gap-6">
+        {/* TODO: wire to GET /admin/overview when endpoint is available */}
         <Card className="border-gray-100 shadow-sm rounded-xl">
           <CardHeader className="pb-2">
             <div className="flex items-center gap-3">
@@ -52,7 +52,7 @@ export default function AdminDashboardPage() {
               <CardTitle className="text-base font-bold text-gray-900">Overview</CardTitle>
             </div>
           </CardHeader>
-          <CardContent><p className="text-sm text-gray-500">Admin overview coming soon.</p></CardContent>
+          <CardContent><p className="text-sm text-gray-500">Coming soon.</p></CardContent>
         </Card>
 
         <Card className="border-gray-100 shadow-sm rounded-xl">
@@ -68,6 +68,7 @@ export default function AdminDashboardPage() {
           </CardContent>
         </Card>
 
+        {/* TODO: wire to GET /admin/settings when endpoint is available */}
         <Card className="border-gray-100 shadow-sm rounded-xl">
           <CardHeader className="pb-2">
             <div className="flex items-center gap-3">
@@ -75,7 +76,7 @@ export default function AdminDashboardPage() {
               <CardTitle className="text-base font-bold text-gray-900">Settings</CardTitle>
             </div>
           </CardHeader>
-          <CardContent><p className="text-sm text-gray-500">Settings coming soon.</p></CardContent>
+          <CardContent><p className="text-sm text-gray-500">Coming soon.</p></CardContent>
         </Card>
       </div>
     </div>

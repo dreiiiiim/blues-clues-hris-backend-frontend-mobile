@@ -18,7 +18,7 @@ type Employee = {
   first_name: string | null;
   last_name: string | null;
   email: string;
-  role_id: string;
+  role_id: number;
   account_status: string | null;
 };
 
@@ -28,6 +28,7 @@ export default function HRDashboardPage() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
+  const [fetchError, setFetchError] = useState(false);
   const itemsPerPage = 5;
 
   const user = getUserInfo();
@@ -43,7 +44,7 @@ export default function HRDashboardPage() {
         setEmployees(Array.isArray(emps) ? emps : []);
         setTotalCount(stats?.total ?? null);
       })
-      .catch(() => {})
+      .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, []);
 
@@ -63,8 +64,9 @@ export default function HRDashboardPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <MetricCard icon={Users}    label="Total Headcount"       value={totalCount !== null ? String(totalCount) : "—"} sub="Active Employees" trend={totalCount !== null ? `${totalCount} total` : "Loading..."} />
-        <MetricCard icon={FileText} label="Pending Verifications" value="—"  sub="Action Required"  trend="Coming soon" isAlert />
-        <MetricCard icon={UserPlus} label="New Hires"             value="—"  sub="Onboarding"       trend="Coming soon" />
+        {/* TODO: wire to dedicated endpoint when available */}
+        <MetricCard icon={FileText} label="Pending Verifications" value="—" sub="Action Required"  trend="Coming soon" isAlert />
+        <MetricCard icon={UserPlus} label="New Hires"             value="—" sub="Onboarding"       trend="Coming soon" />
       </div>
 
       <Card className="border-border overflow-hidden">
@@ -101,6 +103,8 @@ export default function HRDashboardPage() {
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-sm">Loading employees...</td></tr>
+              ) : fetchError ? (
+                <tr><td colSpan={4} className="px-6 py-8 text-center text-destructive text-sm">Failed to load employees. Please refresh or contact support.</td></tr>
               ) : currentTableData.length === 0 ? (
                 <tr><td colSpan={4} className="px-6 py-8 text-center text-muted-foreground text-sm">No employees found.</td></tr>
               ) : currentTableData.map((row) => {

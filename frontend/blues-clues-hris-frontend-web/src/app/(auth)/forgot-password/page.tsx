@@ -5,22 +5,34 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Mail, CheckCircle, Loader2, ArrowLeft } from "lucide-react";
+import { Mail, CheckCircle, Loader2, ArrowLeft, AlertCircle } from "lucide-react";
+import { API_BASE_URL } from "@/lib/api";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!email.trim()) return;
 
     setIsLoading(true);
-    // Simulate a quick API check
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsLoading(false);
-    setSubmitted(true);
+    setError("");
+    try {
+      // POST /forgot-password — always shows success to avoid email enumeration
+      await fetch(`${API_BASE_URL}/forgot-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      setSubmitted(true);
+    } catch {
+      setError("Something went wrong. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -36,6 +48,12 @@ export default function ForgotPasswordPage() {
         </CardHeader>
 
         <CardContent>
+          {error && (
+            <div className="mb-4 bg-destructive/10 border border-destructive/20 text-destructive text-sm p-3 rounded-md flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
           {!submitted ? (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">

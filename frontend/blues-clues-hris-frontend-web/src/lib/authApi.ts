@@ -88,8 +88,10 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
   const access = getAccessToken();
 
   // 1) try request with access token
+  // credentials: "include" ensures the HttpOnly refresh cookie is forwarded
   const first = await fetch(input, {
     ...init,
+    credentials: "include",
     headers: {
       ...(init.headers || {}),
       ...(access ? { Authorization: `Bearer ${access}` } : {}),
@@ -108,6 +110,7 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
 
     const second = await fetch(input, {
       ...init,
+      credentials: "include",
       headers: {
         ...(init.headers || {}),
         Authorization: `Bearer ${access_token}`,

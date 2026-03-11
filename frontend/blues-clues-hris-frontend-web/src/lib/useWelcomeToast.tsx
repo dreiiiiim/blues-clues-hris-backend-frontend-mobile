@@ -4,14 +4,20 @@ import { useEffect } from "react";
 import { toast } from "sonner";
 import { PartyPopper } from "lucide-react";
 
+const WELCOME_KEY = "welcome_shown";
+
 /**
- * Shows a personalized welcome toast on dashboard load.
- * Custom JSX passed to sonner to match brand design.
+ * Shows a personalized welcome toast once per session.
+ * Uses sessionStorage to prevent duplicate toasts when a page re-renders
+ * or when name is set asynchronously after initial mount.
  */
 export function useWelcomeToast(name: string, subtitle: string) {
   useEffect(() => {
     if (!name) return;
+    if (sessionStorage.getItem(WELCOME_KEY) === "1") return;
+
     const timer = setTimeout(() => {
+      sessionStorage.setItem(WELCOME_KEY, "1");
       toast.custom(
         () => (
           <div className="flex items-start gap-3 w-80 bg-card border border-border rounded-2xl shadow-2xl px-4 pt-4 pb-5">

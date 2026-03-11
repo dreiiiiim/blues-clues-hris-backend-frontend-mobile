@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useLayoutEffect, useCallback } from "react";
+import { useState, useLayoutEffect, useCallback, useRef } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { clearAuthStorage, saveUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
 import { authFetch, logoutApi } from "@/lib/authApi";
@@ -21,8 +21,11 @@ export default function SharedDashboardLayout({
   const pathname = usePathname();
   const [role, setRole] = useState<UserRole | null>(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
+  // Prevents re-calling GET /me on every internal navigation
+  const verified = useRef(false);
 
   const handleIdle = useCallback(async () => {
+    verified.current = false;
     await logoutApi();
     router.replace("/login");
   }, [router]);
@@ -31,6 +34,12 @@ export default function SharedDashboardLayout({
 
   useLayoutEffect(() => {
     const verify = async () => {
+      // Already verified this session — skip the /me round-trip
+      if (verified.current) {
+        setIsAuthorized(true);
+        return;
+      }
+
       const res = await authFetch(`${API_BASE_URL}/me`);
       if (!res.ok) {
         clearAuthStorage();
@@ -68,6 +77,7 @@ export default function SharedDashboardLayout({
       const name = [firstName, lastName].filter(Boolean).join(" ") || me.username || "";
       saveUserInfo({ name, email: me.email ?? "", role: userRole });
 
+      verified.current = true;
       setRole(userRole);
       setIsAuthorized(true);
     };
