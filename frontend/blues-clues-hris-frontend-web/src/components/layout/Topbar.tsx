@@ -5,15 +5,14 @@ import { Search, Bell, ChevronDown, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
 
-type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
+type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin";
 
 const TOPBAR_CONFIG: Record<PersonaType, { search: string; role: string }> = {
   hr: { search: "Search employees...", role: "HR Administration" },
   employee: { search: "Search...", role: "Internal Staff" },
   applicant: { search: "Search jobs...", role: "Job Applicant" },
   manager: { search: "Search team members...", role: "Manager" },
-  admin: { search: "Search...", role: "Administrator" },
-  "system-admin": { search: "Search...", role: "System Administrator" },
+  admin: { search: "Search...", role: "System Admin" },
 };
 
 export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {

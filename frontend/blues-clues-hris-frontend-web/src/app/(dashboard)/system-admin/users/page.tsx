@@ -2,77 +2,63 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
-import { getUserInfo } from "@/lib/authStorage";
-import {
-  getUsers,
-  getUserStats,
-  getCompanies,
-  getDepartments,
-  createUser,
-  setUserStatus,
-  resendSignupLink,
-  updateUser,
-  type InternalUser,
-  type UserStats,
-  type Company,
-  type UserRole,
-  type CreateUserPayload,
-} from "@/lib/adminApi";
+import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
+import { authFetch } from "@/lib/authApi";
+import { API_BASE_URL } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Users, Search, Filter, Download, MoreHorizontal,
-  X, Copy, Check, ChevronLeft, ChevronRight,
-  UserPlus, Lock, Unlock, RefreshCw, Pencil, Link2,
+  Search, UserPlus, MoreHorizontal, X,
+  ChevronLeft, ChevronRight, Pencil, UserX, UserCheck,
+  Filter, Download, Check,
 } from "lucide-react";
 import { toast } from "sonner";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface Role {
+  role_id: string;
+  role_name: string;
+}
+
+interface Employee {
+  user_id: string;
+  employee_id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role_id: string | null;
+  department_id: string | null;
+  start_date: string | null;
+  account_status: "Active" | "Inactive" | "Pending";
+}
+
+interface Stats {
+  total: number;
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const ROLES: UserRole[] = [
-  "HR Officer", "HR Recruiter", "HR Interviewer",
-  "Active Employee", "Manager", "Group Head", "Admin",
-];
-
-const EXPIRY_OPTIONS = [
-  { label: "24 hours", value: 24 },
-  { label: "48 hours", value: 48 },
-  { label: "72 hours", value: 72 },
-];
+const ITEMS_PER_PAGE = 8;
 
 const STATUS_STYLES: Record<string, string> = {
-  active:  "bg-green-100 text-green-700 border-green-200",
-  pending: "bg-amber-100 text-amber-700 border-amber-200",
-  locked:  "bg-red-100 text-red-700 border-red-200",
+  Active:   "bg-green-100 text-green-700 border-green-200",
+  Inactive: "bg-red-100 text-red-700 border-red-200",
+  Pending:  "bg-amber-100 text-amber-700 border-amber-200",
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function formatLastLogin(val: string | null) {
-  if (!val) return "Never";
-  const d = new Date(val);
-  const diff = Date.now() - d.getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
-}
-
-function formatExpiry(iso: string) {
-  return new Date(iso).toLocaleString();
-}
-
-function formatExpiryCountdown(iso: string | null): string | null {
-  if (!iso) return null;
-  const diff = new Date(iso).getTime() - Date.now();
-  if (diff <= 0) return "Expired";
-  const hrs = Math.floor(diff / 3600000);
-  if (hrs < 1) return "< 1h left";
-  if (hrs < 24) return `${hrs}h left`;
-  return `${Math.floor(hrs / 24)}d left`;
+async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await authFetch(`${API_BASE_URL}${path}`, {
+    headers: { "Content-Type": "application/json" },
+    ...init,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Request failed");
+  return data as T;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -89,80 +75,87 @@ function StatCard({ label, value, sub, color }: { label: string; value: number; 
   );
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const style = STATUS_STYLES[status] ?? "bg-gray-100 text-gray-700 border-gray-200";
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${style}`}>
+      {status}
+    </span>
+  );
+}
+
 // Row action dropdown
 function RowMenu({
-  user,
-  onLock,
-  onUnlock,
-  onResend,
+  employee,
   onEdit,
-  onCopyLink,
+  onDeactivate,
+  onReactivate,
 }: {
-  user: InternalUser;
-  onLock: () => void;
-  onUnlock: () => void;
-  onResend: () => void;
+  employee: Employee;
   onEdit: () => void;
-  onCopyLink: () => void;
+  onDeactivate: () => void;
+  onReactivate: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      const insideButton = buttonRef.current?.contains(e.target as Node);
+      const insideMenu = menuRef.current?.contains(e.target as Node);
+      if (!insideButton && !insideMenu) {
+        setOpen(false);
+      }
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  const handleOpen = () => {
+    if (buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setMenuPos({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
+    setOpen(v => !v);
+  };
+
   return (
-    <div className="relative" ref={ref}>
+    <div>
       <Button
+        ref={buttonRef}
         variant="ghost" size="icon"
         className="h-8 w-8 text-muted-foreground hover:text-foreground"
-        onClick={() => setOpen(v => !v)}
+        onClick={handleOpen}
       >
         <MoreHorizontal className="h-4 w-4" />
       </Button>
-      {open && (
-        <div className="absolute right-0 top-9 z-50 w-44 bg-card border border-border rounded-lg shadow-lg py-1 text-sm">
+      {open && menuPos && (
+        <div
+          ref={menuRef}
+          style={{ top: menuPos.top, right: menuPos.right }}
+          className="fixed z-50 w-44 bg-card border border-border rounded-lg shadow-lg py-1 text-sm"
+        >
           <button
             className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground"
             onClick={() => { onEdit(); setOpen(false); }}
           >
             <Pencil className="h-3.5 w-3.5" /> Edit Details
           </button>
-          {user.status === "pending" && (
-            <button
-              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground"
-              onClick={() => { onCopyLink(); setOpen(false); }}
-            >
-              <Copy className="h-3.5 w-3.5" /> Copy Sign-up Link
-            </button>
-          )}
-          {user.status === "pending" && (
-            <button
-              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground"
-              onClick={() => { onResend(); setOpen(false); }}
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Resend Link
-            </button>
-          )}
-          {user.status === "active" && (
-            <button
-              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-red-600"
-              onClick={() => { onLock(); setOpen(false); }}
-            >
-              <Lock className="h-3.5 w-3.5" /> Lock Account
-            </button>
-          )}
-          {user.status === "locked" && (
+          {employee.account_status === "Inactive" ? (
             <button
               className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600"
-              onClick={() => { onUnlock(); setOpen(false); }}
+              onClick={() => { onReactivate(); setOpen(false); }}
             >
-              <Unlock className="h-3.5 w-3.5" /> Unlock Account
+              <UserCheck className="h-3.5 w-3.5" /> Reactivate
+            </button>
+          ) : (
+            <button
+              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-red-600"
+              onClick={() => { onDeactivate(); setOpen(false); }}
+            >
+              <UserX className="h-3.5 w-3.5" /> Deactivate
             </button>
           )}
         </div>
@@ -171,167 +164,29 @@ function RowMenu({
   );
 }
 
-// Copy link modal shown after user creation or link resend
-function CopyLinkModal({
-  link,
-  expiresAt,
-  onClose,
-}: {
-  link: string;
-  expiresAt: string;
-  onClose: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    await navigator.clipboard.writeText(link);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md p-6 mx-4">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="p-2 bg-primary/10 rounded-lg text-primary"><Link2 className="h-5 w-5" /></div>
-          <div>
-            <h3 className="font-bold text-foreground">Sign-up Link Generated</h3>
-            <p className="text-xs text-muted-foreground">Share this link with the new user</p>
-          </div>
-        </div>
-
-        <div className="bg-muted/40 border border-border rounded-lg p-3 flex items-center gap-2 mb-3">
-          <p className="text-xs font-mono text-foreground flex-1 truncate">{link}</p>
-          <Button size="icon" variant="ghost" className="h-7 w-7 shrink-0" onClick={copy}>
-            {copied ? <Check className="h-3.5 w-3.5 text-green-600" /> : <Copy className="h-3.5 w-3.5" />}
-          </Button>
-        </div>
-
-        <p className="text-[11px] text-muted-foreground mb-5">
-          Expires: <span className="font-semibold text-foreground">{formatExpiry(expiresAt)}</span>
-        </p>
-
-        <Button className="w-full" onClick={onClose}>Done</Button>
-      </div>
-    </div>
-  );
-}
-
-// Edit user slide-over (role, department, start date — editable before activation)
-function EditUserPanel({
-  user,
-  departments,
-  onClose,
-  onSave,
-}: {
-  user: InternalUser;
-  departments: string[];
-  onClose: () => void;
-  onSave: (u: InternalUser) => void;
-}) {
-  const [role, setRole] = useState<UserRole>(user.role);
-  const [department, setDepartment] = useState(user.department);
-  const [startDate, setStartDate] = useState(user.start_date);
-  const [loading, setLoading] = useState(false);
-
-  const handleSave = async () => {
-    setLoading(true);
-    try {
-      await updateUser(user.user_id, { role, department, start_date: startDate });
-      onSave({ ...user, role, department, start_date: startDate });
-      toast.success("User details updated.");
-    } catch {
-      toast.error("Failed to update user.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
-      <div className="relative bg-card w-full max-w-md h-full shadow-2xl flex flex-col overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
-          <div>
-            <h2 className="font-bold text-lg">Edit User</h2>
-            <p className="text-xs text-muted-foreground">{user.first_name} {user.last_name} · {user.employee_id}</p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
-        </div>
-
-        <div className="flex-1 px-6 py-6 space-y-5">
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Role</label>
-            <select
-              value={role}
-              onChange={e => setRole(e.target.value as UserRole)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department</label>
-            <select
-              value={department}
-              onChange={e => setDepartment(e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Start Date</label>
-            <Input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-          </div>
-
-          {user.status !== "pending" && (
-            <p className="text-[11px] text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-              Note: Only pending (not yet activated) accounts can have role and department changed.
-            </p>
-          )}
-        </div>
-
-        <div className="px-6 py-5 border-t border-border flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
-          <Button className="flex-1" onClick={handleSave} disabled={loading}>
-            {loading ? "Saving..." : "Save Changes"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // Add User slide-over
 function AddUserPanel({
-  companies,
-  departments,
+  roles,
   onClose,
   onCreated,
 }: {
-  companies: Company[];
-  departments: string[];
+  roles: Role[];
   onClose: () => void;
-  onCreated: (link: string, expiresAt: string, user: InternalUser) => void;
+  onCreated: (employee: Employee) => void;
 }) {
   const [form, setForm] = useState({
     first_name: "",
     last_name: "",
     username: "",
     email: "",
-    role: "" as UserRole | "",
-    department: "",
-    company_id: "",
+    role_id: "",
+    department_id: "",
     start_date: "",
-    link_expiry_hours: 48,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
-  const set = (field: string, value: string | number) =>
+  const set = (field: string, value: string) =>
     setForm(f => ({ ...f, [field]: value }));
 
   const validate = () => {
@@ -341,10 +196,7 @@ function AddUserPanel({
     if (!form.username.trim()) e.username = "Required";
     if (!form.email.trim()) e.email = "Required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Invalid email";
-    if (!form.role) e.role = "Required";
-    if (!form.department) e.department = "Required";
-    if (!form.company_id) e.company_id = "Required";
-    if (!form.start_date) e.start_date = "Required";
+    if (!form.role_id) e.role_id = "Required";
     return e;
   };
 
@@ -353,8 +205,36 @@ function AddUserPanel({
     if (Object.keys(e).length) { setErrors(e); return; }
     setLoading(true);
     try {
-      const res = await createUser(form as CreateUserPayload);
-      onCreated(res.signup_link, res.expires_at, res.user);
+      const payload: Record<string, string> = {
+        first_name: form.first_name,
+        last_name: form.last_name,
+        username: form.username,
+        email: form.email,
+        role_id: form.role_id,
+      };
+      if (form.department_id.trim()) payload.department_id = form.department_id.trim();
+      if (form.start_date) payload.start_date = form.start_date;
+
+      const res = await apiFetch<{ user_id: string; employee_id: string; email: string; username: string }>("/users", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+
+      const newEmployee: Employee = {
+        user_id: res.user_id,
+        employee_id: res.employee_id,
+        username: res.username,
+        first_name: form.first_name,
+        last_name: form.last_name,
+        email: res.email,
+        role_id: form.role_id,
+        department_id: form.department_id.trim() || null,
+        start_date: form.start_date || null,
+        account_status: "Pending",
+      };
+
+      onCreated(newEmployee);
+      toast.success("User created. Invite email sent.");
     } catch (err: any) {
       toast.error(err?.message || "Failed to create user.");
     } finally {
@@ -380,112 +260,202 @@ function AddUserPanel({
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative bg-card w-full max-w-md h-full shadow-2xl flex flex-col overflow-y-auto">
-
-        {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
-            <h2 className="font-bold text-lg">Add New User</h2>
-            <p className="text-xs text-muted-foreground">Fill in the details to provision a new account</p>
+            <h2 className="font-bold text-lg">Add New Employee</h2>
+            <p className="text-xs text-muted-foreground">Provision a new account for your company</p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
         </div>
 
-        {/* Form */}
         <div className="flex-1 px-6 py-6 space-y-5 overflow-y-auto">
-
-          {/* Name row */}
           <div className="grid grid-cols-2 gap-4">
             {field("First Name", "first_name", "text", "e.g. Juan")}
             {field("Last Name", "last_name", "text", "e.g. dela Cruz")}
           </div>
-
           {field("Username", "username", "text", "e.g. juan.delacruz")}
           {field("Email", "email", "email", "e.g. juan@company.com")}
 
-          {/* Role */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Role</label>
             <select
-              value={form.role}
-              onChange={e => set("role", e.target.value)}
+              value={form.role_id}
+              onChange={e => set("role_id", e.target.value)}
               className={`w-full h-10 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 ${
-                errors.role ? "border-red-400" : "border-input"
+                errors.role_id ? "border-red-400" : "border-input"
               }`}
             >
               <option value="">Select role...</option>
-              {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
+              {roles.map(r => <option key={r.role_id} value={r.role_id}>{r.role_name}</option>)}
             </select>
-            {errors.role && <p className="text-xs text-red-500">{errors.role}</p>}
+            {errors.role_id && <p className="text-xs text-red-500">{errors.role_id}</p>}
           </div>
 
-          {/* Department */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department</label>
-            <select
-              value={form.department}
-              onChange={e => set("department", e.target.value)}
-              className={`w-full h-10 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 ${
-                errors.department ? "border-red-400" : "border-input"
-              }`}
-            >
-              <option value="">Select department...</option>
-              {departments.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-            {errors.department && <p className="text-xs text-red-500">{errors.department}</p>}
-          </div>
-
-          {/* Company */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Company</label>
-            <select
-              value={form.company_id}
-              onChange={e => set("company_id", e.target.value)}
-              className={`w-full h-10 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 ${
-                errors.company_id ? "border-red-400" : "border-input"
-              }`}
-            >
-              <option value="">Select company...</option>
-              {companies.map(c => <option key={c.company_id} value={c.company_id}>{c.name}</option>)}
-            </select>
-            {errors.company_id && <p className="text-xs text-red-500">{errors.company_id}</p>}
-          </div>
-
+          {field("Department ID", "department_id", "text", "Optional")}
           {field("Start Date", "start_date", "date")}
+        </div>
 
-          {/* Sign-up link expiry */}
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
-              Sign-up Link Expiry
-            </label>
-            <div className="flex gap-2">
-              {EXPIRY_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => set("link_expiry_hours", opt.value)}
-                  className={`flex-1 py-2 rounded-md border text-xs font-semibold transition-colors ${
-                    form.link_expiry_hours === opt.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-foreground border-input hover:border-primary/50"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-            <p className="text-[11px] text-muted-foreground">
-              The sign-up link will expire after the selected duration.
+        <div className="px-6 py-5 border-t border-border flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button className="flex-1" onClick={handleSubmit} disabled={loading}>
+            {loading ? "Creating..." : "Create Employee"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Edit User slide-over
+function EditUserPanel({
+  employee,
+  roles,
+  onClose,
+  onSaved,
+}: {
+  employee: Employee;
+  roles: Role[];
+  onClose: () => void;
+  onSaved: (updated: Employee) => void;
+}) {
+  const [form, setForm] = useState({
+    first_name: employee.first_name,
+    last_name: employee.last_name,
+    role_id: employee.role_id ?? "",
+    department_id: employee.department_id ?? "",
+    start_date: employee.start_date ?? "",
+  });
+  const [loading, setLoading] = useState(false);
+
+  const set = (field: string, value: string) =>
+    setForm(f => ({ ...f, [field]: value }));
+
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      const payload: Record<string, string | null> = {
+        first_name: form.first_name,
+        last_name: form.last_name,
+        role_id: form.role_id || null,
+        department_id: form.department_id.trim() || null,
+        start_date: form.start_date || null,
+      };
+
+      await apiFetch(`/users/${employee.user_id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+
+      onSaved({
+        ...employee,
+        first_name: form.first_name,
+        last_name: form.last_name,
+        role_id: form.role_id || null,
+        department_id: form.department_id.trim() || null,
+        start_date: form.start_date || null,
+      });
+      toast.success("Employee updated.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to update employee.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-card w-full max-w-md h-full shadow-2xl flex flex-col overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+          <div>
+            <h2 className="font-bold text-lg">Edit Employee</h2>
+            <p className="text-xs text-muted-foreground">
+              {employee.first_name} {employee.last_name} · {employee.employee_id}
             </p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+
+        <div className="flex-1 px-6 py-6 space-y-5">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Username</label>
+            <Input value={employee.username} disabled className="opacity-60 cursor-not-allowed" />
+            <p className="text-[11px] text-muted-foreground">Username cannot be changed after account creation.</p>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">First Name</label>
+              <Input value={form.first_name} onChange={e => set("first_name", e.target.value)} />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Last Name</label>
+              <Input value={form.last_name} onChange={e => set("last_name", e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Role</label>
+            <select
+              value={form.role_id}
+              onChange={e => set("role_id", e.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Select role...</option>
+              {roles.map(r => <option key={r.role_id} value={r.role_id}>{r.role_name}</option>)}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department ID</label>
+            <Input value={form.department_id} onChange={e => set("department_id", e.target.value)} placeholder="Optional" />
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Start Date</label>
+            <Input type="date" value={form.start_date} onChange={e => set("start_date", e.target.value)} />
           </div>
         </div>
 
-        {/* Footer */}
         <div className="px-6 py-5 border-t border-border flex gap-3">
-          <Button variant="outline" className="flex-1" onClick={onClose} disabled={loading}>
-            Cancel
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button className="flex-1" onClick={handleSave} disabled={loading}>
+            {loading ? "Saving..." : "Save Changes"}
           </Button>
-          <Button className="flex-1" onClick={handleSubmit} disabled={loading}>
-            {loading ? "Creating..." : "Create & Generate Link"}
-          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Deactivate confirmation dialog
+function ConfirmDeactivate({
+  employee,
+  onClose,
+  onConfirm,
+}: {
+  employee: Employee;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm p-6 mx-4">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="p-2 bg-red-100 rounded-lg text-red-600">
+            <UserX className="h-5 w-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-foreground">Deactivate Account</h3>
+            <p className="text-xs text-muted-foreground">This will revoke their access immediately</p>
+          </div>
+        </div>
+        <p className="text-sm text-muted-foreground mb-5">
+          Are you sure you want to deactivate <span className="font-semibold text-foreground">{employee.first_name} {employee.last_name}</span>? They will be logged out and unable to sign in.
+        </p>
+        <div className="flex gap-3">
+          <Button variant="outline" className="flex-1" onClick={onClose}>Cancel</Button>
+          <Button variant="destructive" className="flex-1" onClick={onConfirm}>Deactivate</Button>
         </div>
       </div>
     </div>
@@ -494,34 +464,44 @@ function AddUserPanel({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-const ITEMS_PER_PAGE = 8;
-
-export default function SystemAdminUsersPage() {
+export default function AdminUsersPage() {
   const user = getUserInfo();
-  useWelcomeToast(user?.name || "System Admin", "System Administration");
+  const currentUserId = parseJwt(getAccessToken() ?? "")?.sub_userid as string | undefined;
+  useWelcomeToast(user?.name || "Admin", "User Management");
 
-  const [users, setUsers]           = useState<InternalUser[]>([]);
-  const [stats, setStats]           = useState<UserStats | null>(null);
-  const [companies, setCompanies]   = useState<Company[]>([]);
-  const [departments, setDeps]      = useState<string[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [search, setSearch]         = useState("");
-  const [page, setPage]             = useState(1);
+  const [employees, setEmployees]       = useState<Employee[]>([]);
+  const [stats, setStats]               = useState<Stats | null>(null);
+  const [roles, setRoles]               = useState<Role[]>([]);
+  const [loading, setLoading]           = useState(true);
+  const [search, setSearch]             = useState("");
+  const [page, setPage]                 = useState(1);
 
-  const [showAdd, setShowAdd]       = useState(false);
-  const [editUser, setEditUser]     = useState<InternalUser | null>(null);
-  const [linkModal, setLinkModal]   = useState<{ link: string; expiresAt: string } | null>(null);
+  const [showAdd, setShowAdd]           = useState(false);
+  const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
+  const [confirmDeact, setConfirmDeact] = useState<Employee | null>(null);
+  const [showFilter, setShowFilter]     = useState(false);
+  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
+  const filterRef                       = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setShowFilter(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [u, s, c, d] = await Promise.all([
-        getUsers(), getUserStats(), getCompanies(), getDepartments(),
+      const [users, statsData, rolesData] = await Promise.all([
+        apiFetch<Employee[]>("/users"),
+        apiFetch<Stats>("/users/stats"),
+        apiFetch<Role[]>("/users/roles"),
       ]);
-      setUsers(u);
-      setStats(s);
-      setCompanies(c);
-      setDeps(d);
+      setEmployees(users);
+      setStats(statsData);
+      setRoles(rolesData);
     } catch {
       toast.error("Failed to load data.");
     } finally {
@@ -531,83 +511,86 @@ export default function SystemAdminUsersPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = users.filter(u => {
+  const filtered = employees.filter(e => {
     const q = search.toLowerCase();
-    return (
-      u.first_name.toLowerCase().includes(q) ||
-      u.last_name.toLowerCase().includes(q) ||
-      u.email.toLowerCase().includes(q) ||
-      u.employee_id.toLowerCase().includes(q)
+    const matchesSearch = (
+      e.first_name.toLowerCase().includes(q) ||
+      e.last_name.toLowerCase().includes(q) ||
+      e.email.toLowerCase().includes(q) ||
+      e.employee_id.toLowerCase().includes(q)
     );
+    const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status);
+    return matchesSearch && matchesStatus;
   });
+
+  const toggleStatus = (status: string) => {
+    setStatusFilter(prev => {
+      const next = new Set(prev);
+      next.has(status) ? next.delete(status) : next.add(status);
+      return next;
+    });
+    setPage(1);
+  };
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-  const handleCreated = (link: string, expiresAt: string, newUser: InternalUser) => {
-    setUsers(prev => [newUser, ...prev]);
-    setStats(prev => prev ? { ...prev, total: prev.total + 1, pending: prev.pending + 1 } : prev);
+  // Derived stats from employee list
+  const activeCount   = employees.filter(e => e.account_status === "Active").length;
+  const pendingCount  = employees.filter(e => e.account_status === "Pending").length;
+  const inactiveCount = employees.filter(e => e.account_status === "Inactive").length;
+
+  const handleCreated = (employee: Employee) => {
+    setEmployees(prev => [employee, ...prev]);
+    setStats(prev => prev ? { total: prev.total + 1 } : prev);
     setShowAdd(false);
-    setLinkModal({ link, expiresAt });
   };
 
-  const handleLock = async (u: InternalUser) => {
-    try {
-      await setUserStatus(u.user_id, "locked");
-      setUsers(prev => prev.map(x => x.user_id === u.user_id ? { ...x, status: "locked" } : x));
-      toast.success(`${u.first_name}'s account locked.`);
-    } catch { toast.error("Failed to lock account."); }
+  const handleEditSaved = (updated: Employee) => {
+    setEmployees(prev => prev.map(e => e.user_id === updated.user_id ? updated : e));
+    setEditEmployee(null);
   };
 
-  const handleUnlock = async (u: InternalUser) => {
+  const handleDeactivate = async (employee: Employee) => {
+    setConfirmDeact(null);
     try {
-      await setUserStatus(u.user_id, "active");
-      setUsers(prev => prev.map(x => x.user_id === u.user_id ? { ...x, status: "active" } : x));
-      toast.success(`${u.first_name}'s account unlocked.`);
-    } catch { toast.error("Failed to unlock account."); }
-  };
-
-  const handleResend = async (u: InternalUser) => {
-    try {
-      const res = await resendSignupLink(u.user_id, 48);
-      setUsers(prev => prev.map(x =>
-        x.user_id === u.user_id ? { ...x, signup_link_expires_at: res.expires_at } : x
+      await apiFetch(`/users/${employee.user_id}`, { method: "DELETE" });
+      setEmployees(prev => prev.map(e =>
+        e.user_id === employee.user_id ? { ...e, account_status: "Inactive" } : e
       ));
-      setLinkModal({ link: res.signup_link, expiresAt: res.expires_at });
-      toast.success("Sign-up link regenerated.");
-    } catch { toast.error("Failed to resend link."); }
+      toast.success(`${employee.first_name}'s account deactivated.`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to deactivate account.");
+    }
   };
 
-  // Fetches a fresh copy of the sign-up link for pending users who haven't activated yet
-  const handleCopyLink = async (u: InternalUser) => {
+  const handleReactivate = async (employee: Employee) => {
     try {
-      const res = await resendSignupLink(u.user_id, 48);
-      setLinkModal({ link: res.signup_link, expiresAt: res.expires_at });
-    } catch { toast.error("Failed to retrieve sign-up link."); }
-  };
-
-  const handleEditSaved = (updated: InternalUser) => {
-    setUsers(prev => prev.map(x => x.user_id === updated.user_id ? updated : x));
-    setEditUser(null);
+      await apiFetch(`/users/${employee.user_id}/reactivate`, { method: "PATCH" });
+      setEmployees(prev => prev.map(e =>
+        e.user_id === employee.user_id ? { ...e, account_status: "Active" } : e
+      ));
+      toast.success(`${employee.first_name}'s account reactivated.`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to reactivate account.");
+    }
   };
 
   return (
     <div className="space-y-6">
 
       {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard label="Total Users"  value={stats.total}   sub="All accounts"      color="text-foreground" />
-          <StatCard label="Active"       value={stats.active}  sub="Logged in at least once" color="text-green-600" />
-          <StatCard label="Pending"      value={stats.pending} sub="Awaiting activation" color="text-amber-600" />
-          <StatCard label="Locked"       value={stats.locked}  sub="Access revoked"    color="text-red-600" />
-        </div>
-      )}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <StatCard label="Total Users"  value={stats?.total ?? 0}  sub="All accounts"         color="text-foreground" />
+        <StatCard label="Active"       value={activeCount}         sub="Currently active"     color="text-green-600" />
+        <StatCard label="Pending"      value={pendingCount}        sub="Awaiting activation"  color="text-amber-600" />
+        <StatCard label="Inactive"     value={inactiveCount}       sub="Deactivated accounts" color="text-red-600" />
+      </div>
 
       {/* Table Card */}
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
 
-        {/* Table toolbar */}
+        {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 border-b border-border">
           <div>
             <h2 className="font-bold text-base">Internal Users</h2>
@@ -617,15 +600,53 @@ export default function SystemAdminUsersPage() {
             <div className="relative flex-1 sm:flex-none">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search users..."
+                placeholder="Search employees..."
                 value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1); }}
                 className="pl-9 h-9 w-full sm:w-60"
               />
             </div>
-            <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
-              <Filter className="h-4 w-4" />
-            </Button>
+            {/* Filter */}
+            <div className="relative shrink-0" ref={filterRef}>
+              <Button
+                variant="outline" size="icon" className={`h-9 w-9 ${statusFilter.size > 0 ? "border-primary text-primary" : ""}`}
+                onClick={() => setShowFilter(v => !v)}
+              >
+                <Filter className="h-4 w-4" />
+                {statusFilter.size > 0 && (
+                  <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
+                    {statusFilter.size}
+                  </span>
+                )}
+              </Button>
+              {showFilter && (
+                <div className="absolute right-0 top-10 z-50 w-44 bg-card border border-border rounded-lg shadow-lg py-1.5">
+                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</p>
+                  {(["Active", "Inactive", "Pending"] as const).map(s => (
+                    <button
+                      key={s}
+                      className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
+                      onClick={() => toggleStatus(s)}
+                    >
+                      <span>{s}</span>
+                      {statusFilter.has(s) && <Check className="h-3.5 w-3.5 text-primary" />}
+                    </button>
+                  ))}
+                  {statusFilter.size > 0 && (
+                    <>
+                      <div className="border-t border-border my-1" />
+                      <button
+                        className="px-3 py-2 w-full text-left text-xs text-muted-foreground hover:bg-muted/50"
+                        onClick={() => { setStatusFilter(new Set()); setPage(1); }}
+                      >
+                        Clear filters
+                      </button>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Download (no functionality) */}
             <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
               <Download className="h-4 w-4" />
             </Button>
@@ -653,67 +674,65 @@ export default function SystemAdminUsersPage() {
               {loading ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">
-                    Loading users...
+                    Loading employees...
                   </td>
                 </tr>
               ) : paged.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">
-                    No users found.
+                    No employees found.
                   </td>
                 </tr>
-              ) : paged.map(u => (
-                <tr key={u.user_id} className="hover:bg-muted/20 transition-colors">
+              ) : paged.map(e => (
+                <tr key={e.user_id} className="hover:bg-muted/20 transition-colors">
+                  {/* User */}
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
-                        {u.first_name.charAt(0)}
+                        {e.first_name.charAt(0)}
                       </div>
                       <div>
                         <p className="font-semibold text-foreground leading-none">
-                          {u.first_name} {u.last_name}
+                          {e.first_name} {e.last_name}
                         </p>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">{u.email}</p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">{e.email}</p>
                       </div>
                     </div>
                   </td>
+                  {/* Employee ID */}
                   <td className="px-5 py-4">
-                    <span className="font-mono text-xs text-muted-foreground">{u.employee_id}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{e.employee_id}</span>
                   </td>
+                  {/* Role */}
                   <td className="px-5 py-4">
-                    <span className="text-xs font-semibold text-foreground">{u.role}</span>
+                    <span className="text-xs font-semibold text-foreground">
+                      {roles.find(r => r.role_id === e.role_id)?.role_name ?? "—"}
+                    </span>
                   </td>
+                  {/* Department */}
                   <td className="px-5 py-4">
-                    <span className="text-xs text-muted-foreground">{u.department}</span>
+                    <span className="text-xs text-muted-foreground">{e.department_id ?? "—"}</span>
                   </td>
+                  {/* Status */}
                   <td className="px-5 py-4">
-                    <div className="flex flex-col gap-1">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border w-fit ${STATUS_STYLES[u.status]}`}>
-                        {u.status === "pending" ? "Pending Setup" : u.status}
-                      </span>
-                      {u.status === "pending" && u.signup_link_expires_at && (() => {
-                        const countdown = formatExpiryCountdown(u.signup_link_expires_at);
-                        const isExpired = countdown === "Expired";
-                        return (
-                          <span className={`text-[10px] font-semibold ${isExpired ? "text-red-500" : "text-muted-foreground"}`}>
-                            Link {countdown}
-                          </span>
-                        );
-                      })()}
-                    </div>
+                    <StatusBadge status={e.account_status} />
                   </td>
+                  {/* Last Login */}
                   <td className="px-5 py-4">
-                    <span className="text-xs text-muted-foreground">{formatLastLogin(u.last_login)}</span>
+                    <span className="text-xs text-muted-foreground">Never</span>
                   </td>
+                  {/* Actions */}
                   <td className="px-5 py-4 text-right">
-                    <RowMenu
-                      user={u}
-                      onLock={() => handleLock(u)}
-                      onUnlock={() => handleUnlock(u)}
-                      onResend={() => handleResend(u)}
-                      onEdit={() => setEditUser(u)}
-                      onCopyLink={() => handleCopyLink(u)}
-                    />
+                    {e.user_id === currentUserId ? (
+                      <span className="text-[11px] text-muted-foreground italic px-2">You</span>
+                    ) : (
+                      <RowMenu
+                        employee={e}
+                        onEdit={() => setEditEmployee(e)}
+                        onDeactivate={() => setConfirmDeact(e)}
+                        onReactivate={() => handleReactivate(e)}
+                      />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -741,28 +760,27 @@ export default function SystemAdminUsersPage() {
         </div>
       </div>
 
-      {/* Panels & Modals */}
+      {/* Panels & Dialogs */}
       {showAdd && (
         <AddUserPanel
-          companies={companies}
-          departments={departments}
+          roles={roles}
           onClose={() => setShowAdd(false)}
           onCreated={handleCreated}
         />
       )}
-      {editUser && (
+      {editEmployee && (
         <EditUserPanel
-          user={editUser}
-          departments={departments}
-          onClose={() => setEditUser(null)}
-          onSave={handleEditSaved}
+          employee={editEmployee}
+          roles={roles}
+          onClose={() => setEditEmployee(null)}
+          onSaved={handleEditSaved}
         />
       )}
-      {linkModal && (
-        <CopyLinkModal
-          link={linkModal.link}
-          expiresAt={linkModal.expiresAt}
-          onClose={() => setLinkModal(null)}
+      {confirmDeact && (
+        <ConfirmDeactivate
+          employee={confirmDeact}
+          onClose={() => setConfirmDeact(null)}
+          onConfirm={() => handleDeactivate(confirmDeact)}
         />
       )}
     </div>

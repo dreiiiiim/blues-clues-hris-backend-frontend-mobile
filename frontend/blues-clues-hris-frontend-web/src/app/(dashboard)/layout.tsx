@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useLayoutEffect, useCallback, useRef } from "react";
+import { useState, useLayoutEffect, useCallback } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { clearAuthStorage, saveUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
 import { authFetch, logoutApi } from "@/lib/authApi";
@@ -10,7 +10,7 @@ import { roleToPath } from "@/lib/roleMap";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 
-type UserRole = "hr" | "manager" | "employee" | "applicant" | "admin" | "system-admin";
+type UserRole = "hr" | "manager" | "employee" | "applicant" | "admin";
 
 export default function SharedDashboardLayout({
   children,
@@ -21,25 +21,16 @@ export default function SharedDashboardLayout({
   const pathname = usePathname();
   const [role, setRole] = useState<UserRole | null>(null);
   const [isAuthorized, setIsAuthorized] = useState(false);
-  // Prevents re-calling GET /me on every internal navigation
-  const verified = useRef(false);
 
   const handleIdle = useCallback(async () => {
-    verified.current = false;
     await logoutApi();
     router.replace("/login");
   }, [router]);
 
-  useIdleTimeout(handleIdle, role === "system-admin");
+  useIdleTimeout(handleIdle, !!role);
 
   useLayoutEffect(() => {
     const verify = async () => {
-      // Already verified this session — skip the /me round-trip
-      if (verified.current) {
-        setIsAuthorized(true);
-        return;
-      }
-
       const res = await authFetch(`${API_BASE_URL}/me`);
       if (!res.ok) {
         clearAuthStorage();
@@ -54,7 +45,11 @@ export default function SharedDashboardLayout({
         return;
       }
 
-      const userRole = roleToPath(me.role_name).replace("/", "") as UserRole;
+      const rolePath = roleToPath(me.role_name); // e.g. "/system-admin"
+      const rawRole = rolePath.replace("/", "");
+      // Map route segments that differ from persona keys
+      const PERSONA_MAP: Partial<Record<string, UserRole>> = { "system-admin": "admin" };
+      const userRole = (PERSONA_MAP[rawRole] ?? rawRole) as UserRole;
 
       // Strict Persona Guard: prevents a Manager from viewing /hr pages, etc.
       const isAccessingWrongDashboard =
@@ -62,11 +57,11 @@ export default function SharedDashboardLayout({
         (pathname.startsWith("/manager") && userRole !== "manager") ||
         (pathname.startsWith("/employee") && userRole !== "employee") ||
         (pathname.startsWith("/applicant") && userRole !== "applicant") ||
-        (pathname.startsWith("/admin") && !pathname.startsWith("/system-admin") && userRole !== "admin") ||
-        (pathname.startsWith("/system-admin") && userRole !== "system-admin");
+        (pathname.startsWith("/system-admin") && userRole !== "admin") ||
+        (pathname.startsWith("/admin") && userRole !== "admin");
 
       if (isAccessingWrongDashboard) {
-        router.replace(`/${userRole}`);
+        router.replace(rolePath);
         return;
       }
 
@@ -77,7 +72,6 @@ export default function SharedDashboardLayout({
       const name = [firstName, lastName].filter(Boolean).join(" ") || me.username || "";
       saveUserInfo({ name, email: me.email ?? "", role: userRole });
 
-      verified.current = true;
       setRole(userRole);
       setIsAuthorized(true);
     };

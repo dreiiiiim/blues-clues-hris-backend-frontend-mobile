@@ -119,8 +119,11 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
 
     return second;
   } catch {
-    // refresh failed: clear and return original 401
+    // refresh failed: session is fully expired — clear storage and send to login
     clearAuthStorage();
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
     return first;
   }
 }

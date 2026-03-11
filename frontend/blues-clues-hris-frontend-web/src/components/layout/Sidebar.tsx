@@ -37,11 +37,10 @@ const ROLE_LABELS: Record<string, string> = {
   manager: "Management Portal",
   employee: "Staff Portal",
   applicant: "Candidate Portal",
-  admin: "Admin Portal",
-  "system-admin": "System Admin",
+  admin: "System Admin",
 };
 
-type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
+type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin";
 
 const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }[]> = {
   manager: [
@@ -67,16 +66,8 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "Performance", href: "/hr/performance", icon: BarChart },
   ],
   admin: [
-    { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
-    { name: "Users", href: "/admin/users", icon: Users },
-  ],
-  "system-admin": [
-    { name: "Dashboard",     href: "/system-admin",              icon: LayoutDashboard },
-    { name: "User Management", href: "/system-admin/users",      icon: Users },
-    { name: "Subscriptions", href: "/system-admin/subscriptions", icon: DollarSign },
-    { name: "Audit Logs",   href: "/system-admin/audit-logs",    icon: BarChart },
-    { name: "Security",     href: "/system-admin/security",      icon: Layers },
-    { name: "Global Settings", href: "/system-admin/settings",   icon: ClipboardCheck },
+    { name: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
+    { name: "Users", href: "/system-admin/users", icon: Users },
   ],
 };
 

@@ -93,22 +93,44 @@ export async function getUserStats(): Promise<UserStats> {
   return { total: 3, active: 1, pending: 1, locked: 1 };
 }
 
-// POST /admin/users — response includes auto-generated employee_id and one-time signup_link
+// POST /users — System Admin must include company_id in the body; backend derives it from JWT for Admin
 export async function createUser(payload: CreateUserPayload): Promise<CreateUserResponse> {
-  // const res = await authFetch(`${ADMIN_URL}/users`, {
-  //   method: "POST",
-  //   headers: { "Content-Type": "application/json" },
-  //   body: JSON.stringify(payload),
-  // });
-  // if (!res.ok) {
-  //   const err = await res.json().catch(() => ({}));
-  //   throw new Error((err as any)?.message || "Failed to create user");
-  // }
-  // return res.json();
+  const res = await authFetch(`${API_BASE_URL}/users`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      first_name: payload.first_name,
+      last_name: payload.last_name,
+      username: payload.username,
+      email: payload.email,
+      role_id: payload.role,
+      company_id: payload.company_id,
+      ...(payload.department ? { department_id: payload.department } : {}),
+      ...(payload.start_date ? { start_date: payload.start_date } : {}),
+    }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any)?.message || "Failed to create user");
+
+  // Backend returns { user_id, employee_id, email, username } — map to InternalUser shape
   const expires = new Date(Date.now() + payload.link_expiry_hours * 3600 * 1000).toISOString();
   return {
-    user: { user_id: `u-${Date.now()}`, employee_id: "EMP-XXXX", first_name: payload.first_name, last_name: payload.last_name, username: payload.username, email: payload.email, role: payload.role, department: payload.department, company: payload.company_id, start_date: payload.start_date, status: "pending", last_login: null, signup_link_expires_at: expires },
-    signup_link: `${process.env.NEXT_PUBLIC_APP_URL ?? ""}/set-password?token=mock-token-${Date.now()}`,
+    user: {
+      user_id: data.user_id,
+      employee_id: data.employee_id,
+      first_name: payload.first_name,
+      last_name: payload.last_name,
+      username: data.username,
+      email: data.email,
+      role: payload.role,
+      department: payload.department,
+      company: payload.company_id,
+      start_date: payload.start_date,
+      status: "pending",
+      last_login: null,
+      signup_link_expires_at: expires,
+    },
+    signup_link: "",   // backend sends the link via email; no link returned in API response
     expires_at: expires,
   };
 }
