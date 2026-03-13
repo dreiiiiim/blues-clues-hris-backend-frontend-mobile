@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { TimekeepingService } from './timekeeping.service';
+import { SupabaseService } from '../supabase/supabase.service';
 
 describe('TimekeepingService', () => {
   let service: TimekeepingService;
@@ -7,15 +8,11 @@ describe('TimekeepingService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
+        TimekeepingService,
         {
-          provide: TimekeepingService,
+          provide: SupabaseService,
           useValue: {
-            timeIn: jest.fn(),
-            timeOut: jest.fn(),
-            getMyStatus: jest.fn(),
-            getMyTimesheet: jest.fn(),
-            getAllTimesheets: jest.fn(),
-            getEmployeeDetail: jest.fn(),
+            getClient: jest.fn(),
           },
         },
       ],

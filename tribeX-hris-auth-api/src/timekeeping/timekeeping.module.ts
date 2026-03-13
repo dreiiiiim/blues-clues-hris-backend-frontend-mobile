@@ -5,12 +5,11 @@ import { AuthModule } from '../auth/auth.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 
 @Module({
-  imports: [
-    AuthModule,      // provides JwtAuthGuard, RolesGuard, Roles decorator
-    SupabaseModule,  // provides SupabaseService
-  ],
+  imports: [AuthModule, SupabaseModule],
   controllers: [TimekeepingController],
   providers: [TimekeepingService],
-  exports: [TimekeepingService], // export so Yellow Tribe API or other modules can consume it
+  exports: [TimekeepingService],
 })
 export class TimekeepingModule {}
+
+

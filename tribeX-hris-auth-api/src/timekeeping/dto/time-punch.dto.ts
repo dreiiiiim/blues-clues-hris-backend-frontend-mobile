@@ -1,4 +1,4 @@
-import { IsNumber, IsIn, Min, Max } from 'class-validator';
+import { IsNumber, Min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class TimePunchDto {

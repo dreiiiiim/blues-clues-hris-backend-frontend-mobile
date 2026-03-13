@@ -8,18 +8,34 @@ import * as crypto from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { TimePunchDto } from './dto/time-punch.dto';
 
+type AttendanceLogType = 'clock-in' | 'clock-out' | 'break-start' | 'break-end';
+type ClockType = 'ON-TIME' | 'LATE' | 'EARLY' | 'OVERTIME';
+
 type TimeLogRow = {
   log_id: string;
-  user_id: string;
   company_id: string;
   employee_id: string | null;
-  punch_type: 'TIME_IN' | 'TIME_OUT';
+  schedule_id: string | null;
+  log_type: AttendanceLogType;
   timestamp: string;
   latitude: number;
   longitude: number;
   ip_address: string | null;
-  date: string;
-  created_at: string;
+  is_mock_location: string | boolean;
+  clock_type?: ClockType | null;
+  status?: string | null;
+  log_status: string;
+};
+
+type ScheduleRow = {
+  sched_id: string;
+  employee_id: string;
+  workdays: string | string[] | null;
+  start_time: string | null;
+  end_time: string | null;
+  break_start?: string | null;
+  break_end?: string | null;
+  is_nightshift: boolean | null;
 };
 
 function getIp(req?: any): string | null {
@@ -29,10 +45,18 @@ function getIp(req?: any): string | null {
   return req.ip || req.socket?.remoteAddress || null;
 }
 
-function todayDate(): string {
-  // Use Philippine Standard Time (UTC+8) — toISOString() would return UTC and record
-  // the wrong date for punches made after midnight local time (4PM UTC prior day).
-  return new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+function todayRange() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date();
+  end.setHours(23, 59, 59, 999);
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+    date: start.toISOString().split('T')[0],
+  };
 }
 
 @Injectable()
@@ -41,64 +65,237 @@ export class TimekeepingService {
 
   constructor(private readonly supabaseService: SupabaseService) {}
 
-  async timeIn(userId: string, companyId: string, dto: TimePunchDto, req?: any) {
+  // -----------------------------------
+  // BASIC HELPERS
+  // -----------------------------------
+
+  private async getEmployeeId(userId: string): Promise<string | null> {
     const supabase = this.supabaseService.getClient();
-    const today = todayDate();
 
-    const { data: existing, error: checkError } = await supabase
-      .from('time_logs')
-      .select('log_id, punch_type')
-      .eq('user_id', userId)
-      .eq('date', today)
-      .order('timestamp', { ascending: false })
-      .limit(1)
-      .maybeSingle<TimeLogRow>();
-
-    if (checkError) {
-      this.logger.error(`DB error during time-in check for user: ${userId}`, checkError);
-      throw new Error(checkError.message);
-    }
-
-    if (existing?.punch_type === 'TIME_IN') {
-      throw new BadRequestException(
-        'You have already timed in today. Please time out before timing in again.',
-      );
-    }
-
-    const { data: userProfile, error: profileError } = await supabase
+    const { data, error } = await supabase
       .from('user_profile')
       .select('employee_id')
       .eq('user_id', userId)
       .maybeSingle();
 
-    if (profileError) throw new Error(profileError.message);
+    if (error) throw new Error(error.message);
+    return data?.employee_id ?? null;
+  }
 
-    const now = new Date().toISOString();
+  private getTodayWorkdayCode(date = new Date()): string {
+    const day = date.getDay();
+    const map = ['SUN', 'MON', 'TUES', 'WED', 'THURS', 'FRI', 'SAT'];
+    return map[day];
+  }
+
+  private normalizeWorkdays(workdays: string | string[] | null | undefined): string[] {
+    if (!workdays) return [];
+
+    if (Array.isArray(workdays)) {
+      return workdays.map((d) => String(d).trim().toUpperCase());
+    }
+
+    return String(workdays)
+      .split(',')
+      .map((d) => d.trim().toUpperCase())
+      .filter(Boolean);
+  }
+
+  private isScheduledForToday(workdays: string | string[] | null | undefined, date = new Date()): boolean {
+    const todayCode = this.getTodayWorkdayCode(date);
+    const normalized = this.normalizeWorkdays(workdays);
+
+    return normalized.includes(todayCode);
+  }
+
+  private parseScheduleTime(baseDate: Date, rawTime: string | null | undefined): Date | null {
+    if (!rawTime) return null;
+
+    const timeStr = String(rawTime).trim();
+
+    // Case 1: full datetime string
+    const fullDate = new Date(timeStr);
+    if (!isNaN(fullDate.getTime()) && timeStr.includes('T')) {
+      return fullDate;
+    }
+
+    // Case 2: time only like 09:00:00 or 21:00:00
+    const militaryMatch = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (militaryMatch) {
+      const [, hh, mm, ss] = militaryMatch;
+      const d = new Date(baseDate);
+      d.setHours(Number(hh), Number(mm), Number(ss ?? 0), 0);
+      return d;
+    }
+
+    // Case 3: 9:00 AM / 6:00:00 PM
+    const ampmMatch = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i);
+    if (ampmMatch) {
+      let [, hh, mm, ss, ampm] = ampmMatch;
+      let hour = Number(hh);
+
+      if (ampm.toUpperCase() === 'AM') {
+        if (hour === 12) hour = 0;
+      } else {
+        if (hour !== 12) hour += 12;
+      }
+
+      const d = new Date(baseDate);
+      d.setHours(hour, Number(mm), Number(ss ?? 0), 0);
+      return d;
+    }
+
+    return null;
+  }
+
+  private buildScheduleWindow(schedule: ScheduleRow, now = new Date()) {
+    const baseDate = new Date(now);
+
+    const shiftStart = this.parseScheduleTime(baseDate, schedule.start_time);
+    const shiftEnd = this.parseScheduleTime(baseDate, schedule.end_time);
+
+    if (!shiftStart || !shiftEnd) {
+      throw new BadRequestException('Employee schedule has invalid start/end time.');
+    }
+
+    // Handle night shift crossing midnight
+    if (schedule.is_nightshift && shiftEnd <= shiftStart) {
+      shiftEnd.setDate(shiftEnd.getDate() + 1);
+    }
+
+    return { shiftStart, shiftEnd };
+  }
+
+  private computeClockTypeForTimeIn(now: Date, schedule: ScheduleRow): ClockType {
+    const { shiftStart } = this.buildScheduleWindow(schedule, now);
+
+    if (now.getTime() > shiftStart.getTime()) return 'LATE';
+    return 'ON-TIME';
+  }
+
+  private computeClockTypeForTimeOut(now: Date, schedule: ScheduleRow): ClockType {
+    const { shiftEnd } = this.buildScheduleWindow(schedule, now);
+
+    if (now.getTime() < shiftEnd.getTime()) return 'EARLY';
+    if (now.getTime() > shiftEnd.getTime()) return 'OVERTIME';
+    return 'ON-TIME';
+  }
+
+  private async getScheduleForEmployee(employeeId: string): Promise<ScheduleRow> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('schedules')
+      .select(
+        'sched_id, employee_id, workdays, start_time, end_time, break_start, break_end, is_nightshift',
+      )
+      .eq('employee_id', employeeId)
+      .maybeSingle<ScheduleRow>();
+
+    if (error) throw new Error(error.message);
+
+    if (!data) {
+      throw new BadRequestException('No schedule assigned to this employee yet.');
+    }
+
+    return data;
+  }
+
+  private async getScheduleForToday(employeeId: string): Promise<ScheduleRow> {
+    const schedule = await this.getScheduleForEmployee(employeeId);
+
+    if (!this.isScheduledForToday(schedule.workdays)) {
+      throw new BadRequestException('You are not scheduled to work today.');
+    }
+
+    return schedule;
+  }
+
+  private async getLatestLogForToday(employeeId: string): Promise<TimeLogRow | null> {
+    const supabase = this.supabaseService.getClient();
+    const { start, end } = todayRange();
+
+    const { data, error } = await supabase
+      .from('attendance_time_logs')
+      .select(
+        'log_id, company_id, employee_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, is_mock_location, clock_type, status, log_status',
+      )
+      .eq('employee_id', employeeId)
+      .gte('timestamp', start)
+      .lte('timestamp', end)
+      .order('timestamp', { ascending: false })
+      .limit(1)
+      .maybeSingle<TimeLogRow>();
+
+    if (error) {
+      this.logger.error(`DB error while reading latest log for employee ${employeeId}`, error);
+      throw new Error(error.message);
+    }
+
+    return data ?? null;
+  }
+
+  // -----------------------------------
+  // MAIN ACTIONS
+  // -----------------------------------
+
+  async timeIn(userId: string, companyId: string, dto: TimePunchDto, req?: any) {
+    const supabase = this.supabaseService.getClient();
+    const { date: today } = todayRange();
+
+    const employeeId = await this.getEmployeeId(userId);
+    if (!employeeId) {
+      throw new BadRequestException('Employee profile not found. Cannot record time-in.');
+    }
+
+    const schedule = await this.getScheduleForToday(employeeId);
+
+    const existing = await this.getLatestLogForToday(employeeId);
+
+    if (existing?.log_type === 'clock-in') {
+      throw new BadRequestException(
+        'You have already timed in today. Please time out before timing in again.',
+      );
+    }
+
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
     const log_id = crypto.randomUUID();
+    const clockType = this.computeClockTypeForTimeIn(nowDate, schedule);
 
-    const { error: insertError } = await supabase.from('time_logs').insert({
-      log_id,
-      user_id: userId,
-      company_id: companyId,
-      employee_id: userProfile?.employee_id ?? null,
-      punch_type: 'TIME_IN',
-      timestamp: now,
-      latitude: dto.latitude,
-      longitude: dto.longitude,
-      ip_address: getIp(req),
-      date: today,
-    });
+    const { error: insertError } = await supabase
+      .from('attendance_time_logs')
+      .insert({
+        log_id,
+        company_id: companyId,
+        employee_id: employeeId,
+        schedule_id: schedule.sched_id,
+        log_type: 'clock-in',
+        timestamp: now,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        ip_address: getIp(req),
+        is_mock_location: false,
+        clock_type: clockType,
+        status: 'PRESENT',
+        log_status: 'PENDING',
+      });
 
     if (insertError) {
-      this.logger.error(`Failed to insert TIME_IN for user: ${userId}`, insertError);
+      this.logger.error(`Failed to insert clock-in for employee: ${employeeId}`, insertError);
       throw new Error(insertError.message);
     }
 
-    this.logger.log(`TIME_IN recorded — user: ${userId} at ${now}`);
+    this.logger.log(`clock-in recorded — employee: ${employeeId} at ${now}`);
 
     return {
       log_id,
-      punch_type: 'TIME_IN',
+      employee_id: employeeId,
+      schedule_id: schedule.sched_id,
+      log_type: 'clock-in',
+      clock_type: clockType,
+      status: 'PRESENT',
+      log_status: 'PENDING',
       timestamp: now,
       latitude: dto.latitude,
       longitude: dto.longitude,
@@ -108,66 +305,65 @@ export class TimekeepingService {
 
   async timeOut(userId: string, companyId: string, dto: TimePunchDto, req?: any) {
     const supabase = this.supabaseService.getClient();
-    const today = todayDate();
+    const { date: today } = todayRange();
 
-    const { data: lastPunch, error: checkError } = await supabase
-      .from('time_logs')
-      .select('log_id, punch_type')
-      .eq('user_id', userId)
-      .eq('date', today)
-      .order('timestamp', { ascending: false })
-      .limit(1)
-      .maybeSingle<TimeLogRow>();
-
-    if (checkError) {
-      this.logger.error(`DB error during time-out check for user: ${userId}`, checkError);
-      throw new Error(checkError.message);
+    const employeeId = await this.getEmployeeId(userId);
+    if (!employeeId) {
+      throw new BadRequestException('Employee profile not found. Cannot record time-out.');
     }
+
+    const schedule = await this.getScheduleForToday(employeeId);
+
+    const lastPunch = await this.getLatestLogForToday(employeeId);
 
     if (!lastPunch) {
       throw new BadRequestException('You have not timed in today. Please time in first.');
     }
 
-    if (lastPunch.punch_type === 'TIME_OUT') {
+    if (lastPunch.log_type === 'clock-out') {
       throw new BadRequestException(
         'You have already timed out. Please time in again before timing out.',
       );
     }
 
-    const { data: userProfile, error: profileError } = await supabase
-      .from('user_profile')
-      .select('employee_id')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (profileError) throw new Error(profileError.message);
-
-    const now = new Date().toISOString();
+    const nowDate = new Date();
+    const now = nowDate.toISOString();
     const log_id = crypto.randomUUID();
+    const clockType = this.computeClockTypeForTimeOut(nowDate, schedule);
 
-    const { error: insertError } = await supabase.from('time_logs').insert({
-      log_id,
-      user_id: userId,
-      company_id: companyId,
-      employee_id: userProfile?.employee_id ?? null,
-      punch_type: 'TIME_OUT',
-      timestamp: now,
-      latitude: dto.latitude,
-      longitude: dto.longitude,
-      ip_address: getIp(req),
-      date: today,
-    });
+    const { error: insertError } = await supabase
+      .from('attendance_time_logs')
+      .insert({
+        log_id,
+        company_id: companyId,
+        employee_id: employeeId,
+        schedule_id: schedule.sched_id,
+        log_type: 'clock-out',
+        timestamp: now,
+        latitude: dto.latitude,
+        longitude: dto.longitude,
+        ip_address: getIp(req),
+        is_mock_location: false,
+        clock_type: clockType,
+        status: 'PRESENT',
+        log_status: 'PENDING',
+      });
 
     if (insertError) {
-      this.logger.error(`Failed to insert TIME_OUT for user: ${userId}`, insertError);
+      this.logger.error(`Failed to insert clock-out for employee: ${employeeId}`, insertError);
       throw new Error(insertError.message);
     }
 
-    this.logger.log(`TIME_OUT recorded — user: ${userId} at ${now}`);
+    this.logger.log(`clock-out recorded — employee: ${employeeId} at ${now}`);
 
     return {
       log_id,
-      punch_type: 'TIME_OUT',
+      employee_id: employeeId,
+      schedule_id: schedule.sched_id,
+      log_type: 'clock-out',
+      clock_type: clockType,
+      status: 'PRESENT',
+      log_status: 'PENDING',
       timestamp: now,
       latitude: dto.latitude,
       longitude: dto.longitude,
@@ -177,13 +373,29 @@ export class TimekeepingService {
 
   async getMyStatus(userId: string) {
     const supabase = this.supabaseService.getClient();
-    const today = todayDate();
+    const { start, end, date: today } = todayRange();
+
+    const employeeId = await this.getEmployeeId(userId);
+    if (!employeeId) {
+      return {
+        date: today,
+        current_status: null,
+        time_in: null,
+        time_out: null,
+        schedule: null,
+      };
+    }
+
+    const schedule = await this.getScheduleForEmployee(employeeId).catch(() => null);
 
     const { data, error } = await supabase
-      .from('time_logs')
-      .select('log_id, punch_type, timestamp, latitude, longitude')
-      .eq('user_id', userId)
-      .eq('date', today)
+      .from('attendance_time_logs')
+      .select(
+        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status',
+      )
+      .eq('employee_id', employeeId)
+      .gte('timestamp', start)
+      .lte('timestamp', end)
       .order('timestamp', { ascending: true });
 
     if (error) throw new Error(error.message);
@@ -193,23 +405,37 @@ export class TimekeepingService {
 
     return {
       date: today,
-      current_status: lastPunch?.punch_type ?? null,
-      time_in: logs.find((l) => l.punch_type === 'TIME_IN') ?? null,
-      time_out: logs.find((l) => l.punch_type === 'TIME_OUT') ?? null,
+      current_status: lastPunch?.log_type ?? null,
+      time_in: logs.find((l) => l.log_type === 'clock-in') ?? null,
+      time_out: logs.find((l) => l.log_type === 'clock-out') ?? null,
+      schedule: schedule
+        ? {
+            sched_id: schedule.sched_id,
+            workdays: schedule.workdays,
+            start_time: schedule.start_time,
+            end_time: schedule.end_time,
+            is_nightshift: schedule.is_nightshift,
+          }
+        : null,
     };
   }
 
   async getMyTimesheet(userId: string, from?: string, to?: string) {
     const supabase = this.supabaseService.getClient();
 
+    const employeeId = await this.getEmployeeId(userId);
+    if (!employeeId) return [];
+
     let query = supabase
-      .from('time_logs')
-      .select('log_id, punch_type, timestamp, latitude, longitude, date')
-      .eq('user_id', userId)
+      .from('attendance_time_logs')
+      .select(
+        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status',
+      )
+      .eq('employee_id', employeeId)
       .order('timestamp', { ascending: false });
 
-    if (from) query = query.gte('date', from);
-    if (to)   query = query.lte('date', to);
+    if (from) query = query.gte('timestamp', `${from}T00:00:00.000Z`);
+    if (to) query = query.lte('timestamp', `${to}T23:59:59.999Z`);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -221,24 +447,27 @@ export class TimekeepingService {
     const supabase = this.supabaseService.getClient();
 
     let query = supabase
-      .from('time_logs')
+      .from('attendance_time_logs')
       .select(`
         log_id,
-        punch_type,
+        company_id,
+        employee_id,
+        schedule_id,
+        log_type,
         timestamp,
         latitude,
         longitude,
-        date,
         ip_address,
-        user_id,
-        employee_id,
-        user_profile (first_name, last_name)
+        is_mock_location,
+        clock_type,
+        status,
+        log_status
       `)
       .eq('company_id', companyId)
       .order('timestamp', { ascending: false });
 
-    if (from) query = query.gte('date', from);
-    if (to)   query = query.lte('date', to);
+    if (from) query = query.gte('timestamp', `${from}T00:00:00.000Z`);
+    if (to) query = query.lte('timestamp', `${to}T23:59:59.999Z`);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -251,19 +480,37 @@ export class TimekeepingService {
 
     const { data: targetUser, error: userError } = await supabase
       .from('user_profile')
-      .select('user_id, first_name, last_name, employee_id')
+      .select('user_id, first_name, last_name, employee_id, company_id')
       .eq('user_id', targetUserId)
       .eq('company_id', companyId)
       .maybeSingle();
 
     if (userError) throw new Error(userError.message);
     if (!targetUser) throw new NotFoundException('Employee not found in your company');
+    if (!targetUser.employee_id) throw new NotFoundException('Employee ID not assigned yet');
+
+    const schedule = await this.getScheduleForEmployee(targetUser.employee_id).catch(() => null);
 
     const { data: logs, error: logsError } = await supabase
-      .from('time_logs')
-      .select('log_id, punch_type, timestamp, latitude, longitude, ip_address')
-      .eq('user_id', targetUserId)
-      .eq('date', date)
+      .from('attendance_time_logs')
+      .select(`
+        log_id,
+        company_id,
+        employee_id,
+        schedule_id,
+        log_type,
+        timestamp,
+        latitude,
+        longitude,
+        ip_address,
+        is_mock_location,
+        clock_type,
+        status,
+        log_status
+      `)
+      .eq('employee_id', targetUser.employee_id)
+      .gte('timestamp', `${date}T00:00:00.000Z`)
+      .lte('timestamp', `${date}T23:59:59.999Z`)
       .order('timestamp', { ascending: true });
 
     if (logsError) throw new Error(logsError.message);
@@ -274,19 +521,57 @@ export class TimekeepingService {
       first_name: targetUser.first_name,
       last_name: targetUser.last_name,
       date,
+      schedule: schedule
+        ? {
+            sched_id: schedule.sched_id,
+            workdays: schedule.workdays,
+            start_time: schedule.start_time,
+            end_time: schedule.end_time,
+            break_start: schedule.break_start,
+            break_end: schedule.break_end,
+            is_nightshift: schedule.is_nightshift,
+          }
+        : null,
       punches: logs ?? [],
     };
   }
 
+  // -----------------------------------
+  // RESPONSE SHAPING
+  // -----------------------------------
+
   private groupByDate(logs: any[]) {
-    const grouped: Record<string, { date: string; time_in: any | null; time_out: any | null }> = {};
+    const grouped: Record<
+      string,
+      {
+        date: string;
+        time_in: any | null;
+        time_out: any | null;
+        all_logs: any[];
+      }
+    > = {};
 
     for (const log of logs) {
-      if (!grouped[log.date]) {
-        grouped[log.date] = { date: log.date, time_in: null, time_out: null };
+      const logDate = log.timestamp.split('T')[0];
+
+      if (!grouped[logDate]) {
+        grouped[logDate] = {
+          date: logDate,
+          time_in: null,
+          time_out: null,
+          all_logs: [],
+        };
       }
-      if (log.punch_type === 'TIME_IN')  grouped[log.date].time_in  = log;
-      if (log.punch_type === 'TIME_OUT') grouped[log.date].time_out = log;
+
+      grouped[logDate].all_logs.push(log);
+
+      if (log.log_type === 'clock-in' && !grouped[logDate].time_in) {
+        grouped[logDate].time_in = log;
+      }
+
+      if (log.log_type === 'clock-out') {
+        grouped[logDate].time_out = log;
+      }
     }
 
     return Object.values(grouped).sort((a, b) => b.date.localeCompare(a.date));
