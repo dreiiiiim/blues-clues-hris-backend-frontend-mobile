@@ -2,19 +2,21 @@
 
 import { useState, useMemo, useEffect } from "react";
 import {
-  Clock, Search, Download,
-  ChevronLeft, ChevronRight,
-  CheckCircle2, XCircle, AlertCircle, Timer,
+  Clock, Search, Download, ChevronLeft, ChevronRight,
+  CheckCircle2, XCircle, Timer, Users, MapPin, MapPinOff,
+  TrendingUp, AlertCircle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Progress } from "@/components/ui/progress";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
 
 // ─── Backend response types ───────────────────────────────────────────────────
 
-// GET /users — one row per user in the company
+// GET /users — one row per active user in the company
 type UserRow = {
   user_id: string;
   first_name: string | null;
@@ -27,8 +29,10 @@ type UserRow = {
 type PunchRow = {
   log_id: string;
   punch_type: "TIME_IN" | "TIME_OUT";
-  timestamp: string; // ISO datetime
-  date: string;      // YYYY-MM-DD (PST)
+  timestamp: string;   // ISO datetime
+  date: string;        // YYYY-MM-DD (PST)
+  latitude: number | null;
+  longitude: number | null;
   user_id: string;
   employee_id: string | null;
   user_profile: {
@@ -49,13 +53,7 @@ type TimekeepingLog = {
   time_out: string | null;
   hours_worked: number | null;
   status: TimekeepingStatus;
-};
-
-type TimekeepingStats = {
-  present: number;
-  absent: number;
-  late: number;
-  on_leave: number;
+  gps_verified: boolean; // true if TIME_IN punch has valid lat/lng
 };
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -77,7 +75,6 @@ const FILTER_OPTIONS: { value: TimekeepingStatus | "all"; label: string }[] = [
 
 // Employees who punch in at or after this hour (PST) are considered late
 const LATE_THRESHOLD_HOUR_PST = 9;
-
 const ITEMS_PER_PAGE = 8;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -96,13 +93,21 @@ function formatHours(hours: number | null) {
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
 }
 
-// Returns today's date as YYYY-MM-DD in Philippine Standard Time
-function todayPST(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+function toDateString(date: Date): string {
+  return date.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }); // YYYY-MM-DD
 }
 
-// Derives attendance status from time-in punch.
-// "on-leave" cannot be derived from punches alone — requires a leave endpoint (future sprint).
+function formatDisplayDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+    timeZone: "Asia/Manila",
+  });
+}
+
+function isToday(date: Date): boolean {
+  return toDateString(date) === toDateString(new Date());
+}
+
 function deriveStatus(timeIn: string | null): TimekeepingStatus {
   if (!timeIn) return "absent";
   const hourPST = parseInt(
@@ -114,10 +119,9 @@ function deriveStatus(timeIn: string | null): TimekeepingStatus {
   return hourPST >= LATE_THRESHOLD_HOUR_PST ? "late" : "present";
 }
 
-// Builds the full roster by cross-referencing all users with today's punch records.
-// Users with no punch record are shown as Absent — fulfilling "all Group Heads" requirement.
+// Builds full roster by cross-referencing all users with punch records for the selected date.
+// Users with no punch record are shown as Absent.
 function buildFullRoster(users: UserRow[], punches: PunchRow[]): TimekeepingLog[] {
-  // Map punch rows by user_id for O(1) lookup
   const punchMap: Record<string, { timeIn: PunchRow | null; timeOut: PunchRow | null }> = {};
   for (const row of punches) {
     if (!punchMap[row.user_id]) {
@@ -127,11 +131,10 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): TimekeepingLog[
     if (row.punch_type === "TIME_OUT") punchMap[row.user_id].timeOut = row;
   }
 
-  // Build one display row per user — absent if no punch record exists
   return users
-    .filter(u => u.account_status?.toLowerCase() !== "inactive") // exclude deactivated accounts
+    .filter(u => u.account_status?.toLowerCase() !== "inactive")
     .map(u => {
-      const punched = punchMap[u.user_id] ?? { timeIn: null, timeOut: null };
+      const punched   = punchMap[u.user_id] ?? { timeIn: null, timeOut: null };
       const timeInTs  = punched.timeIn?.timestamp  ?? null;
       const timeOutTs = punched.timeOut?.timestamp ?? null;
 
@@ -140,146 +143,213 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): TimekeepingLog[
         hours_worked = (new Date(timeOutTs).getTime() - new Date(timeInTs).getTime()) / 3_600_000;
       }
 
+      // GPS verified if TIME_IN punch has both lat and lng
+      const gps_verified = !!(
+        punched.timeIn &&
+        punched.timeIn.latitude != null &&
+        punched.timeIn.longitude != null
+      );
+
       return {
-        user_id:     u.user_id,
-        first_name:  u.first_name  ?? "Unknown",
-        last_name:   u.last_name   ?? "",
-        time_in:     timeInTs,
-        time_out:    timeOutTs,
+        user_id:    u.user_id,
+        first_name: u.first_name ?? "Unknown",
+        last_name:  u.last_name  ?? "",
+        time_in:    timeInTs,
+        time_out:   timeOutTs,
         hours_worked,
         status: deriveStatus(timeInTs),
+        gps_verified,
       };
     });
-}
-
-function computeStats(logs: TimekeepingLog[]): TimekeepingStats {
-  return logs.reduce(
-    (acc, l) => {
-      if (l.status === "on-leave") acc.on_leave++;
-      else acc[l.status]++;
-      return acc;
-    },
-    { present: 0, absent: 0, late: 0, on_leave: 0 }
-  );
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ManagerTimekeepingPage() {
-  const [logs, setLogs]             = useState<TimekeepingLog[]>([]);
-  const [stats, setStats]           = useState<TimekeepingStats | null>(null);
-  const [loading, setLoading]       = useState(true);
-  const [fetchError, setFetchError] = useState(false);
-  const [search, setSearch]         = useState("");
+  const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [logs, setLogs]                 = useState<TimekeepingLog[]>([]);
+  const [totalUsers, setTotalUsers]     = useState(0);
+  const [loading, setLoading]           = useState(true);
+  const [fetchError, setFetchError]     = useState(false);
+  const [search, setSearch]             = useState("");
   const [statusFilter, setStatusFilter] = useState<TimekeepingStatus | "all">("all");
-  const [page, setPage]             = useState(1);
+  const [page, setPage]                 = useState(1);
 
+  // Re-fetch whenever selected date changes
   useEffect(() => {
-    const today = todayPST();
+    setLoading(true);
+    setFetchError(false);
+    setPage(1);
 
-    // Fetch full user roster + today's punch records in parallel.
+    const dateStr = toDateString(selectedDate);
+
+    // Fetch full user roster + punch records for selected date in parallel.
     // Cross-referencing both ensures absent employees appear in the table.
     Promise.all([
       authFetch(`${API_BASE_URL}/users`).then(r => {
         if (!r.ok) throw new Error("Failed to fetch users");
         return r.json() as Promise<UserRow[]>;
       }),
-      authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${today}&to=${today}`).then(r => {
+      authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${dateStr}&to=${dateStr}`).then(r => {
         if (!r.ok) throw new Error("Failed to fetch timesheets");
         return r.json() as Promise<PunchRow[]>;
       }),
     ])
       .then(([users, punches]) => {
-        const roster = buildFullRoster(users, punches);
-        setLogs(roster);
-        setStats(computeStats(roster));
+        const activeUsers = users.filter(u => u.account_status?.toLowerCase() !== "inactive");
+        setTotalUsers(activeUsers.length);
+        setLogs(buildFullRoster(users, punches));
       })
       .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedDate]);
+
+  // ─── Derived stats ──────────────────────────────────────────────────────────
+
+  const stats = useMemo(() => {
+    const present  = logs.filter(l => l.status === "present").length;
+    const absent   = logs.filter(l => l.status === "absent").length;
+    const late     = logs.filter(l => l.status === "late").length;
+    const on_leave = logs.filter(l => l.status === "on-leave").length;
+    const attended = present + late; // present + late counts as attended
+    const attendanceRate = totalUsers > 0 ? Math.round((attended / totalUsers) * 100) : 0;
+
+    const workedHours = logs.filter(l => l.hours_worked !== null).map(l => l.hours_worked as number);
+    const avgHours = workedHours.length > 0
+      ? workedHours.reduce((a, b) => a + b, 0) / workedHours.length
+      : 0;
+
+    return { present, absent, late, on_leave, attendanceRate, avgHours };
+  }, [logs, totalUsers]);
+
+  // ─── Filtered + paginated data ──────────────────────────────────────────────
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return logs.filter(l => {
       const name = `${l.first_name} ${l.last_name}`.toLowerCase();
-      const matchSearch = name.includes(q);
-      const matchStatus = statusFilter === "all" || l.status === statusFilter;
-      return matchSearch && matchStatus;
+      return name.includes(q) && (statusFilter === "all" || l.status === statusFilter);
     });
   }, [logs, search, statusFilter]);
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
+  // ─── Date navigation ────────────────────────────────────────────────────────
+
+  function goToPrev() {
+    setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; });
+  }
+  function goToNext() {
+    setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; });
+  }
+  function goToToday() {
+    setSelectedDate(new Date());
+  }
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
 
-      {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="p-2.5 bg-primary/10 text-primary rounded-lg">
-          <Clock className="h-5 w-5" />
+      {/* Header + Date Navigation */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2.5 bg-primary/10 text-primary rounded-lg">
+            <Clock className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold">Team Timekeeping</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">Monitor attendance and track work hours</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-xl font-bold">Timekeeping</h1>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            Daily attendance logs for all employees in your company
-          </p>
+
+        {/* Date navigator */}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" className="h-9 w-9" onClick={goToPrev}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={isToday(selectedDate) ? "default" : "outline"}
+            className="h-9 px-4 text-sm font-semibold"
+            onClick={goToToday}
+          >
+            {isToday(selectedDate) ? "Today" : "Go to Today"}
+          </Button>
+          <div className="h-9 px-4 flex items-center border border-border rounded-md text-sm font-medium bg-background min-w-[160px] justify-center">
+            {formatDisplayDate(selectedDate)}
+          </div>
+          <Button
+            variant="outline" size="icon" className="h-9 w-9"
+            onClick={goToNext}
+            disabled={isToday(selectedDate)}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
-      {/* Stat Cards */}
-      {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={CheckCircle2} label="Present"  value={stats.present}  colorClass="bg-green-50 text-green-600" />
-          <StatCard icon={XCircle}      label="Absent"   value={stats.absent}   colorClass="bg-red-50 text-red-600" />
-          <StatCard icon={Timer}        label="Late"     value={stats.late}     colorClass="bg-amber-50 text-amber-600" />
-          <StatCard icon={AlertCircle}  label="On Leave" value={stats.on_leave} colorClass="bg-blue-50 text-blue-600" />
-        </div>
-      )}
+      {/* Top Stat Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          icon={Users}
+          label="Total Team"
+          value={String(totalUsers)}
+          sub="employees"
+          colorClass="bg-primary/10 text-primary"
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Present Today"
+          value={String(stats.present)}
+          sub={`${stats.attendanceRate}% attendance`}
+          colorClass="bg-green-50 text-green-600"
+        />
+        <StatCard
+          icon={Timer}
+          label="Late Arrivals"
+          value={String(stats.late)}
+          sub="needs attention"
+          colorClass="bg-amber-50 text-amber-600"
+        />
+        <StatCard
+          icon={Clock}
+          label="Avg Hours"
+          value={stats.avgHours.toFixed(1)}
+          sub="per employee"
+          colorClass="bg-blue-50 text-blue-600"
+        />
+      </div>
 
       {/* Table Card */}
       <Card className="border-border overflow-hidden">
 
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-6 bg-muted/20 border-b border-border">
-          <div>
-            <p className="text-lg font-bold">
-              {new Date().toLocaleDateString("en-US", {
-                weekday: "long", month: "long", day: "numeric", year: "numeric",
-                timeZone: "Asia/Manila",
-              })}
-            </p>
-            <p className="text-xs text-muted-foreground">Today's attendance overview</p>
+          <div className="flex gap-1.5 flex-wrap">
+            {FILTER_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => { setStatusFilter(opt.value); setPage(1); }}
+                className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-colors ${
+                  statusFilter === opt.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
           </div>
 
-          <div className="flex items-center gap-2 flex-wrap">
-            {/* Status filter pills */}
-            <div className="flex gap-1.5 flex-wrap">
-              {FILTER_OPTIONS.map(opt => (
-                <button
-                  key={opt.value}
-                  onClick={() => { setStatusFilter(opt.value); setPage(1); }}
-                  className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-colors ${
-                    statusFilter === opt.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/50"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-
+          <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder="Search name..."
+                placeholder="Search employees..."
                 value={search}
                 onChange={e => { setSearch(e.target.value); setPage(1); }}
                 className="pl-9 h-9 w-52 bg-background"
               />
             </div>
-
             <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
               <Download className="h-4 w-4" />
             </Button>
@@ -296,30 +366,33 @@ export default function ManagerTimekeepingPage() {
                 <th className="px-6 py-4">Time Out</th>
                 <th className="px-6 py-4">Hours Worked</th>
                 <th className="px-6 py-4">Status</th>
+                <th className="px-6 py-4">GPS Verified</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-muted-foreground text-sm">
+                  <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">
                     Loading timekeeping data...
                   </td>
                 </tr>
               ) : fetchError ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-destructive text-sm">
+                  <td colSpan={6} className="px-6 py-10 text-center text-destructive text-sm">
                     Failed to load timekeeping data. Please refresh or contact support.
                   </td>
                 </tr>
               ) : paged.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-10 text-center text-muted-foreground text-sm">
-                    No records found{statusFilter !== "all" ? ` for "${STATUS_CONFIG[statusFilter].label}"` : ""}.
+                  <td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">
+                    {search || statusFilter !== "all"
+                      ? "No records match your search."
+                      : "No entries found for this date."}
                   </td>
                 </tr>
               ) : paged.map(log => {
                 const name = `${log.first_name} ${log.last_name}`.trim();
-                const cfg = STATUS_CONFIG[log.status];
+                const cfg  = STATUS_CONFIG[log.status];
                 return (
                   <tr key={log.user_id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-6 py-4">
@@ -337,6 +410,21 @@ export default function ManagerTimekeepingPage() {
                       <span className={`inline-flex text-[9px] font-bold px-2.5 py-0.5 rounded-full border uppercase tracking-wide ${cfg.className}`}>
                         {cfg.label}
                       </span>
+                    </td>
+                    <td className="px-6 py-4">
+                      {log.status === "absent" ? (
+                        <span className="text-muted-foreground text-xs">—</span>
+                      ) : log.gps_verified ? (
+                        <div className="flex items-center gap-1.5 text-green-600">
+                          <MapPin className="h-3.5 w-3.5" />
+                          <span className="text-[10px] font-bold uppercase tracking-wide">Verified</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <MapPinOff className="h-3.5 w-3.5" />
+                          <span className="text-[10px] font-bold uppercase tracking-wide">No GPS</span>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 );
@@ -364,14 +452,84 @@ export default function ManagerTimekeepingPage() {
           </div>
         </div>
       </Card>
+
+      {/* Bottom Summary Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+        {/* Attendance Rate */}
+        <Card className="border-border shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-green-50 text-green-600">
+                <TrendingUp className="h-4 w-4" />
+              </div>
+              <p className="font-semibold text-sm">Attendance Rate</p>
+            </div>
+            <p className="text-3xl font-bold mb-1">{stats.attendanceRate}%</p>
+            <p className="text-xs text-muted-foreground mb-3">
+              {stats.present + stats.late} of {totalUsers} employees
+            </p>
+            <Progress value={stats.attendanceRate} className="h-2" />
+          </CardContent>
+        </Card>
+
+        {/* Average Hours */}
+        <Card className="border-border shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-blue-50 text-blue-600">
+                <Clock className="h-4 w-4" />
+              </div>
+              <p className="font-semibold text-sm">Average Hours</p>
+            </div>
+            <p className="text-3xl font-bold mb-1">{stats.avgHours.toFixed(1)}h</p>
+            <p className="text-xs text-muted-foreground mb-3">Per employee today</p>
+            <Progress value={(stats.avgHours / 8) * 100} className="h-2" />
+            <p className="text-[10px] text-muted-foreground mt-1 text-right">8h goal</p>
+          </CardContent>
+        </Card>
+
+        {/* Issues */}
+        <Card className="border-border shadow-sm">
+          <CardContent className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-lg bg-amber-50 text-amber-600">
+                <AlertCircle className="h-4 w-4" />
+              </div>
+              <p className="font-semibold text-sm">Issues</p>
+            </div>
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Late arrivals</span>
+                <span className={`font-bold ${stats.late > 0 ? "text-amber-600" : "text-foreground"}`}>
+                  {stats.late}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground">Absences</span>
+                <span className={`font-bold ${stats.absent > 0 ? "text-red-600" : "text-foreground"}`}>
+                  {stats.absent}
+                </span>
+              </div>
+              <div className="border-t border-border pt-2 flex items-center justify-between text-sm">
+                <span className="font-semibold">Total issues</span>
+                <span className={`font-bold ${(stats.late + stats.absent) > 0 ? "text-destructive" : "text-foreground"}`}>
+                  {stats.late + stats.absent}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+      </div>
     </div>
   );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value, colorClass }: {
-  icon: any; label: string; value: number; colorClass: string;
+function StatCard({ icon: Icon, label, value, sub, colorClass }: {
+  icon: any; label: string; value: string; sub: string; colorClass: string;
 }) {
   return (
     <Card className="border-border bg-card shadow-sm hover:shadow-md transition-shadow">
@@ -381,6 +539,7 @@ function StatCard({ icon: Icon, label, value, colorClass }: {
         </div>
         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">{label}</p>
         <h2 className="text-2xl font-bold tracking-tight">{value}</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
       </CardContent>
     </Card>
   );
