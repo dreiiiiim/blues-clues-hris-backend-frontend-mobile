@@ -117,11 +117,11 @@ function newQuestion(): Question {
 
 function StatCard({ label, value, sub, color }: { label: string; value: number; sub: string; color: string }) {
   return (
-    <Card className="border-border shadow-sm">
+    <Card className="border-border/70 shadow-sm bg-[linear-gradient(160deg,rgba(37,99,235,0.05),rgba(15,23,42,0.00))]">
       <CardContent className="p-5">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
-        <p className={`text-2xl font-bold ${color}`}>{value}</p>
-        <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">{label}</p>
+        <p className={`text-3xl font-bold tracking-tight ${color}`}>{value}</p>
+        <p className="text-xs text-muted-foreground mt-1">{sub}</p>
       </CardContent>
     </Card>
   );
@@ -821,9 +821,26 @@ export default function HRJobsPage() {
 
   return (
     <div className="space-y-6">
+      <section className="relative overflow-hidden rounded-[26px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 py-7 text-white shadow-sm md:px-7 md:py-8">
+        <div className="absolute inset-y-0 right-0 w-72 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.20),transparent_60%)]" />
+        <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/70">Recruitment</p>
+            <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">Hiring Pipeline and Posting Controls</h1>
+            <p className="mt-2 max-w-2xl text-sm text-white/75">
+              Publish opportunities, monitor applicants, and keep recruitment velocity visible in one view.
+            </p>
+          </div>
+          <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-right backdrop-blur">
+            <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/65">Open Postings</p>
+            <p className="mt-1 text-lg font-bold">{openCount}</p>
+          </div>
+        </div>
+      </section>
+
       {/* Careers Page Banner */}
       {careersUrl && (
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-card border border-border rounded-xl px-5 py-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-card border border-border/70 rounded-2xl px-5 py-4 shadow-sm">
           <div className="flex items-center gap-3 min-w-0">
             <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
               <Link2 className="h-4 w-4" />
@@ -854,10 +871,10 @@ export default function HRJobsPage() {
       </div>
 
       {/* Table Card */}
-      <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 border-b border-border">
+      <div className="bg-card border border-border/70 rounded-2xl shadow-sm overflow-hidden">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 border-b border-border bg-[linear-gradient(155deg,rgba(37,99,235,0.07),rgba(15,23,42,0.00))]">
           <div>
-            <h2 className="font-bold text-base">Job Postings</h2>
+            <h2 className="font-bold text-base tracking-tight">Job Postings</h2>
             <p className="text-xs text-muted-foreground">Manage open positions for your company</p>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -873,7 +890,7 @@ export default function HRJobsPage() {
 
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
-            <thead className="text-[10px] font-bold text-muted-foreground bg-muted/30 border-b border-border uppercase tracking-widest">
+            <thead className="text-[10px] font-bold text-muted-foreground bg-muted/40 border-b border-border uppercase tracking-widest">
               <tr>
                 <th className="px-5 py-3">Job Title</th>
                 <th className="px-5 py-3">Location</th>
@@ -898,7 +915,7 @@ export default function HRJobsPage() {
                   </td>
                 </tr>
               ) : paged.map((job) => (
-                <tr key={job.job_posting_id} className="hover:bg-muted/20 transition-colors">
+                <tr key={job.job_posting_id} className="hover:bg-primary/5 transition-colors">
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-2">
                       <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -932,7 +949,7 @@ export default function HRJobsPage() {
           </table>
         </div>
 
-        <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-muted/10">
+        <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-muted/20">
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             {filtered.length > 0 ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}–${Math.min(page * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}` : "No results"}
           </p>
