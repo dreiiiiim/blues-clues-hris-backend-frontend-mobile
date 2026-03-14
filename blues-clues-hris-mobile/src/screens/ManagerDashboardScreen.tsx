@@ -7,7 +7,7 @@ import {
   SafeAreaView,
   useWindowDimensions,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
 import { MobileRoleMenu } from "../components/MobileRoleMenu";
 import { TimekeepingTable, TimekeepingLog } from "../components/TimekeepingTable";
@@ -132,6 +132,8 @@ const SUMMARY_CARDS = [
 
 export function ManagerDashboardScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const session = route.params?.session ?? { name: "Manager", email: "", role: "manager" };
   const { width } = useWindowDimensions();
   const isMobile = width < 900;
 
@@ -141,7 +143,8 @@ export function ManagerDashboardScreen() {
         {!isMobile && (
           <Sidebar
             role="manager"
-            userName="Rick Grimes"
+            userName={session.name}
+            email={session.email}
             activeScreen="Timekeeping"
             navigation={navigation}
           />
@@ -151,7 +154,8 @@ export function ManagerDashboardScreen() {
           {isMobile && (
             <MobileRoleMenu
               role="manager"
-              userName="Rick Grimes"
+              userName={session.name}
+              email={session.email}
               activeScreen="Timekeeping"
               navigation={navigation}
             />

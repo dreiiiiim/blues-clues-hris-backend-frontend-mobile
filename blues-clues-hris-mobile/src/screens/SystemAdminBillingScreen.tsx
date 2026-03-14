@@ -7,7 +7,7 @@ import {
   SafeAreaView,
   useWindowDimensions,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
 import { MobileRoleMenu } from "../components/MobileRoleMenu";
 
@@ -64,6 +64,8 @@ const BILLING_HISTORY = [
 
 export function SystemAdminBillingScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const session = route.params?.session ?? { name: "Admin", email: "", role: "system_admin" };
   const { width } = useWindowDimensions();
   const isMobile = width < 900;
 
@@ -73,7 +75,8 @@ export function SystemAdminBillingScreen() {
         {!isMobile && (
           <Sidebar
             role="system_admin"
-            userName="Rick Grimes"
+            userName={session.name}
+            email={session.email}
             activeScreen="Billing"
             navigation={navigation}
           />
@@ -83,7 +86,8 @@ export function SystemAdminBillingScreen() {
           {isMobile && (
             <MobileRoleMenu
               role="system_admin"
-              userName="Rick Grimes"
+              userName={session.name}
+              email={session.email}
               activeScreen="Billing"
               navigation={navigation}
             />

@@ -196,6 +196,30 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
   return res;
 }
 
+export async function applicantRegister(
+  fullName: string,
+  email: string,
+  password: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const parts = fullName.trim().split(/\s+/);
+    const firstName = parts[0] ?? "";
+    const lastName = parts.slice(1).join(" ");
+    const res = await fetch(`${API_BASE_URL}/applicants/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ first_name: firstName, last_name: lastName, email, password }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Registration failed." };
+    }
+    return { ok: true };
+  } catch {
+    return { ok: false, error: "Network error. Check your connection." };
+  }
+}
+
 export async function clearSession(): Promise<void> {
   try {
     const persistedRefresh = await AsyncStorage.getItem(REFRESH_KEY);

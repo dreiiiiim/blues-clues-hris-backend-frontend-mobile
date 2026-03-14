@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -6,37 +6,13 @@ import {
   ScrollView,
   SafeAreaView,
   useWindowDimensions,
+  ActivityIndicator,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
 import { MobileRoleMenu } from "../components/MobileRoleMenu";
-
-const SUMMARY_CARDS = [
-  {
-    id: "1",
-    label: "Total Users",
-    value: "1,284",
-    helper: "Across all departments",
-  },
-  {
-    id: "2",
-    label: "Active HR Modules",
-    value: "4",
-    helper: "Recruitment to performance",
-  },
-  {
-    id: "3",
-    label: "Pending Activations",
-    value: "18",
-    helper: "Awaiting invite acceptance",
-  },
-  {
-    id: "4",
-    label: "Locked Accounts",
-    value: "6",
-    helper: "Restricted by admin",
-  },
-];
+import { authFetch } from "../services/auth";
+import { API_BASE_URL } from "../lib/api";
 
 const RECENT_ACTIVITY = [
   {
@@ -65,10 +41,39 @@ const RECENT_ACTIVITY = [
   },
 ];
 
+type Stats = { total: number; active: number; pending: number; inactive: number };
+
 export function SystemAdminDashboardScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const session = route.params?.session ?? { name: "Admin", email: "", role: "system_admin" };
   const { width } = useWindowDimensions();
   const isMobile = width < 900;
+  const [stats, setStats] = useState<Stats | null>(null);
+  const [loadingStats, setLoadingStats] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE_URL}/users/stats`);
+        const data = await res.json().catch(() => ({}));
+        if (!cancelled) setStats(data);
+      } catch {
+        // leave null — fall back to dashes
+      } finally {
+        if (!cancelled) setLoadingStats(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const summaryCards = [
+    { id: "1", label: "Total Users",         value: stats ? String(stats.total)    : "—", helper: "Across all departments"      },
+    { id: "2", label: "Active Accounts",     value: stats ? String(stats.active)   : "—", helper: "Currently active staff"       },
+    { id: "3", label: "Pending Activations", value: stats ? String(stats.pending)  : "—", helper: "Awaiting invite acceptance"   },
+    { id: "4", label: "Inactive Accounts",   value: stats ? String(stats.inactive) : "—", helper: "Deactivated or not onboarded" },
+  ];
 
   return (
     <SafeAreaView style={styles.safeArea}>
@@ -76,7 +81,8 @@ export function SystemAdminDashboardScreen() {
         {!isMobile && (
           <Sidebar
             role="system_admin"
-            userName="Rick Grimes"
+            userName={session.name}
+            email={session.email}
             activeScreen="Dashboard"
             navigation={navigation}
           />
@@ -86,7 +92,8 @@ export function SystemAdminDashboardScreen() {
           {isMobile && (
             <MobileRoleMenu
               role="system_admin"
-              userName="Rick Grimes"
+              userName={session.name}
+              email={session.email}
               activeScreen="Dashboard"
               navigation={navigation}
             />
@@ -107,13 +114,17 @@ export function SystemAdminDashboardScreen() {
             </View>
 
             <View style={styles.summaryRow}>
-              {SUMMARY_CARDS.map((card) => (
-                <View key={card.id} style={styles.summaryCard}>
-                  <Text style={styles.summaryLabel}>{card.label}</Text>
-                  <Text style={styles.summaryValue}>{card.value}</Text>
-                  <Text style={styles.summaryHelper}>{card.helper}</Text>
-                </View>
-              ))}
+              {loadingStats ? (
+                <ActivityIndicator style={{ margin: 16 }} color="#2563EB" />
+              ) : (
+                summaryCards.map((card) => (
+                  <View key={card.id} style={styles.summaryCard}>
+                    <Text style={styles.summaryLabel}>{card.label}</Text>
+                    <Text style={styles.summaryValue}>{card.value}</Text>
+                    <Text style={styles.summaryHelper}>{card.helper}</Text>
+                  </View>
+                ))
+              )}
             </View>
 
             <View style={styles.sectionCard}>

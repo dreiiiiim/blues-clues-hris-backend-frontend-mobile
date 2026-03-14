@@ -17,6 +17,7 @@ import {
   FileCheck,
   Layers,
   ClipboardCheck,
+  Clock3,
   Loader2
 } from "lucide-react";
 
@@ -47,6 +48,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   manager: [
     { name: "Dashboard", href: "/manager", icon: LayoutDashboard },
     { name: "Team", href: "/manager/team", icon: Users },
+    { name: "Timekeeping", href: "/manager/timekeeping", icon: Clock3 },
     { name: "Approvals", href: "/manager/approvals", icon: ClipboardCheck },
   ],
   applicant: [

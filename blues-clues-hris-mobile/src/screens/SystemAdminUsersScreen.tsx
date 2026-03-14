@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -8,11 +8,15 @@ import {
   TextInput,
   Pressable,
   useWindowDimensions,
+  ActivityIndicator,
+  Alert,
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
 import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { authFetch } from "../services/auth";
+import { API_BASE_URL } from "../lib/api";
 
 type UserItem = {
   id: string;
@@ -27,57 +31,6 @@ type UserItem = {
   status: "Pending" | "Active" | "Locked" | "Inactive";
 };
 
-const INITIAL_USERS: UserItem[] = [
-  {
-    id: "1",
-    firstName: "Alicia",
-    lastName: "Reyes",
-    employeeId: "EMP-1001",
-    username: "areyes",
-    email: "alicia.reyes@company.com",
-    role: "HR Officer",
-    department: "Human Resources",
-    startDate: "Mar 10, 2026",
-    status: "Pending",
-  },
-  {
-    id: "2",
-    firstName: "Mark",
-    lastName: "Santos",
-    employeeId: "EMP-1002",
-    username: "msantos",
-    email: "mark.santos@company.com",
-    role: "Manager",
-    department: "Operations",
-    startDate: "Mar 11, 2026",
-    status: "Active",
-  },
-  {
-    id: "3",
-    firstName: "Jenny",
-    lastName: "Lopez",
-    employeeId: "EMP-1003",
-    username: "jlopez",
-    email: "jenny.lopez@company.com",
-    role: "HR Officer",
-    department: "Human Resources",
-    startDate: "Mar 12, 2026",
-    status: "Locked",
-  },
-  {
-    id: "4",
-    firstName: "Carlos",
-    lastName: "Mendoza",
-    employeeId: "EMP-1004",
-    username: "cmendoza",
-    email: "carlos.mendoza@company.com",
-    role: "Employee",
-    department: "Finance",
-    startDate: "Mar 13, 2026",
-    status: "Inactive",
-  },
-];
-
 const MODULE_OPTIONS = [
   "Recruitment",
   "Onboarding",
@@ -85,32 +38,68 @@ const MODULE_OPTIONS = [
   "Performance",
 ];
 
+function mapStatus(raw: string): UserItem["status"] {
+  switch (raw?.toLowerCase()) {
+    case "active":   return "Active";
+    case "pending":  return "Pending";
+    case "locked":   return "Locked";
+    default:         return "Inactive";
+  }
+}
+
 export function SystemAdminUsersScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const session = route.params?.session ?? { name: "Admin", email: "", role: "system_admin" };
   const { width } = useWindowDimensions();
   const isMobile = width < 900;
 
   const [search, setSearch] = useState("");
-  const [selectedModules, setSelectedModules] = useState<string[]>([
-    "Recruitment",
-    "Onboarding",
-  ]);
+  const [selectedModules, setSelectedModules] = useState<string[]>(["Recruitment", "Onboarding"]);
+  const [allUsers, setAllUsers] = useState<UserItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authFetch(`${API_BASE_URL}/users`);
+        const data = await res.json().catch(() => []);
+        if (!cancelled && Array.isArray(data)) {
+          const mapped: UserItem[] = data.map((u: any) => ({
+            id: u.user_id ?? u.id ?? String(Math.random()),
+            firstName: u.first_name ?? "",
+            lastName: u.last_name ?? "",
+            employeeId: u.employee_id ?? u.username ?? "—",
+            username: u.username ?? "—",
+            email: u.email ?? "",
+            role: u.role_name ?? u.role ?? "—",
+            department: u.department_name ?? u.department ?? "—",
+            startDate: u.created_at ? new Date(u.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—",
+            status: mapStatus(u.status ?? u.account_status ?? "inactive"),
+          }));
+          setAllUsers(mapped);
+        }
+      } catch {
+        // leave empty
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const users = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-
-    if (!keyword) return INITIAL_USERS;
-
-    return INITIAL_USERS.filter((user) => {
-      return (
-        `${user.firstName} ${user.lastName}`.toLowerCase().includes(keyword) ||
-        user.email.toLowerCase().includes(keyword) ||
-        user.role.toLowerCase().includes(keyword) ||
-        user.department.toLowerCase().includes(keyword) ||
-        user.employeeId.toLowerCase().includes(keyword)
-      );
-    });
-  }, [search]);
+    if (!keyword) return allUsers;
+    return allUsers.filter((user) =>
+      `${user.firstName} ${user.lastName}`.toLowerCase().includes(keyword) ||
+      user.email.toLowerCase().includes(keyword) ||
+      user.role.toLowerCase().includes(keyword) ||
+      user.department.toLowerCase().includes(keyword) ||
+      user.employeeId.toLowerCase().includes(keyword)
+    );
+  }, [search, allUsers]);
 
   const toggleModule = (module: string) => {
     setSelectedModules((prev) =>
@@ -155,7 +144,8 @@ export function SystemAdminUsersScreen() {
         {!isMobile && (
           <Sidebar
             role="system_admin"
-            userName="Rick Grimes"
+            userName={session.name}
+            email={session.email}
             activeScreen="Users"
             navigation={navigation}
           />
@@ -165,7 +155,8 @@ export function SystemAdminUsersScreen() {
           {isMobile && (
             <MobileRoleMenu
               role="system_admin"
-              userName="Rick Grimes"
+              userName={session.name}
+              email={session.email}
               activeScreen="Users"
               navigation={navigation}
             />
@@ -268,7 +259,13 @@ export function SystemAdminUsersScreen() {
                 />
               </View>
 
-              {users.map((user) => {
+              {loading ? (
+                <ActivityIndicator style={{ margin: 20 }} color="#2563EB" />
+              ) : users.length === 0 ? (
+                <Text style={{ color: "#94A3B8", textAlign: "center", padding: 20 }}>No users found.</Text>
+              ) : null}
+
+              {!loading && users.map((user) => {
                 const statusStyle = getStatusStyle(user.status);
 
                 return (
