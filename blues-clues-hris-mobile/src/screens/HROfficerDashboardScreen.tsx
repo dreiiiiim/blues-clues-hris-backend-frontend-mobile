@@ -1,6 +1,17 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { View, Text, ScrollView, SafeAreaView, StatusBar, TextInput, ActivityIndicator } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  ActivityIndicator,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+} from "react-native";
 import { Sidebar } from "../components/Sidebar";
+import { MobileRoleMenu } from "../components/MobileRoleMenu";
 import { Header } from "../components/Header";
 import { MetricCard } from "../components/MetricCard";
 import { Colors } from "../constants/colors";
@@ -15,34 +26,55 @@ type Employee = {
   role_id: string;
 };
 
+type JobPosting = {
+  job_posting_id: string;
+  status: "open" | "closed" | "draft";
+};
+
 export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
   const session: UserSession = route.params.session;
+  const { width } = useWindowDimensions();
+  const isMobile = width < 900;
+
   const [search, setSearch] = useState("");
   const [employees, setEmployees] = useState<Employee[]>([]);
+  const [jobs, setJobs] = useState<JobPosting[]>([]);
   const [totalCount, setTotalCount] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [usersRes, statsRes] = await Promise.all([
-          authFetch(`${API_BASE_URL}/users`),
-          authFetch(`${API_BASE_URL}/users/stats`),
-        ]);
-        const usersData = await usersRes.json().catch(() => []);
-        const statsData = await statsRes.json().catch(() => ({}));
-        if (!cancelled) {
-          setEmployees(Array.isArray(usersData) ? usersData : []);
-          setTotalCount(statsData?.total ?? null);
-        }
-      } catch {
-        // session expired or network error — leave empty state
-      } finally {
-        if (!cancelled) setLoading(false);
+  const loadDashboard = async (cancelRef?: { cancelled: boolean }) => {
+    try {
+      const [usersRes, statsRes, jobsRes] = await Promise.all([
+        authFetch(`${API_BASE_URL}/users`),
+        authFetch(`${API_BASE_URL}/users/stats`),
+        authFetch(`${API_BASE_URL}/jobs`),
+      ]);
+
+      const usersData = await usersRes.json().catch(() => []);
+      const statsData = await statsRes.json().catch(() => ({}));
+      const jobsData = await jobsRes.json().catch(() => []);
+
+      if (!cancelRef?.cancelled) {
+        setEmployees(Array.isArray(usersData) ? usersData : []);
+        setTotalCount(statsData?.total ?? null);
+        setJobs(Array.isArray(jobsData) ? jobsData : []);
       }
-    })();
-    return () => { cancelled = true; };
+    } catch {
+      if (!cancelRef?.cancelled) {
+        setEmployees([]);
+        setJobs([]);
+      }
+    } finally {
+      if (!cancelRef?.cancelled) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    const cancelRef = { cancelled: false };
+    loadDashboard(cancelRef);
+    return () => {
+      cancelRef.cancelled = true;
+    };
   }, []);
 
   const filtered = useMemo(() => {
@@ -53,26 +85,76 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
     });
   }, [search, employees]);
 
+  const openJobs = jobs.filter((j) => j.status === "open").length;
+  const draftJobs = jobs.filter((j) => j.status === "draft").length;
+
   return (
     <SafeAreaView style={{ backgroundColor: Colors.bgApp }} className="flex-1">
       <StatusBar barStyle="dark-content" />
       <View className="flex-1 flex-row">
-        <Sidebar role="hr" userName={session.name} activeScreen="Dashboard" navigation={navigation} />
+        {!isMobile && (
+          <Sidebar role="hr" userName={session.name} email={session.email} activeScreen="Dashboard" navigation={navigation} />
+        )}
+
         <View className="flex-1">
-          <Header role="hr" userName={session.name} />
+          {isMobile ? (
+            <MobileRoleMenu role="hr" userName={session.name} email={session.email} activeScreen="Dashboard" navigation={navigation} />
+          ) : (
+            <Header role="hr" userName={session.name} />
+          )}
+
           <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
+            <View style={{ backgroundColor: Colors.primary }} className="rounded-2xl p-5 mb-4">
+              <Text className="text-white text-[10px] font-bold uppercase tracking-widest">HR Control Center</Text>
+              <Text className="text-white text-xl font-bold mt-1">Welcome, {session.name}</Text>
+              <Text className="text-white/80 text-xs mt-2 leading-5">
+                Daily staffing visibility and recruitment shortcuts in one place.
+              </Text>
+
+              <View className="flex-row gap-2 mt-4">
+                <Pressable
+                  onPress={() => navigation.navigate("HROfficerRecruitment", { session })}
+                  style={{ backgroundColor: "rgba(255,255,255,0.15)", borderColor: "rgba(255,255,255,0.25)" }}
+                  className="px-3 py-2 rounded-lg border"
+                >
+                  <Text className="text-white text-[11px] font-bold uppercase tracking-wider">Recruitment</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setLoading(true);
+                    loadDashboard();
+                  }}
+                  style={{ backgroundColor: "rgba(255,255,255,0.15)", borderColor: "rgba(255,255,255,0.25)" }}
+                  className="px-3 py-2 rounded-lg border"
+                >
+                  <Text className="text-white text-[11px] font-bold uppercase tracking-wider">Refresh</Text>
+                </Pressable>
+              </View>
+            </View>
 
             <View className="flex-row gap-3 mb-4">
               <MetricCard
-                label="Total Headcount"
-                value={totalCount !== null ? String(totalCount) : "—"}
-                sub="Active Employees"
+                label="Headcount"
+                value={totalCount !== null ? String(totalCount) : "--"}
+                sub="Active employees"
                 trend=""
               />
-              <MetricCard label="Pending" value="—" sub="Action Required" trend="N/A" alert />
+              <MetricCard
+                label="Open Jobs"
+                value={String(openJobs)}
+                sub="Accepting applicants"
+                trend=""
+              />
             </View>
+
             <View className="mb-4">
-              <MetricCard label="New Hires" value="—" sub="Onboarding" trend="" />
+              <MetricCard
+                label="Draft Jobs"
+                value={String(draftJobs)}
+                sub="Need publishing"
+                trend=""
+                alert={draftJobs > 0}
+              />
             </View>
 
             <View className="rounded-2xl bg-white shadow-sm mb-6 overflow-hidden">
@@ -80,10 +162,15 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
                 <Text style={{ color: Colors.textPrimary }} className="font-bold text-base">Employee Directory</Text>
                 <Text style={{ color: Colors.textMuted }} className="text-xs mt-0.5">All employees in your company</Text>
                 <View style={{ borderColor: Colors.border }} className="mt-3 flex-row items-center rounded-xl border bg-white px-3 py-2.5">
-                  <Text style={{ color: Colors.textPlaceholder }} className="mr-2">🔍</Text>
-                  <TextInput value={search} onChangeText={setSearch} placeholder="Search employees..."
-                    placeholderTextColor={Colors.textPlaceholder} style={{ color: Colors.textPrimary }}
-                    className="flex-1 text-xs" />
+                  <Text style={{ color: Colors.textPlaceholder }} className="mr-2">Search</Text>
+                  <TextInput
+                    value={search}
+                    onChangeText={setSearch}
+                    placeholder="Search employees..."
+                    placeholderTextColor={Colors.textPlaceholder}
+                    style={{ color: Colors.textPrimary }}
+                    className="flex-1 text-xs"
+                  />
                 </View>
               </View>
 
@@ -104,8 +191,7 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
                     return (
                       <View key={row.user_id} style={{ borderBottomColor: Colors.bgSubtle }} className="flex-row items-center px-4 py-3 border-b">
                         <View className="flex-1 flex-row items-center">
-                          <View style={{ backgroundColor: Colors.primaryLight, borderColor: Colors.primaryBorder }}
-                            className="h-9 w-9 rounded-full items-center justify-center mr-3 border">
+                          <View style={{ backgroundColor: Colors.primaryLight, borderColor: Colors.primaryBorder }} className="h-9 w-9 rounded-full items-center justify-center mr-3 border">
                             <Text style={{ color: Colors.primary }} className="font-bold text-sm">{initials}</Text>
                           </View>
                           <View className="flex-1">
@@ -136,7 +222,6 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
                 </Text>
               </View>
             </View>
-
           </ScrollView>
         </View>
       </View>
