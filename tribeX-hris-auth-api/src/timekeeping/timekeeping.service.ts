@@ -41,7 +41,12 @@ export class TimekeepingService {
 
   constructor(private readonly supabaseService: SupabaseService) {}
 
-  async timeIn(userId: string, companyId: string, dto: TimePunchDto, req?: any) {
+  async timeIn(
+    userId: string,
+    companyId: string,
+    dto: TimePunchDto,
+    req?: any,
+  ) {
     const supabase = this.supabaseService.getClient();
     const today = todayDate();
 
@@ -55,7 +60,10 @@ export class TimekeepingService {
       .maybeSingle<TimeLogRow>();
 
     if (checkError) {
-      this.logger.error(`DB error during time-in check for user: ${userId}`, checkError);
+      this.logger.error(
+        `DB error during time-in check for user: ${userId}`,
+        checkError,
+      );
       throw new Error(checkError.message);
     }
 
@@ -90,7 +98,10 @@ export class TimekeepingService {
     });
 
     if (insertError) {
-      this.logger.error(`Failed to insert TIME_IN for user: ${userId}`, insertError);
+      this.logger.error(
+        `Failed to insert TIME_IN for user: ${userId}`,
+        insertError,
+      );
       throw new Error(insertError.message);
     }
 
@@ -106,7 +117,12 @@ export class TimekeepingService {
     };
   }
 
-  async timeOut(userId: string, companyId: string, dto: TimePunchDto, req?: any) {
+  async timeOut(
+    userId: string,
+    companyId: string,
+    dto: TimePunchDto,
+    req?: any,
+  ) {
     const supabase = this.supabaseService.getClient();
     const today = todayDate();
 
@@ -120,12 +136,17 @@ export class TimekeepingService {
       .maybeSingle<TimeLogRow>();
 
     if (checkError) {
-      this.logger.error(`DB error during time-out check for user: ${userId}`, checkError);
+      this.logger.error(
+        `DB error during time-out check for user: ${userId}`,
+        checkError,
+      );
       throw new Error(checkError.message);
     }
 
     if (!lastPunch) {
-      throw new BadRequestException('You have not timed in today. Please time in first.');
+      throw new BadRequestException(
+        'You have not timed in today. Please time in first.',
+      );
     }
 
     if (lastPunch.punch_type === 'TIME_OUT') {
@@ -159,7 +180,10 @@ export class TimekeepingService {
     });
 
     if (insertError) {
-      this.logger.error(`Failed to insert TIME_OUT for user: ${userId}`, insertError);
+      this.logger.error(
+        `Failed to insert TIME_OUT for user: ${userId}`,
+        insertError,
+      );
       throw new Error(insertError.message);
     }
 
@@ -209,7 +233,7 @@ export class TimekeepingService {
       .order('timestamp', { ascending: false });
 
     if (from) query = query.gte('date', from);
-    if (to)   query = query.lte('date', to);
+    if (to) query = query.lte('date', to);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -222,7 +246,8 @@ export class TimekeepingService {
 
     let query = supabase
       .from('time_logs')
-      .select(`
+      .select(
+        `
         log_id,
         punch_type,
         timestamp,
@@ -233,12 +258,13 @@ export class TimekeepingService {
         user_id,
         employee_id,
         user_profile (first_name, last_name)
-      `)
+      `,
+      )
       .eq('company_id', companyId)
       .order('timestamp', { ascending: false });
 
     if (from) query = query.gte('date', from);
-    if (to)   query = query.lte('date', to);
+    if (to) query = query.lte('date', to);
 
     const { data, error } = await query;
     if (error) throw new Error(error.message);
@@ -246,7 +272,11 @@ export class TimekeepingService {
     return data ?? [];
   }
 
-  async getEmployeeDetail(targetUserId: string, date: string, companyId: string) {
+  async getEmployeeDetail(
+    targetUserId: string,
+    date: string,
+    companyId: string,
+  ) {
     const supabase = this.supabaseService.getClient();
 
     const { data: targetUser, error: userError } = await supabase
@@ -257,7 +287,8 @@ export class TimekeepingService {
       .maybeSingle();
 
     if (userError) throw new Error(userError.message);
-    if (!targetUser) throw new NotFoundException('Employee not found in your company');
+    if (!targetUser)
+      throw new NotFoundException('Employee not found in your company');
 
     const { data: logs, error: logsError } = await supabase
       .from('time_logs')
@@ -279,13 +310,16 @@ export class TimekeepingService {
   }
 
   private groupByDate(logs: any[]) {
-    const grouped: Record<string, { date: string; time_in: any | null; time_out: any | null }> = {};
+    const grouped: Record<
+      string,
+      { date: string; time_in: any | null; time_out: any | null }
+    > = {};
 
     for (const log of logs) {
       if (!grouped[log.date]) {
         grouped[log.date] = { date: log.date, time_in: null, time_out: null };
       }
-      if (log.punch_type === 'TIME_IN')  grouped[log.date].time_in  = log;
+      if (log.punch_type === 'TIME_IN') grouped[log.date].time_in = log;
       if (log.punch_type === 'TIME_OUT') grouped[log.date].time_out = log;
     }
 

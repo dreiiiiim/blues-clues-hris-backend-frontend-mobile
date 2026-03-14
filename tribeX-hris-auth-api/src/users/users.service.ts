@@ -1,4 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
@@ -6,6 +12,19 @@ import { AuditService } from '../audit/audit.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as crypto from 'crypto';
+
+type UserListRow = {
+  user_id: string;
+  employee_id: string;
+  username: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  role_id: string | null;
+  department_id: string | null;
+  start_date: string | null;
+  account_status: string | null;
+};
 
 @Injectable()
 export class UsersService {
@@ -16,48 +35,220 @@ export class UsersService {
     private readonly auditService: AuditService,
   ) {}
 
-  // All queries filter by company_id — this is what enforces multi-tenancy.
-  // company_id comes from req.user (decoded from the JWT), never from the request body.
+  // All queries filter by company_id. company_id comes from req.user.
 
-  async getRoles(companyId: string) {
+  async getCompanies(companyId?: string) {
+    const supabase = this.supabaseService.getClient();
+    const baseQuery = supabase
+      .from('company')
+      .select('company_id, company_name')
+      .order('company_name');
+    const { data, error } = companyId
+      ? await baseQuery.eq('company_id', companyId)
+      : await baseQuery;
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  }
+
+  async getCompanyInfo(companyId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('company')
+      .select('company_id, company_name, slug')
+      .eq('company_id', companyId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!data) throw new NotFoundException('Company not found');
+    return data;
+  }
+
+  private async getNextEmployeeNumber(companyId: string): Promise<number> {
     const supabase = this.supabaseService.getClient();
 
-    // Fetch roles that belong to this company OR are global (company_id IS NULL)
-    const { data, error } = await supabase
+    // Optimistic concurrency control on last_number to avoid duplicates.
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const { data: seqRow, error: seqReadError } = await supabase
+        .from('employee_id_sequence')
+        .select('last_number')
+        .eq('company_id', companyId)
+        .maybeSingle();
+
+      if (seqReadError)
+        throw new InternalServerErrorException(seqReadError.message);
+
+      if (!seqRow) {
+        const { error: seedError } = await supabase
+          .from('employee_id_sequence')
+          .insert({ company_id: companyId, last_number: 0 });
+        if (seedError && (seedError as any).code !== '23505') {
+          throw new InternalServerErrorException(seedError.message);
+        }
+        continue;
+      }
+
+      const current = Number(seqRow.last_number ?? 0);
+      const next = current + 1;
+
+      const { data: updatedRow, error: seqUpdateError } = await supabase
+        .from('employee_id_sequence')
+        .update({ last_number: next })
+        .eq('company_id', companyId)
+        .eq('last_number', current)
+        .select('last_number')
+        .maybeSingle();
+
+      if (seqUpdateError)
+        throw new InternalServerErrorException(seqUpdateError.message);
+      if (updatedRow) return Number(updatedRow.last_number);
+    }
+
+    throw new InternalServerErrorException(
+      'Could not generate employee number due to concurrent updates. Please try again.',
+    );
+  }
+
+  private async getInviteExpiryMap(userIds: string[]) {
+    if (userIds.length === 0) return {} as Record<string, string | null>;
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('user_invites')
+      .select('user_id, expires_at')
+      .is('used_at', null)
+      .in('user_id', userIds)
+      .order('expires_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+
+    const map: Record<string, string | null> = {};
+    for (const row of data ?? []) {
+      if (!map[row.user_id]) map[row.user_id] = row.expires_at;
+    }
+    return map;
+  }
+
+  private async getLastLoginMap(userIds: string[]) {
+    if (userIds.length === 0) return {} as Record<string, string | null>;
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('login_history')
+      .select('user_id, li_timestamp')
+      .eq('status', 'SUCCESS')
+      .in('user_id', userIds)
+      .order('li_timestamp', { ascending: false });
+
+    if (error) throw new Error(error.message);
+
+    const lastLoginByUser: Record<string, string | null> = {};
+    for (const row of data ?? []) {
+      if (!lastLoginByUser[row.user_id]) {
+        lastLoginByUser[row.user_id] = row.li_timestamp;
+      }
+    }
+
+    return lastLoginByUser;
+  }
+
+  async getRoles(companyId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
       .from('role')
       .select('role_id, role_name')
-      .or(`company_id.eq.${companyId},company_id.is.null`)
+      .eq('company_id', companyId)
       .order('role_name');
 
     if (error) throw new Error(error.message);
     return data ?? [];
   }
 
-  async findAll(companyId: string) {
-    const { data, error } = await this.supabaseService.getClient()
-      .from('user_profile')
-      .select('user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status')
-      .eq('company_id', companyId)
-      .order('first_name');
+  async createDepartment(name: string, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+    const year = new Date().getFullYear();
 
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const rand = String(Math.floor(Math.random() * 9000) + 1000);
+      const department_id = `DPT-${year}-${rand}`;
+
+      const { data, error } = await supabase
+        .from('department')
+        .insert({ department_id, department_name: name, company_id: companyId })
+        .select('department_id, department_name')
+        .single();
+
+      if (!error) return data;
+      if ((error as any).code !== '23505') throw new Error(error.message);
+      // 23505 = unique violation on department_id, retry with new random
+    }
+
+    throw new InternalServerErrorException(
+      'Could not generate a unique department ID. Please try again.',
+    );
+  }
+
+  async getDepartments(companyId: string) {
+    if (!companyId) return [];
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('department')
+      .select('department_id, department_name')
+      .eq('company_id', companyId)
+      .order('department_name');
     if (error) throw new Error(error.message);
     return data ?? [];
   }
 
-  async findOne(id: string, companyId: string) {
-    const { data, error } = await this.supabaseService.getClient()
+  async findAll(companyId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
       .from('user_profile')
-      .select('user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status')
+      .select(
+        'user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status',
+      )
+      .eq('company_id', companyId)
+      .order('first_name');
+
+    if (error) throw new Error(error.message);
+
+    const users = (data ?? []) as UserListRow[];
+    const userIds = users.map((user) => user.user_id);
+
+    const [lastLoginByUser, inviteExpiryByUser] = await Promise.all([
+      this.getLastLoginMap(userIds),
+      this.getInviteExpiryMap(userIds),
+    ]);
+
+    return users.map((user) => ({
+      ...user,
+      last_login: lastLoginByUser[user.user_id] ?? null,
+      invite_expires_at: inviteExpiryByUser[user.user_id] ?? null,
+    }));
+  }
+
+  async findOne(id: string, companyId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('user_profile')
+      .select(
+        'user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status',
+      )
       .eq('user_id', id)
-      .eq('company_id', companyId) // prevents cross-company lookups
+      .eq('company_id', companyId)
       .maybeSingle();
 
     if (error) throw new Error(error.message);
-    return data;
+    if (!data) return data;
+
+    const lastLoginByUser = await this.getLastLoginMap([id]);
+    return {
+      ...data,
+      last_login: lastLoginByUser[id] ?? null,
+    };
   }
 
   async stats(companyId: string) {
-    const { count, error } = await this.supabaseService.getClient()
+    const { count, error } = await this.supabaseService
+      .getClient()
       .from('user_profile')
       .select('*', { count: 'exact', head: true })
       .eq('company_id', companyId);
@@ -66,108 +257,160 @@ export class UsersService {
     return { total: count ?? 0 };
   }
 
-  async create(dto: CreateUserDto, companyId: string, adminUserId: string) {
-    console.log('[create] received dto:', dto);
+  async create(
+    dto: CreateUserDto,
+    companyId: string,
+    adminUserId: string,
+  ) {
     const supabase = this.supabaseService.getClient();
     const user_id = crypto.randomUUID();
+    const email = dto.email.trim();
 
-    // Atomically increment the sequence counter in a single DB round-trip.
-    // Using a Postgres RPC prevents the read-modify-write race that would produce
-    // duplicate employee_id values under concurrent requests.
-    const { data: nextNumber, error: seqError } = await supabase
-      .rpc('get_next_employee_number', { p_company_id: companyId });
-
-    if (seqError) throw new Error(seqError.message);
+    const nextNumber = await this.getNextEmployeeNumber(companyId);
     const employee_id = `empno-${String(nextNumber).padStart(5, '0')}`;
 
-    // Check username is not already taken (username is globally unique across all companies)
     const { data: existingUsername } = await supabase
       .from('user_profile')
       .select('user_id')
       .eq('username', dto.username)
       .maybeSingle();
 
-    if (existingUsername) throw new Error(`Username "${dto.username}" is already taken`);
+    if (existingUsername) {
+      throw new ConflictException(
+        `Username "${dto.username}" is already taken`,
+      );
+    }
 
-    // Insert the new user into user_profile
-    // company_id comes from the JWT — admins can only create users under their own company
-    const { error: insertError } = await supabase
-      .from('user_profile')
-      .insert({
-        user_id,
-        email: dto.email,
-        first_name: dto.first_name,
-        last_name: dto.last_name,
-        role_id: dto.role_id,
-        company_id: companyId,
-        employee_id,
-        username: dto.username,
-        account_status: 'Pending',
-        ...(dto.department_id ? { department_id: dto.department_id } : {}),
-        ...(dto.start_date    ? { start_date: dto.start_date }       : {}),
-      });
+    const { data: roleRow, error: roleError } = await supabase
+      .from('role')
+      .select('role_id, company_id')
+      .eq('role_id', dto.role_id)
+      .maybeSingle();
+    if (roleError) throw new InternalServerErrorException(roleError.message);
+    if (!roleRow)
+      throw new BadRequestException('Selected role does not exist.');
+    if (roleRow.company_id && roleRow.company_id !== companyId) {
+      throw new BadRequestException(
+        'Selected role belongs to a different company.',
+      );
+    }
 
-    if (insertError) throw new Error(insertError.message);
+    if (dto.department_id) {
+      const { data: departmentRow, error: departmentError } = await supabase
+        .from('department')
+        .select('department_id, company_id')
+        .eq('department_id', dto.department_id)
+        .maybeSingle();
+      if (departmentError)
+        throw new InternalServerErrorException(departmentError.message);
+      if (!departmentRow)
+        throw new BadRequestException('Selected department does not exist.');
 
-    // Generate invite token — raw token goes in the email, hashed version is stored in DB
-    const rawToken  = crypto.randomBytes(32).toString('hex');
+      if (departmentRow.company_id && departmentRow.company_id !== companyId) {
+        throw new BadRequestException(
+          'Selected department belongs to a different company.',
+        );
+      }
+    }
+
+    const { error: insertError } = await supabase.from('user_profile').insert({
+      user_id,
+      email,
+      first_name: dto.first_name,
+      last_name: dto.last_name,
+      role_id: dto.role_id,
+      company_id: companyId,
+      employee_id,
+      username: dto.username,
+      account_status: 'Pending',
+      ...(dto.department_id ? { department_id: dto.department_id } : {}),
+      ...(dto.start_date ? { start_date: dto.start_date } : {}),
+    });
+
+    if (insertError) {
+      const dbCode = (insertError as any)?.code as string | undefined;
+      if (dbCode === '23505') {
+        throw new ConflictException(
+          'A user with the same username or email already exists.',
+        );
+      }
+      if (dbCode === '23503') {
+        throw new BadRequestException('Invalid role or department selected.');
+      }
+      throw new BadRequestException(insertError.message);
+    }
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(); // 48 hours
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
 
-    const { error: inviteError } = await supabase
-      .from('user_invites')
-      .insert({
-        invite_id: crypto.randomUUID(),
-        user_id,
-        token_hash: tokenHash,
-        expires_at: expiresAt,
-      });
+    const { error: inviteError } = await supabase.from('user_invites').insert({
+      invite_id: crypto.randomUUID(),
+      user_id,
+      token_hash: tokenHash,
+      expires_at: expiresAt,
+    });
 
-    if (inviteError) throw new Error(inviteError.message);
+    if (inviteError)
+      throw new InternalServerErrorException(inviteError.message);
 
-    // Build the invite link and send the email
-    // If email fails, roll back — delete the invite and user so there's no orphaned record
-    const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
+    const appUrl =
+      this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
     const inviteLink = `${appUrl}/set-password?token=${rawToken}`;
 
     try {
-      await this.mailService.sendInvite(dto.email, inviteLink);
+      await this.mailService.sendInvite(email, inviteLink);
     } catch (emailError) {
-      // TODO (Production): remove this fallback once a verified domain is set up in Resend
-      // For development: log the invite link to the terminal so you can test without email
       console.log('[create] email error:', emailError?.message ?? emailError);
       console.log('==========================================');
-      console.log('DEV MODE — invite link (copy and open in browser):');
+      console.log('DEV MODE - invite link (copy and open in browser):');
+      console.log(`Invite recipient: ${email}`);
       console.log(inviteLink);
       console.log('==========================================');
     }
 
-    await this.auditService.log(`User created: ${dto.email}`, adminUserId, user_id);
+    await this.auditService.log(
+      `User created: ${email}`,
+      adminUserId,
+      user_id,
+    );
 
-    return { user_id, employee_id, email: dto.email, username: dto.username };
+    return {
+      user_id,
+      employee_id,
+      email,
+      username: dto.username,
+      invite_expires_at: expiresAt,
+    };
   }
 
-  async update(id: string, dto: UpdateUserDto, companyId: string, adminUserId: string) {
+  async update(
+    id: string,
+    dto: UpdateUserDto,
+    companyId: string,
+    adminUserId: string,
+  ) {
     const supabase = this.supabaseService.getClient();
 
-    // Fetch current values so we can record before/after in the audit log
     const { data: user, error: findError } = await supabase
       .from('user_profile')
-      .select('user_id, email, first_name, last_name, role_id, department_id, start_date')
+      .select(
+        'user_id, email, first_name, last_name, role_id, department_id, start_date',
+      )
       .eq('user_id', id)
       .eq('company_id', companyId)
       .maybeSingle();
 
-    if (findError) throw new Error(findError.message);
-    if (!user) throw new Error('User not found in your company');
+    if (findError) throw new BadRequestException(findError.message);
+    if (!user) throw new NotFoundException('User not found in your company');
 
-    // Build the update payload from only the fields provided in the DTO
     const updates: Record<string, any> = {};
-    if (dto.first_name    !== undefined) updates.first_name    = dto.first_name;
-    if (dto.last_name     !== undefined) updates.last_name     = dto.last_name;
-    if (dto.role_id       !== undefined) updates.role_id       = dto.role_id;
-    if (dto.department_id !== undefined) updates.department_id = dto.department_id;
-    if (dto.start_date    !== undefined) updates.start_date    = dto.start_date;
+    if (dto.first_name !== undefined) updates.first_name = dto.first_name;
+    if (dto.last_name !== undefined) updates.last_name = dto.last_name;
+    if (dto.role_id !== undefined) updates.role_id = dto.role_id;
+    if (dto.department_id !== undefined)
+      updates.department_id = dto.department_id;
+    if (dto.start_date !== undefined) updates.start_date = dto.start_date;
 
     if (Object.keys(updates).length === 0) {
       return { message: 'No fields to update' };
@@ -179,17 +422,18 @@ export class UsersService {
       .eq('user_id', id)
       .eq('company_id', companyId);
 
-    if (updateError) throw new Error(updateError.message);
+    if (updateError) throw new BadRequestException(updateError.message);
 
-    // Build a before/after diff for each changed field
-    const changes = Object.keys(updates).map((field) => {
-      const before = user[field] ?? null;
-      const after  = updates[field] ?? null;
-      return `${field}: "${before}" → "${after}"`;
-    }).join(', ');
+    const changes = Object.keys(updates)
+      .map((field) => {
+        const before = user[field] ?? null;
+        const after = updates[field] ?? null;
+        return `${field}: "${before}" -> "${after}"`;
+      })
+      .join(', ');
 
     await this.auditService.log(
-      `User profile updated: ${user.email} — ${changes}`,
+      `User profile updated: ${user.email} - ${changes}`,
       adminUserId,
       id,
     );
@@ -207,19 +451,16 @@ export class UsersService {
       .eq('company_id', companyId)
       .maybeSingle();
 
-    if (findError) throw new Error(findError.message);
-    if (!user) throw new Error('User not found in your company');
+    if (findError) throw new BadRequestException(findError.message);
+    if (!user) throw new NotFoundException('User not found in your company');
 
-    // Soft delete: set account_status to 'Inactive' instead of deleting the row.
-    // This preserves all FK references (login_history, audit_logs, etc.) and keeps
-    // the audit trail intact. The user can be reactivated by setting status back to 'Active'.
     const { error: deactivateError } = await supabase
       .from('user_profile')
       .update({ account_status: 'Inactive' })
       .eq('user_id', id)
       .eq('company_id', companyId);
 
-    if (deactivateError) throw new Error(deactivateError.message);
+    if (deactivateError) throw new BadRequestException(deactivateError.message);
 
     // Revoke all active refresh sessions so the user is immediately logged out
     await supabase
@@ -228,9 +469,73 @@ export class UsersService {
       .eq('user_id', id)
       .is('revoked_at', null);
 
-    await this.auditService.log(`User deactivated: ${user.email}`, adminUserId, id);
+    await this.auditService.log(
+      `User deactivated: ${user.email}`,
+      adminUserId,
+      id,
+    );
 
     return { message: 'User deactivated successfully' };
+  }
+
+  async resendInvite(id: string, companyId: string, adminUserId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: user, error: findError } = await supabase
+      .from('user_profile')
+      .select('user_id, email, account_status, password_hash')
+      .eq('user_id', id)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (findError) throw new BadRequestException(findError.message);
+    if (!user) throw new NotFoundException('User not found in your company');
+    if (user.account_status === 'Inactive')
+      throw new BadRequestException('Cannot resend invite to a deactivated account.');
+    if (user.password_hash)
+      throw new BadRequestException('User has already activated their account.');
+
+    // Revoke all existing unused invites
+    await supabase
+      .from('user_invites')
+      .delete()
+      .eq('user_id', id)
+      .is('used_at', null);
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+    const { error: inviteError } = await supabase.from('user_invites').insert({
+      invite_id: crypto.randomUUID(),
+      user_id: id,
+      token_hash: tokenHash,
+      expires_at: expiresAt,
+    });
+
+    if (inviteError) throw new InternalServerErrorException(inviteError.message);
+
+    const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
+    const inviteLink = `${appUrl}/set-password?token=${rawToken}`;
+
+    try {
+      await this.mailService.sendInvite(user.email, inviteLink);
+    } catch (emailError) {
+      console.log('[resendInvite] email error:', emailError?.message ?? emailError);
+      console.log('==========================================');
+      console.log('DEV MODE - invite link (copy and open in browser):');
+      console.log(`Invite recipient: ${user.email}`);
+      console.log(inviteLink);
+      console.log('==========================================');
+    }
+
+    await this.auditService.log(
+      `Invite resent to: ${user.email}`,
+      adminUserId,
+      id,
+    );
+
+    return { message: `Invite resent to ${user.email}.`, invite_expires_at: expiresAt };
   }
 
   async reactivate(id: string, companyId: string, adminUserId: string) {
@@ -238,25 +543,32 @@ export class UsersService {
 
     const { data: user, error: findError } = await supabase
       .from('user_profile')
-      .select('user_id, email, account_status')
+      .select('user_id, email, account_status, password_hash')
       .eq('user_id', id)
       .eq('company_id', companyId)
       .maybeSingle();
 
-    if (findError) throw new Error(findError.message);
-    if (!user) throw new Error('User not found in your company');
-    if (user.account_status !== 'Inactive') throw new Error('User is not inactive');
+    if (findError) throw new BadRequestException(findError.message);
+    if (!user) throw new NotFoundException('User not found in your company');
+    if (user.account_status !== 'Inactive')
+      throw new BadRequestException('User is not inactive');
+
+    const nextStatus = user.password_hash ? 'Active' : 'Pending';
 
     const { error: updateError } = await supabase
       .from('user_profile')
-      .update({ account_status: 'Active' })
+      .update({ account_status: nextStatus })
       .eq('user_id', id)
       .eq('company_id', companyId);
 
-    if (updateError) throw new Error(updateError.message);
+    if (updateError) throw new BadRequestException(updateError.message);
 
-    await this.auditService.log(`User reactivated: ${user.email}`, adminUserId, id);
+    await this.auditService.log(
+      `User reactivated: ${user.email} -> ${nextStatus}`,
+      adminUserId,
+      id,
+    );
 
-    return { message: 'User reactivated successfully' };
+    return { message: `User reactivated successfully as ${nextStatus}` };
   }
 }

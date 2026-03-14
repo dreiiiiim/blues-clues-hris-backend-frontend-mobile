@@ -22,7 +22,14 @@ import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
 // Mirrors the role constants used in users.controller.ts
-const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
+const HR_AND_ABOVE = [
+  'Admin',
+  'System Admin',
+  'HR Officer',
+  'HR Recruiter',
+  'HR Interviewer',
+  'Manager',
+];
 
 @ApiTags('Timekeeping')
 @UseGuards(JwtAuthGuard) // All timekeeping routes require a valid JWT
@@ -91,7 +98,11 @@ export class TimekeepingController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.timekeepingService.getMyTimesheet(req.user.sub_userid, from, to);
+    return this.timekeepingService.getMyTimesheet(
+      req.user.sub_userid,
+      from,
+      to,
+    );
   }
 
   // --- HR / MANAGER ROUTES ---
@@ -114,7 +125,11 @@ export class TimekeepingController {
     @Query('to') to?: string,
   ) {
     // company_id always from JWT — HR can only see their own company's records
-    return this.timekeepingService.getAllTimesheets(req.user.company_id, from, to);
+    return this.timekeepingService.getAllTimesheets(
+      req.user.company_id,
+      from,
+      to,
+    );
   }
 
   @Get('timesheets/:userId/:date')
@@ -127,8 +142,15 @@ export class TimekeepingController {
       'specific employee on a specific date. This is the detail view from the ' +
       'sequence diagram (Step 2). GPS/IP location is included.',
   })
-  @ApiParam({ name: 'userId', description: 'user_id of the target employee (UUID)' })
-  @ApiParam({ name: 'date', description: 'Date in YYYY-MM-DD format', example: '2026-03-10' })
+  @ApiParam({
+    name: 'userId',
+    description: 'user_id of the target employee (UUID)',
+  })
+  @ApiParam({
+    name: 'date',
+    description: 'Date in YYYY-MM-DD format',
+    example: '2026-03-10',
+  })
   getEmployeeDetail(
     @Param('userId') userId: string,
     @Param('date') date: string,

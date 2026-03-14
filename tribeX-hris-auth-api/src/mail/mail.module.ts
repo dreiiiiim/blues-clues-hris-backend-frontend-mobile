@@ -1,11 +1,11 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MailService } from './mail.service';
 import { MailController } from './mail.controller';
 import { AuthModule } from '../auth/auth.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 
 @Module({
-  imports: [AuthModule, SupabaseModule],
+  imports: [forwardRef(() => AuthModule), SupabaseModule],
   controllers: [MailController],
   providers: [MailService],
   exports: [MailService],

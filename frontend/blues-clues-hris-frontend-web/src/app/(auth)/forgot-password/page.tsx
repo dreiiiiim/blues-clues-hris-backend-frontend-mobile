@@ -22,14 +22,18 @@ export default function ForgotPasswordPage() {
     setError("");
     try {
       // POST /forgot-password — always shows success to avoid email enumeration
-      await fetch(`${API_BASE_URL}/forgot-password`, {
+      const res = await fetch(`${API_BASE_URL}/forgot-password`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email }),
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.message || "Failed to send reset link.");
+      }
       setSubmitted(true);
-    } catch {
-      setError("Something went wrong. Please try again.");
+    } catch (err: any) {
+      setError(err?.message || "Something went wrong. Please try again.");
     } finally {
       setIsLoading(false);
     }

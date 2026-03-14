@@ -1,9 +1,10 @@
 // src/lib/authApi.ts
 import { API_BASE_URL } from "./api";
 import {
+  clearAuthStorage,
   getAccessToken,
   writeAccessToken,
-  clearAuthStorage,
+  getUserInfo,
 } from "./authStorage";
 
 let refreshPromise: Promise<any> | null = null;
@@ -27,10 +28,37 @@ export async function loginApi(body: {
   return data as { access_token: string };
 }
 
+export async function applicantRegisterApi(
+  body: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    password: string;
+    phone_number?: string;
+  },
+  companyId?: string,
+) {
+  const url = companyId
+    ? `${API_BASE_URL}/applicants/register?company=${encodeURIComponent(companyId)}`
+    : `${API_BASE_URL}/applicants/register`;
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Registration failed");
+
+  return data as { applicant_id: string; email: string; message: string };
+}
+
 export async function applicantLoginApi(body: { email: string; password: string }) {
   const res = await fetch(`${API_BASE_URL}/applicants/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    credentials: "include",
     body: JSON.stringify(body),
   });
 
@@ -82,6 +110,32 @@ export async function refreshApi() {
   return data as { access_token: string };
 }
 
+export async function applicantRefreshApi() {
+  const res = await fetch(`${API_BASE_URL}/applicants/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Applicant refresh failed");
+  if (!data?.access_token) throw new Error("Missing access_token");
+  writeAccessToken(data.access_token);
+  return data as { access_token: string };
+}
+
+export async function applicantLogoutApi() {
+  const access_token = getAccessToken();
+  await fetch(`${API_BASE_URL}/applicants/logout`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(access_token ? { Authorization: `Bearer ${access_token}` } : {}),
+    },
+    credentials: "include",
+  }).catch(() => {});
+  clearAuthStorage();
+}
+
 export async function logoutApi() {
   const access_token = getAccessToken();
 
@@ -95,6 +149,87 @@ export async function logoutApi() {
   }).catch(() => {});
 
   clearAuthStorage();
+}
+
+// ---------------------------------------------------------------------------
+// Job-related API helpers (applicant-facing)
+// ---------------------------------------------------------------------------
+
+export async function getApplicantJobs() {
+  const res = await authFetch(`${API_BASE_URL}/jobs/applicant/open`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch jobs");
+  return data as JobPosting[];
+}
+
+export async function applyToJob(jobPostingId: string, dto?: { cover_letter?: string }) {
+  const res = await authFetch(`${API_BASE_URL}/jobs/${jobPostingId}/apply`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(dto ?? {}),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Failed to apply");
+  return data;
+}
+
+export async function getMyApplications() {
+  const res = await authFetch(`${API_BASE_URL}/jobs/applicant/my-applications`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch applications");
+  return data as MyApplication[];
+}
+
+export type JobPosting = {
+  job_posting_id: string;
+  title: string;
+  description: string;
+  location: string | null;
+  employment_type: string | null;
+  salary_range: string | null;
+  status: "open" | "closed" | "draft";
+  posted_at: string;
+  closes_at: string | null;
+  department_id: string | null;
+  company_id: string;
+};
+
+export type MyApplication = {
+  application_id: string;
+  status: string;
+  applied_at: string;
+  job_posting_id: string;
+  job_postings: {
+    title: string;
+    location: string | null;
+    employment_type: string | null;
+    status: string;
+  };
+};
+
+// ---------------------------------------------------------------------------
+// Public careers page API helpers (no auth required)
+// ---------------------------------------------------------------------------
+
+export type PublicCareersPage = {
+  company_id: string;
+  company_name: string;
+  slug: string;
+  jobs: Pick<JobPosting, 'job_posting_id' | 'title' | 'description' | 'location' | 'employment_type' | 'salary_range' | 'posted_at' | 'closes_at'>[];
+};
+
+export async function getPublicCareers(slug: string): Promise<PublicCareersPage> {
+  const res = await fetch(`${API_BASE_URL}/jobs/public/careers/${encodeURIComponent(slug)}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || 'Company not found');
+  return data as PublicCareersPage;
+}
+
+export async function getMyCompany(): Promise<{ company_id: string; company_name: string; slug: string }> {
+  const res = await authFetch(`${API_BASE_URL}/users/company/me`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || 'Failed to fetch company info');
+  return data;
 }
 
 export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
@@ -117,7 +252,9 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
   // 2) try refresh then retry (shared promise prevents concurrent refresh race)
   try {
     if (!refreshPromise) {
-      refreshPromise = refreshApi().finally(() => { refreshPromise = null; });
+      const userInfo = getUserInfo();
+      const doRefresh = userInfo?.role === "applicant" ? applicantRefreshApi : refreshApi;
+      refreshPromise = doRefresh().finally(() => { refreshPromise = null; });
     }
     const { access_token } = await refreshPromise;
 
@@ -132,10 +269,11 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
 
     return second;
   } catch {
-    // refresh failed: session is fully expired — clear storage and send to login
+    // refresh failed: session is fully expired — clear storage and send to correct login page
     clearAuthStorage();
     if (typeof window !== "undefined") {
-      window.location.href = "/login";
+      const userInfo = getUserInfo();
+      window.location.href = userInfo?.role === "applicant" ? "/applicant/login" : "/login";
     }
     return first;
   }

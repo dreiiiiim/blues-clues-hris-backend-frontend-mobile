@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import {
   Search, UserPlus, MoreHorizontal, X,
   ChevronLeft, ChevronRight, Pencil, UserX, UserCheck,
-  Filter, Download, Check,
+  Filter, Download, Check, Mail, Building2, Plus,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,6 +22,11 @@ interface Role {
   role_name: string;
 }
 
+interface Department {
+  department_id: string;
+  department_name: string;
+}
+
 interface Employee {
   user_id: string;
   employee_id: string;
@@ -29,10 +34,13 @@ interface Employee {
   first_name: string;
   last_name: string;
   email: string;
+  company_id: string | null;
   role_id: string | null;
   department_id: string | null;
   start_date: string | null;
   account_status: "Active" | "Inactive" | "Pending";
+  last_login: string | null;
+  invite_expires_at: string | null;
 }
 
 interface Stats {
@@ -84,17 +92,70 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function formatLastLogin(value: string | null) {
+  if (!value) return "Never";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unknown";
+
+  return parsed.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatInviteDeadline(value: string | null) {
+  if (!value) return "No active invite";
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "Unknown";
+
+  return parsed.toLocaleString("en-US", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatInviteCountdown(expiresAt: string | null, now: number) {
+  if (!expiresAt) return "No active invite";
+
+  const expiry = new Date(expiresAt).getTime();
+  if (Number.isNaN(expiry)) return "Unknown";
+
+  const diff = expiry - now;
+  if (diff <= 0) return "Expired";
+
+  const totalSeconds = Math.floor(diff / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
 // Row action dropdown
 function RowMenu({
   employee,
   onEdit,
   onDeactivate,
   onReactivate,
+  onResendInvite,
 }: {
   employee: Employee;
   onEdit: () => void;
   onDeactivate: () => void;
   onReactivate: () => void;
+  onResendInvite: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -143,6 +204,14 @@ function RowMenu({
           >
             <Pencil className="h-3.5 w-3.5" /> Edit Details
           </button>
+          {employee.account_status === "Pending" && (
+            <button
+              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-blue-600"
+              onClick={() => { onResendInvite(); setOpen(false); }}
+            >
+              <Mail className="h-3.5 w-3.5" /> Resend Invite
+            </button>
+          )}
           {employee.account_status === "Inactive" ? (
             <button
               className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600"
@@ -164,13 +233,108 @@ function RowMenu({
   );
 }
 
+// Manage Departments slide-over
+function ManageDepartmentsPanel({
+  departments,
+  onClose,
+  onCreated,
+}: {
+  departments: Department[];
+  onClose: () => void;
+  onCreated: (dept: Department) => void;
+}) {
+  const [name, setName] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleCreate = async () => {
+    if (!name.trim()) { setError("Department name is required."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      const dept = await apiFetch<Department>("/users/departments", {
+        method: "POST",
+        body: JSON.stringify({ department_name: name.trim() }),
+      });
+      onCreated(dept);
+      setName("");
+      toast.success(`Department "${dept.department_name}" created.`);
+    } catch (err: any) {
+      setError(err?.message || "Failed to create department.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end">
+      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <div className="relative bg-card w-full max-w-md h-full shadow-2xl flex flex-col overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+          <div>
+            <h2 className="font-bold text-lg flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-muted-foreground" /> Departments
+            </h2>
+            <p className="text-xs text-muted-foreground">Manage departments for your organization</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+
+        <div className="flex-1 px-6 py-6 space-y-5 overflow-y-auto">
+          {/* Create new */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">New Department</label>
+            <div className="flex gap-2">
+              <Input
+                placeholder="e.g. Engineering"
+                value={name}
+                onChange={e => { setName(e.target.value); setError(""); }}
+                className={error ? "border-red-400 focus-visible:ring-red-300" : ""}
+              />
+              <Button onClick={handleCreate} disabled={loading} className="shrink-0 gap-1">
+                <Plus className="h-4 w-4" />{loading ? "..." : "Add"}
+              </Button>
+            </div>
+            {error && <p className="text-xs text-red-500">{error}</p>}
+          </div>
+
+          {/* List */}
+          <div className="space-y-2">
+            <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Existing ({departments.length})
+            </p>
+            {departments.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No departments yet.</p>
+            ) : (
+              <div className="space-y-1.5">
+                {departments.map(d => (
+                  <div key={d.department_id} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2">
+                    <span className="text-sm font-medium text-foreground">{d.department_name}</span>
+                    <span className="text-[11px] font-mono text-muted-foreground">{d.department_id}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="px-6 py-5 border-t border-border">
+          <Button variant="outline" className="w-full" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Add User slide-over
 function AddUserPanel({
   roles,
+  departments,
   onClose,
   onCreated,
 }: {
   roles: Role[];
+  departments: Department[];
   onClose: () => void;
   onCreated: (employee: Employee) => void;
 }) {
@@ -194,6 +358,7 @@ function AddUserPanel({
     if (!form.first_name.trim()) e.first_name = "Required";
     if (!form.last_name.trim()) e.last_name = "Required";
     if (!form.username.trim()) e.username = "Required";
+    else if (/\s/.test(form.username)) e.username = "Username must not contain spaces";
     if (!form.email.trim()) e.email = "Required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Invalid email";
     if (!form.role_id) e.role_id = "Required";
@@ -212,10 +377,10 @@ function AddUserPanel({
         email: form.email,
         role_id: form.role_id,
       };
-      if (form.department_id.trim()) payload.department_id = form.department_id.trim();
+      if (form.department_id) payload.department_id = form.department_id;
       if (form.start_date) payload.start_date = form.start_date;
 
-      const res = await apiFetch<{ user_id: string; employee_id: string; email: string; username: string }>("/users", {
+      const res = await apiFetch<{ user_id: string; employee_id: string; email: string; username: string; invite_expires_at: string | null }>("/users", {
         method: "POST",
         body: JSON.stringify(payload),
       });
@@ -227,14 +392,17 @@ function AddUserPanel({
         first_name: form.first_name,
         last_name: form.last_name,
         email: res.email,
+        company_id: null,
         role_id: form.role_id,
-        department_id: form.department_id.trim() || null,
+        department_id: form.department_id || null,
         start_date: form.start_date || null,
         account_status: "Pending",
+        last_login: null,
+        invite_expires_at: res.invite_expires_at,
       };
 
       onCreated(newEmployee);
-      toast.success("User created. Invite email sent.");
+      toast.success(`User created. Invite email sent to ${res.email}.`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to create user.");
     } finally {
@@ -262,7 +430,7 @@ function AddUserPanel({
       <div className="relative bg-card w-full max-w-md h-full shadow-2xl flex flex-col overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
-            <h2 className="font-bold text-lg">Add New Employee</h2>
+            <h2 className="font-bold text-lg">Add New User</h2>
             <p className="text-xs text-muted-foreground">Provision a new account for your company</p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
@@ -274,7 +442,7 @@ function AddUserPanel({
             {field("Last Name", "last_name", "text", "e.g. dela Cruz")}
           </div>
           {field("Username", "username", "text", "e.g. juan.delacruz")}
-          {field("Email", "email", "email", "e.g. juan@company.com")}
+          {field("Email", "email", "email", "e.g. juan@email.com")}
 
           <div className="space-y-1.5">
             <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Role</label>
@@ -291,14 +459,27 @@ function AddUserPanel({
             {errors.role_id && <p className="text-xs text-red-500">{errors.role_id}</p>}
           </div>
 
-          {field("Department ID", "department_id", "text", "Optional")}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department</label>
+            <select
+              value={form.department_id}
+              onChange={e => set("department_id", e.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Select department...</option>
+              {departments.length === 0 && (
+                <option value="" disabled>No departments available</option>
+              )}
+              {departments.map(d => <option key={d.department_id} value={d.department_id}>{d.department_name}</option>)}
+            </select>
+          </div>
           {field("Start Date", "start_date", "date")}
         </div>
 
         <div className="px-6 py-5 border-t border-border flex gap-3">
           <Button variant="outline" className="flex-1" onClick={onClose} disabled={loading}>Cancel</Button>
           <Button className="flex-1" onClick={handleSubmit} disabled={loading}>
-            {loading ? "Creating..." : "Create Employee"}
+            {loading ? "Creating..." : "Create User"}
           </Button>
         </div>
       </div>
@@ -310,11 +491,13 @@ function AddUserPanel({
 function EditUserPanel({
   employee,
   roles,
+  departments,
   onClose,
   onSaved,
 }: {
   employee: Employee;
   roles: Role[];
+  departments: Department[];
   onClose: () => void;
   onSaved: (updated: Employee) => void;
 }) {
@@ -325,25 +508,35 @@ function EditUserPanel({
     department_id: employee.department_id ?? "",
     start_date: employee.start_date ?? "",
   });
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
 
   const set = (field: string, value: string) =>
     setForm(f => ({ ...f, [field]: value }));
 
+  const validate = () => {
+    const nextErrors: Record<string, string> = {};
+    if (!form.first_name.trim()) nextErrors.first_name = "Required";
+    if (!form.last_name.trim()) nextErrors.last_name = "Required";
+    if (!form.role_id) nextErrors.role_id = "Required";
+    return nextErrors;
+  };
+
   const handleSave = async () => {
+    const nextErrors = validate();
+    if (Object.keys(nextErrors).length > 0) { setErrors(nextErrors); return; }
+
     setLoading(true);
     try {
-      const payload: Record<string, string | null> = {
-        first_name: form.first_name,
-        last_name: form.last_name,
-        role_id: form.role_id || null,
-        department_id: form.department_id.trim() || null,
-        start_date: form.start_date || null,
-      };
-
       await apiFetch(`/users/${employee.user_id}`, {
         method: "PATCH",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          first_name: form.first_name,
+          last_name: form.last_name,
+          role_id: form.role_id || null,
+          department_id: form.department_id || null,
+          start_date: form.start_date || null,
+        }),
       });
 
       onSaved({
@@ -351,7 +544,7 @@ function EditUserPanel({
         first_name: form.first_name,
         last_name: form.last_name,
         role_id: form.role_id || null,
-        department_id: form.department_id.trim() || null,
+        department_id: form.department_id || null,
         start_date: form.start_date || null,
       });
       toast.success("Employee updated.");
@@ -386,11 +579,21 @@ function EditUserPanel({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">First Name</label>
-              <Input value={form.first_name} onChange={e => set("first_name", e.target.value)} />
+              <Input
+                value={form.first_name}
+                onChange={e => set("first_name", e.target.value)}
+                className={errors.first_name ? "border-red-400 focus-visible:ring-red-300" : ""}
+              />
+              {errors.first_name && <p className="text-xs text-red-500">{errors.first_name}</p>}
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Last Name</label>
-              <Input value={form.last_name} onChange={e => set("last_name", e.target.value)} />
+              <Input
+                value={form.last_name}
+                onChange={e => set("last_name", e.target.value)}
+                className={errors.last_name ? "border-red-400 focus-visible:ring-red-300" : ""}
+              />
+              {errors.last_name && <p className="text-xs text-red-500">{errors.last_name}</p>}
             </div>
           </div>
 
@@ -399,16 +602,27 @@ function EditUserPanel({
             <select
               value={form.role_id}
               onChange={e => set("role_id", e.target.value)}
-              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+              className={`w-full h-10 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 ${
+                errors.role_id ? "border-red-400" : "border-input"
+              }`}
             >
               <option value="">Select role...</option>
               {roles.map(r => <option key={r.role_id} value={r.role_id}>{r.role_name}</option>)}
             </select>
+            {errors.role_id && <p className="text-xs text-red-500">{errors.role_id}</p>}
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department ID</label>
-            <Input value={form.department_id} onChange={e => set("department_id", e.target.value)} placeholder="Optional" />
+            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department</label>
+            <select
+              value={form.department_id}
+              onChange={e => set("department_id", e.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">Select department...</option>
+              {departments.length === 0 && <option value="" disabled>No departments available</option>}
+              {departments.map(d => <option key={d.department_id} value={d.department_id}>{d.department_name}</option>)}
+            </select>
           </div>
 
           <div className="space-y-1.5">
@@ -467,20 +681,25 @@ function ConfirmDeactivate({
 export default function AdminUsersPage() {
   const user = getUserInfo();
   const currentUserId = parseJwt(getAccessToken() ?? "")?.sub_userid as string | undefined;
+  const isSystemAdmin = user?.role === "system-admin";
   useWelcomeToast(user?.name || "Admin", "User Management");
 
   const [employees, setEmployees]       = useState<Employee[]>([]);
   const [stats, setStats]               = useState<Stats | null>(null);
   const [roles, setRoles]               = useState<Role[]>([]);
+  const [departments, setDepartments]   = useState<Department[]>([]);
   const [loading, setLoading]           = useState(true);
+  const [now, setNow]                   = useState(() => Date.now());
   const [search, setSearch]             = useState("");
   const [page, setPage]                 = useState(1);
 
   const [showAdd, setShowAdd]           = useState(false);
+  const [showDeptPanel, setShowDeptPanel] = useState(false);
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
   const [confirmDeact, setConfirmDeact] = useState<Employee | null>(null);
   const [showFilter, setShowFilter]     = useState(false);
   const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
+  const [deptFilter, setDeptFilter]     = useState("");
   const filterRef                       = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -489,6 +708,11 @@ export default function AdminUsersPage() {
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
   const load = useCallback(async () => {
@@ -502,6 +726,15 @@ export default function AdminUsersPage() {
       setEmployees(users);
       setStats(statsData);
       setRoles(rolesData);
+      try {
+        const departmentsData = await apiFetch<Department[] | null>("/users/departments");
+        setDepartments(Array.isArray(departmentsData) ? departmentsData : []);
+      } catch {
+        // Keep user management usable even if departments endpoint is not yet deployed.
+        setDepartments([]);
+        toast.error("Departments failed to load. Please check backend deploy/API URL.");
+      }
+
     } catch {
       toast.error("Failed to load data.");
     } finally {
@@ -510,6 +743,11 @@ export default function AdminUsersPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  const departmentNameById = (departmentId: string | null) => {
+    if (!departmentId) return "—";
+    return departments.find(d => d.department_id === departmentId)?.department_name ?? departmentId;
+  };
 
   const filtered = employees.filter(e => {
     const q = search.toLowerCase();
@@ -520,7 +758,8 @@ export default function AdminUsersPage() {
       e.employee_id.toLowerCase().includes(q)
     );
     const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status);
-    return matchesSearch && matchesStatus;
+    const matchesDept = !deptFilter || e.department_id === deptFilter;
+    return matchesSearch && matchesStatus && matchesDept;
   });
 
   const toggleStatus = (status: string) => {
@@ -534,6 +773,7 @@ export default function AdminUsersPage() {
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const tableColSpan = 8;
 
   // Derived stats from employee list
   const activeCount   = employees.filter(e => e.account_status === "Active").length;
@@ -551,6 +791,18 @@ export default function AdminUsersPage() {
     setEditEmployee(null);
   };
 
+  const handleResendInvite = async (employee: Employee) => {
+    try {
+      const res = await apiFetch<{ message: string; invite_expires_at: string }>(`/users/${employee.user_id}/resend-invite`, { method: "PATCH" });
+      setEmployees(prev => prev.map(e =>
+        e.user_id === employee.user_id ? { ...e, invite_expires_at: res.invite_expires_at } : e
+      ));
+      toast.success(`Invite resent to ${employee.email}.`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to resend invite.");
+    }
+  };
+
   const handleDeactivate = async (employee: Employee) => {
     setConfirmDeact(null);
     try {
@@ -566,11 +818,12 @@ export default function AdminUsersPage() {
 
   const handleReactivate = async (employee: Employee) => {
     try {
-      await apiFetch(`/users/${employee.user_id}/reactivate`, { method: "PATCH" });
+      const res = await apiFetch<{ message?: string }>(`/users/${employee.user_id}/reactivate`, { method: "PATCH" });
+      const nextStatus = res.message?.includes("Pending") ? "Pending" : "Active";
       setEmployees(prev => prev.map(e =>
-        e.user_id === employee.user_id ? { ...e, account_status: "Active" } : e
+        e.user_id === employee.user_id ? { ...e, account_status: nextStatus } : e
       ));
-      toast.success(`${employee.first_name}'s account reactivated.`);
+      toast.success(`${employee.first_name}'s account reactivated as ${nextStatus.toLowerCase()}.`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to reactivate account.");
     }
@@ -593,8 +846,8 @@ export default function AdminUsersPage() {
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 border-b border-border">
           <div>
-            <h2 className="font-bold text-base">Internal Users</h2>
-            <p className="text-xs text-muted-foreground">Manage all internal accounts</p>
+            <h2 className="font-bold text-base">System Users</h2>
+            <p className="text-xs text-muted-foreground">Manage your organization's user accounts</p>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <div className="relative flex-1 sm:flex-none">
@@ -609,18 +862,18 @@ export default function AdminUsersPage() {
             {/* Filter */}
             <div className="relative shrink-0" ref={filterRef}>
               <Button
-                variant="outline" size="icon" className={`h-9 w-9 ${statusFilter.size > 0 ? "border-primary text-primary" : ""}`}
+                variant="outline" size="icon" className={`h-9 w-9 ${(statusFilter.size > 0 || deptFilter) ? "border-primary text-primary" : ""}`}
                 onClick={() => setShowFilter(v => !v)}
               >
                 <Filter className="h-4 w-4" />
-                {statusFilter.size > 0 && (
+                {(statusFilter.size > 0 || deptFilter) && (
                   <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
-                    {statusFilter.size}
+                    {statusFilter.size + (deptFilter ? 1 : 0)}
                   </span>
                 )}
               </Button>
               {showFilter && (
-                <div className="absolute right-0 top-10 z-50 w-44 bg-card border border-border rounded-lg shadow-lg py-1.5">
+                <div className="absolute right-0 top-10 z-50 w-52 bg-card border border-border rounded-lg shadow-lg py-1.5">
                   <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</p>
                   {(["Active", "Inactive", "Pending"] as const).map(s => (
                     <button
@@ -632,14 +885,37 @@ export default function AdminUsersPage() {
                       {statusFilter.has(s) && <Check className="h-3.5 w-3.5 text-primary" />}
                     </button>
                   ))}
-                  {statusFilter.size > 0 && (
+                  {departments.length > 0 && (
+                    <>
+                      <div className="border-t border-border my-1" />
+                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</p>
+                      <button
+                        className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
+                        onClick={() => { setDeptFilter(""); setPage(1); }}
+                      >
+                        <span>All departments</span>
+                        {!deptFilter && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </button>
+                      {departments.map(d => (
+                        <button
+                          key={d.department_id}
+                          className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
+                          onClick={() => { setDeptFilter(d.department_id); setPage(1); }}
+                        >
+                          <span className="truncate mr-2">{d.department_name}</span>
+                          {deptFilter === d.department_id && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {(statusFilter.size > 0 || deptFilter) && (
                     <>
                       <div className="border-t border-border my-1" />
                       <button
                         className="px-3 py-2 w-full text-left text-xs text-muted-foreground hover:bg-muted/50"
-                        onClick={() => { setStatusFilter(new Set()); setPage(1); }}
+                        onClick={() => { setStatusFilter(new Set()); setDeptFilter(""); setPage(1); }}
                       >
-                        Clear filters
+                        Clear all filters
                       </button>
                     </>
                   )}
@@ -649,6 +925,9 @@ export default function AdminUsersPage() {
             {/* Download (no functionality) */}
             <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
               <Download className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" className="h-9 gap-1.5 shrink-0" onClick={() => setShowDeptPanel(true)}>
+              <Building2 className="h-4 w-4" /> Departments
             </Button>
             <Button className="h-9 gap-1.5 shrink-0" onClick={() => setShowAdd(true)}>
               <UserPlus className="h-4 w-4" /> Add User
@@ -666,6 +945,7 @@ export default function AdminUsersPage() {
                 <th className="px-5 py-3">Role</th>
                 <th className="px-5 py-3">Department</th>
                 <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">Invite Expires In</th>
                 <th className="px-5 py-3">Last Login</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
@@ -673,13 +953,13 @@ export default function AdminUsersPage() {
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">
+                  <td colSpan={tableColSpan} className="px-5 py-10 text-center text-muted-foreground">
                     Loading employees...
                   </td>
                 </tr>
               ) : paged.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">
+                  <td colSpan={tableColSpan} className="px-5 py-10 text-center text-muted-foreground">
                     No employees found.
                   </td>
                 </tr>
@@ -711,15 +991,30 @@ export default function AdminUsersPage() {
                   </td>
                   {/* Department */}
                   <td className="px-5 py-4">
-                    <span className="text-xs text-muted-foreground">{e.department_id ?? "—"}</span>
+                    <span className="text-xs text-muted-foreground">{departmentNameById(e.department_id)}</span>
                   </td>
                   {/* Status */}
                   <td className="px-5 py-4">
                     <StatusBadge status={e.account_status} />
                   </td>
+                  {/* Invite Expires In */}
+                  <td className="px-5 py-4">
+                    {e.account_status === "Pending" ? (
+                      <div>
+                        <p className="text-xs font-semibold text-foreground">
+                          {formatInviteCountdown(e.invite_expires_at, now)}
+                        </p>
+                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                          {formatInviteDeadline(e.invite_expires_at)}
+                        </p>
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
                   {/* Last Login */}
                   <td className="px-5 py-4">
-                    <span className="text-xs text-muted-foreground">Never</span>
+                    <span className="text-xs text-muted-foreground">{formatLastLogin(e.last_login)}</span>
                   </td>
                   {/* Actions */}
                   <td className="px-5 py-4 text-right">
@@ -731,6 +1026,7 @@ export default function AdminUsersPage() {
                         onEdit={() => setEditEmployee(e)}
                         onDeactivate={() => setConfirmDeact(e)}
                         onReactivate={() => handleReactivate(e)}
+                        onResendInvite={() => handleResendInvite(e)}
                       />
                     )}
                   </td>
@@ -761,9 +1057,17 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Panels & Dialogs */}
+      {showDeptPanel && (
+        <ManageDepartmentsPanel
+          departments={departments}
+          onClose={() => setShowDeptPanel(false)}
+          onCreated={dept => setDepartments(prev => [...prev, dept])}
+        />
+      )}
       {showAdd && (
         <AddUserPanel
           roles={roles}
+          departments={departments}
           onClose={() => setShowAdd(false)}
           onCreated={handleCreated}
         />
@@ -772,6 +1076,7 @@ export default function AdminUsersPage() {
         <EditUserPanel
           employee={editEmployee}
           roles={roles}
+          departments={departments}
           onClose={() => setEditEmployee(null)}
           onSaved={handleEditSaved}
         />

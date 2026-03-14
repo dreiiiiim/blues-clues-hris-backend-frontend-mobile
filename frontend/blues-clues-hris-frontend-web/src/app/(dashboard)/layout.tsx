@@ -10,7 +10,7 @@ import { roleToPath } from "@/lib/roleMap";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 
-type UserRole = "hr" | "manager" | "employee" | "applicant" | "admin";
+type UserRole = "hr" | "manager" | "employee" | "applicant" | "admin" | "system-admin";
 
 export default function SharedDashboardLayout({
   children,
@@ -45,11 +45,8 @@ export default function SharedDashboardLayout({
         return;
       }
 
-      const rolePath = roleToPath(me.role_name); // e.g. "/system-admin"
-      const rawRole = rolePath.replace("/", "");
-      // Map route segments that differ from persona keys
-      const PERSONA_MAP: Partial<Record<string, UserRole>> = { "system-admin": "admin" };
-      const userRole = (PERSONA_MAP[rawRole] ?? rawRole) as UserRole;
+      const rolePath = roleToPath(me.role_name);
+      const userRole = rolePath.replace("/", "") as UserRole;
 
       // Strict Persona Guard: prevents a Manager from viewing /hr pages, etc.
       const isAccessingWrongDashboard =
@@ -57,7 +54,7 @@ export default function SharedDashboardLayout({
         (pathname.startsWith("/manager") && userRole !== "manager") ||
         (pathname.startsWith("/employee") && userRole !== "employee") ||
         (pathname.startsWith("/applicant") && userRole !== "applicant") ||
-        (pathname.startsWith("/system-admin") && userRole !== "admin") ||
+        (pathname.startsWith("/system-admin") && userRole !== "system-admin") ||
         (pathname.startsWith("/admin") && userRole !== "admin");
 
       if (isAccessingWrongDashboard) {

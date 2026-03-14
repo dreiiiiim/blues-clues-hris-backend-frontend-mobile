@@ -6,7 +6,8 @@ export class AuditService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
   async log(action: string, performedBy: string, targetUserId?: string) {
-    const { error } = await this.supabaseService.getClient()
+    const { error } = await this.supabaseService
+      .getClient()
       .from('admin_audit_logs')
       .insert({
         action,
