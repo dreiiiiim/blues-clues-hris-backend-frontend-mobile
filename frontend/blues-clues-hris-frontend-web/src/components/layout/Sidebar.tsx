@@ -17,6 +17,7 @@ import {
   FileCheck,
   Layers,
   ClipboardCheck,
+  Clock,
   Loader2
 } from "lucide-react";
 
@@ -44,9 +45,10 @@ type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin";
 
 const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }[]> = {
   manager: [
-    { name: "Dashboard", href: "/manager", icon: LayoutDashboard },
-    { name: "Team", href: "/manager/team", icon: Users },
-    { name: "Approvals", href: "/manager/approvals", icon: ClipboardCheck },
+    { name: "Dashboard",   href: "/manager",              icon: LayoutDashboard },
+    { name: "Team",        href: "/manager/team",         icon: Users },
+    { name: "Timekeeping", href: "/manager/timekeeping",  icon: Clock },
+    { name: "Approvals",   href: "/manager/approvals",    icon: ClipboardCheck },
   ],
   applicant: [
     { name: "Dashboard", href: "/applicant/dashboard", icon: LayoutDashboard },

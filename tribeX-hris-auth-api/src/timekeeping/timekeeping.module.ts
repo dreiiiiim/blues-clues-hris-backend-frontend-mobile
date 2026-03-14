@@ -4,6 +4,7 @@ import { TimekeepingService } from './timekeeping.service';
 import { AuthModule } from '../auth/auth.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 
+
 @Module({
   imports: [AuthModule, SupabaseModule],
   controllers: [TimekeepingController],
@@ -11,5 +12,13 @@ import { SupabaseModule } from '../supabase/supabase.module';
   exports: [TimekeepingService],
 })
 export class TimekeepingModule {}
+
+
+
+
+
+
+
+
 
 

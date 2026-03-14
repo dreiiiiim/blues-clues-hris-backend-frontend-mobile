@@ -1,6 +1,7 @@
 import { IsNumber, Min, Max } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
+
 export class TimePunchDto {
   @ApiProperty({
     description: 'GPS latitude coordinate (required — location must be granted)',
@@ -10,6 +11,7 @@ export class TimePunchDto {
   @Min(-90)
   @Max(90)
   latitude: number;
+
 
   @ApiProperty({
     description: 'GPS longitude coordinate (required — location must be granted)',

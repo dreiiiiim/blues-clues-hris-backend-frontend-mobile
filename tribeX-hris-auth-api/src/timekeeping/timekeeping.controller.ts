@@ -21,6 +21,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
+
 // Keep aligned with your existing user roles
 const HR_AND_ABOVE = [
   'Admin',
@@ -31,6 +32,7 @@ const HR_AND_ABOVE = [
   'Manager',
 ];
 
+
 @ApiTags('Timekeeping')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
@@ -38,9 +40,11 @@ const HR_AND_ABOVE = [
 export class TimekeepingController {
   constructor(private readonly timekeepingService: TimekeepingService) {}
 
+
   // -------------------------
   // EMPLOYEE ROUTES
   // -------------------------
+
 
   @Post('time-in')
   @ApiOperation({
@@ -59,6 +63,7 @@ export class TimekeepingController {
     );
   }
 
+
   @Post('time-out')
   @ApiOperation({
     summary: 'Employee: Clock out',
@@ -75,6 +80,7 @@ export class TimekeepingController {
     );
   }
 
+
   @Get('my-status')
   @ApiOperation({
     summary: "Employee: Get today's punch status",
@@ -85,6 +91,7 @@ export class TimekeepingController {
   getMyStatus(@Req() req: any) {
     return this.timekeepingService.getMyStatus(req.user.sub_userid);
   }
+
 
   @Get('my-timesheet')
   @ApiOperation({
@@ -103,9 +110,11 @@ export class TimekeepingController {
     return this.timekeepingService.getMyTimesheet(req.user.sub_userid, from, to);
   }
 
+
   // -------------------------
   // HR / MANAGER ROUTES
   // -------------------------
+
 
   @Get('timesheets')
   @UseGuards(RolesGuard)
@@ -125,6 +134,7 @@ export class TimekeepingController {
   ) {
     return this.timekeepingService.getAllTimesheets(req.user.company_id, from, to);
   }
+
 
   @Get('timesheets/:userId/:date')
   @UseGuards(RolesGuard)
@@ -157,3 +167,4 @@ export class TimekeepingController {
     );
   }
 }
+
