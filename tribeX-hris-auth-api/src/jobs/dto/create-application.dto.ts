@@ -1,10 +1,21 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsArray, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 
-export class CreateApplicationDto {
-  @ApiPropertyOptional({ example: 'I am very interested in this position...' })
+export class ApplicationAnswerDto {
+  @IsUUID()
+  question_id: string;
+
   @IsOptional()
   @IsString()
-  @MaxLength(2000)
-  cover_letter?: string;
+  answer_value?: string;
+}
+
+export class CreateApplicationDto {
+  @ApiPropertyOptional({ type: [ApplicationAnswerDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ApplicationAnswerDto)
+  answers?: ApplicationAnswerDto[];
 }

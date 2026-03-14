@@ -162,7 +162,17 @@ export async function getApplicantJobs() {
   return data as JobPosting[];
 }
 
-export async function applyToJob(jobPostingId: string, dto?: { cover_letter?: string }) {
+export async function getJobQuestions(jobPostingId: string): Promise<ApplicationQuestion[]> {
+  const res = await fetch(`${API_BASE_URL}/jobs/${jobPostingId}/questions`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as any)?.message || "Failed to fetch questions");
+  return data as ApplicationQuestion[];
+}
+
+export async function applyToJob(
+  jobPostingId: string,
+  dto?: { answers?: { question_id: string; answer_value?: string }[] },
+) {
   const res = await authFetch(`${API_BASE_URL}/jobs/${jobPostingId}/apply`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -171,6 +181,13 @@ export async function applyToJob(jobPostingId: string, dto?: { cover_letter?: st
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Failed to apply");
   return data;
+}
+
+export async function getApplicationDetail(applicationId: string): Promise<ApplicationDetail> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/applications/${applicationId}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Failed to fetch application detail");
+  return data as ApplicationDetail;
 }
 
 export async function getMyApplications() {
@@ -205,6 +222,40 @@ export type MyApplication = {
     employment_type: string | null;
     status: string;
   };
+};
+
+export type ApplicationQuestion = {
+  question_id: string;
+  question_text: string;
+  question_type: "text" | "multiple_choice" | "checkbox";
+  options: string[] | null;
+  is_required: boolean;
+  sort_order: number;
+};
+
+export type ApplicationDetail = {
+  application_id: string;
+  status: string;
+  applied_at: string;
+  job_posting_id: string;
+  applicant_profile: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone_number: string | null;
+    applicant_code: string;
+  };
+  answers: {
+    answer_id: string;
+    answer_value: string | null;
+    application_questions: {
+      question_id: string;
+      question_text: string;
+      question_type: string;
+      options: string[] | null;
+      sort_order: number;
+    };
+  }[];
 };
 
 // ---------------------------------------------------------------------------

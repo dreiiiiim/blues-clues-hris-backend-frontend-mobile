@@ -10,6 +10,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
+import { ApplicationQuestionDto } from './dto/create-questions.dto';
 
 @Injectable()
 export class JobsService {
@@ -76,7 +77,6 @@ export class JobsService {
   async updatePosting(jobPostingId: string, dto: UpdateJobPostingDto, companyId: string) {
     const supabase = this.supabaseService.getClient();
 
-    // Verify ownership before updating
     await this.findOnePosting(jobPostingId, companyId);
 
     const updateFields: Record<string, any> = {};
@@ -116,10 +116,60 @@ export class JobsService {
     return { message: 'Job posting closed successfully' };
   }
 
+  // ---------------------------------------------------------------------------
+  // Application questions — HR manages, applicants read
+  // ---------------------------------------------------------------------------
+
+  async setQuestionsForPosting(jobPostingId: string, questions: ApplicationQuestionDto[], companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    // Verify job ownership
+    await this.findOnePosting(jobPostingId, companyId);
+
+    // Replace all existing questions
+    await supabase.from('application_questions').delete().eq('job_posting_id', jobPostingId);
+
+    if (questions.length === 0) return [];
+
+    const rows = questions.map((q, i) => ({
+      question_id: crypto.randomUUID(),
+      job_posting_id: jobPostingId,
+      question_text: q.question_text,
+      question_type: q.question_type,
+      options: q.options ?? null,
+      is_required: q.is_required ?? true,
+      sort_order: q.sort_order ?? i,
+    }));
+
+    const { data, error } = await supabase
+      .from('application_questions')
+      .insert(rows)
+      .select();
+
+    if (error) throw new InternalServerErrorException(error.message);
+    return data ?? [];
+  }
+
+  async getQuestionsForPosting(jobPostingId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('application_questions')
+      .select('question_id, question_text, question_type, options, is_required, sort_order')
+      .eq('job_posting_id', jobPostingId)
+      .order('sort_order');
+
+    if (error) throw new InternalServerErrorException(error.message);
+    return data ?? [];
+  }
+
+  // ---------------------------------------------------------------------------
+  // Applications — HR view
+  // ---------------------------------------------------------------------------
+
   async getApplicationsForJob(jobPostingId: string, companyId: string) {
     const supabase = this.supabaseService.getClient();
 
-    // Verify job belongs to this company
     await this.findOnePosting(jobPostingId, companyId);
 
     const { data, error } = await supabase
@@ -144,10 +194,40 @@ export class JobsService {
     return data ?? [];
   }
 
+  async getApplicationDetail(applicationId: string, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: app, error } = await supabase
+      .from('job_applications')
+      .select(`
+        application_id, status, applied_at, job_posting_id,
+        applicant_profile (first_name, last_name, email, phone_number, applicant_code)
+      `)
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(error.message);
+    if (!app) throw new NotFoundException('Application not found');
+
+    // Verify job belongs to this company
+    await this.findOnePosting(app.job_posting_id, companyId);
+
+    // Get answers joined with question info
+    const { data: answers } = await supabase
+      .from('applicant_answers')
+      .select(`
+        answer_id, answer_value,
+        application_questions (question_id, question_text, question_type, options, sort_order)
+      `)
+      .eq('application_id', applicationId)
+      .order('application_questions(sort_order)');
+
+    return { ...app, answers: answers ?? [] };
+  }
+
   async updateApplicationStatus(applicationId: string, status: string, companyId: string) {
     const supabase = this.supabaseService.getClient();
 
-    // Validate the application's job belongs to this company
     const { data: app, error: appError } = await supabase
       .from('job_applications')
       .select('application_id, job_posting_id')
@@ -157,7 +237,6 @@ export class JobsService {
     if (appError) throw new InternalServerErrorException(appError.message);
     if (!app) throw new NotFoundException('Application not found');
 
-    // Verify the job belongs to the HR's company
     await this.findOnePosting(app.job_posting_id, companyId);
 
     const { error } = await supabase
@@ -230,7 +309,6 @@ export class JobsService {
 
     const supabase = this.supabaseService.getClient();
 
-    // Validate the job exists, is open, and belongs to the applicant's company
     const { data: job } = await supabase
       .from('job_postings')
       .select('job_posting_id, status')
@@ -241,7 +319,6 @@ export class JobsService {
     if (!job) throw new NotFoundException('Job posting not found');
     if (job.status !== 'open') throw new ForbiddenException('This job posting is no longer accepting applications');
 
-    // Prevent duplicate applications
     const { data: existing } = await supabase
       .from('job_applications')
       .select('application_id')
@@ -265,6 +342,22 @@ export class JobsService {
       .single();
 
     if (error) throw new InternalServerErrorException(error.message);
+
+    // Save answers if provided
+    if (dto.answers && dto.answers.length > 0) {
+      const answerRows = dto.answers.map((a) => ({
+        answer_id: crypto.randomUUID(),
+        application_id,
+        question_id: a.question_id,
+        answer_value: a.answer_value ?? null,
+      }));
+
+      const { error: answerError } = await supabase.from('applicant_answers').insert(answerRows);
+      if (answerError) {
+        console.error('Failed to save applicant answers:', answerError.message);
+      }
+    }
+
     return data;
   }
 

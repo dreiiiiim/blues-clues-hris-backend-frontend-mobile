@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { JobsService } from './jobs.service';
 import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
+import { SetQuestionsDto } from './dto/create-questions.dto';
 
 const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
 
@@ -54,6 +56,30 @@ export class JobsController {
   @ApiOperation({ summary: 'Applicant: View own submitted applications' })
   getMyApplications(@Req() req: any) {
     return this.jobsService.getMyApplications(req.user.sub_userid);
+  }
+
+  // ---------------------------------------------------------------------------
+  // HR APPLICATION DETAIL — must be before /:id to avoid param collision
+  // ---------------------------------------------------------------------------
+
+  @Get('applications/:applicationId')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Get a single application with answers' })
+  getApplicationDetail(@Param('applicationId') applicationId: string, @Req() req: any) {
+    return this.jobsService.getApplicationDetail(applicationId, req.user.company_id);
+  }
+
+  @Patch('applications/:applicationId/status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Update an application status' })
+  updateApplicationStatus(
+    @Param('applicationId') applicationId: string,
+    @Body() body: { status: string },
+    @Req() req: any,
+  ) {
+    return this.jobsService.updateApplicationStatus(applicationId, body.status, req.user.company_id);
   }
 
   // ---------------------------------------------------------------------------
@@ -101,6 +127,20 @@ export class JobsController {
     return this.jobsService.closePosting(id, req.user.company_id);
   }
 
+  @Put(':id/questions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Set application form questions for a job posting' })
+  setQuestions(@Param('id') id: string, @Body() dto: SetQuestionsDto, @Req() req: any) {
+    return this.jobsService.setQuestionsForPosting(id, dto.questions, req.user.company_id);
+  }
+
+  @Get(':id/questions')
+  @ApiOperation({ summary: 'Public: Get application questions for a job posting' })
+  getQuestions(@Param('id') id: string) {
+    return this.jobsService.getQuestionsForPosting(id);
+  }
+
   @Get(':id/applications')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...HR_AND_ABOVE)
@@ -109,21 +149,8 @@ export class JobsController {
     return this.jobsService.getApplicationsForJob(id, req.user.company_id);
   }
 
-  @Patch('applications/:applicationId/status')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(...HR_AND_ABOVE)
-  @ApiOperation({ summary: 'HR: Update an application status' })
-  updateApplicationStatus(
-    @Param('applicationId') applicationId: string,
-    @Body() body: { status: string },
-    @Req() req: any,
-  ) {
-    return this.jobsService.updateApplicationStatus(applicationId, body.status, req.user.company_id);
-  }
-
   // ---------------------------------------------------------------------------
-  // APPLICANT APPLY ROUTE — after HR routes but before end of class
-  // (must be after static applicant/* routes, dynamic :id is fine here)
+  // APPLICANT APPLY ROUTE
   // ---------------------------------------------------------------------------
 
   @Post(':id/apply')
