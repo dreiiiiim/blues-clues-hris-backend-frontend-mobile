@@ -30,7 +30,9 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
 
   const completedCount = useMemo(() => checklist.filter((i) => i.completed).length, [checklist]);
   const unlockedCount = useMemo(() => checklist.filter((i) => !i.locked).length, [checklist]);
+  const pendingCount = useMemo(() => checklist.filter((i) => !i.locked && !i.completed).length, [checklist]);
   const percent = unlockedCount > 0 ? Math.round((completedCount / unlockedCount) * 100) : 0;
+  const nextPending = checklist.find((i) => !i.locked && !i.completed)?.title ?? "All available tasks completed";
 
   const toggleItem = (id: string) => {
     setChecklist((prev) =>
@@ -57,25 +59,32 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
           )}
 
           <ScrollView className="flex-1 px-3 py-3" showsVerticalScrollIndicator={false}>
-            <View style={{ backgroundColor: Colors.primary }} className="rounded-2xl px-4 py-4 mb-3">
-              <Text className="text-white text-[10px] font-bold uppercase tracking-widest">Employee Dashboard</Text>
-              <Text className="text-white text-lg font-bold mt-1">Welcome, {session.name}</Text>
-              <Text className="text-white/80 text-xs mt-1.5 leading-5">
-                Your onboarding checklist, profile basics, and completion progress.
+            <View style={{ backgroundColor: "#0F2D7A" }} className="rounded-2xl px-4 py-4 mb-3">
+              <Text className="text-white/80 text-[10px] font-bold uppercase tracking-widest">Employee Workspace</Text>
+              <Text className="text-white text-xl font-bold mt-1">Hi, {session.name}</Text>
+              <Text className="text-white/85 text-xs mt-1.5 leading-5">
+                Keep onboarding on track and monitor what needs action today.
               </Text>
+
+              <View className={`${isMobile ? "gap-2" : "flex-row gap-2"} mt-3`}>
+                <View style={{ backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.2)" }} className="rounded-xl border px-3 py-2">
+                  <Text className="text-white/70 text-[9px] font-bold uppercase tracking-widest">Progress</Text>
+                  <Text className="text-white text-base font-bold mt-0.5">{percent}%</Text>
+                </View>
+                <View style={{ backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.2)" }} className="rounded-xl border px-3 py-2">
+                  <Text className="text-white/70 text-[9px] font-bold uppercase tracking-widest">Pending</Text>
+                  <Text className="text-white text-base font-bold mt-0.5">{pendingCount}</Text>
+                </View>
+                <View style={{ backgroundColor: "rgba(255,255,255,0.12)", borderColor: "rgba(255,255,255,0.2)" }} className="rounded-xl border px-3 py-2">
+                  <Text className="text-white/70 text-[9px] font-bold uppercase tracking-widest">Completed</Text>
+                  <Text className="text-white text-base font-bold mt-0.5">{completedCount}/{unlockedCount}</Text>
+                </View>
+              </View>
             </View>
 
-            <View className="flex-row gap-2 mb-3">
-              <View className="flex-1 rounded-xl bg-white border border-gray-200 px-3 py-3">
-                <Text style={{ color: Colors.textPlaceholder }} className="text-[9px] font-bold uppercase tracking-widest">Progress</Text>
-                <Text style={{ color: Colors.textPrimary }} className="text-lg font-bold mt-1">{percent}%</Text>
-                <Text style={{ color: Colors.textMuted }} className="text-[11px] mt-0.5">Onboarding done</Text>
-              </View>
-              <View className="flex-1 rounded-xl bg-white border border-gray-200 px-3 py-3">
-                <Text style={{ color: Colors.textPlaceholder }} className="text-[9px] font-bold uppercase tracking-widest">Completed</Text>
-                <Text style={{ color: Colors.textPrimary }} className="text-lg font-bold mt-1">{completedCount}/{unlockedCount}</Text>
-                <Text style={{ color: Colors.textMuted }} className="text-[11px] mt-0.5">Tasks finished</Text>
-              </View>
+            <View className="rounded-2xl bg-white p-3 border border-gray-200 mb-3">
+              <Text style={{ color: Colors.textPrimary }} className="font-bold text-sm mb-1">Next Priority</Text>
+              <Text style={{ color: Colors.textMuted }} className="text-xs leading-5">{nextPending}</Text>
             </View>
 
             <View className="rounded-2xl bg-white p-3 border border-gray-200 mb-3">
@@ -85,7 +94,11 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
                 { label: "ROLE", value: "Internal Staff" },
                 { label: "MEMBER SINCE", value: "February 2026" },
               ].map((field) => (
-                <View key={field.label} style={{ borderColor: Colors.border, backgroundColor: Colors.bgMuted }} className="rounded-lg border px-3 py-2.5 mb-2">
+                <View
+                  key={field.label}
+                  style={{ borderColor: Colors.border, backgroundColor: Colors.bgMuted }}
+                  className="rounded-lg border px-3 py-2.5 mb-2"
+                >
                   <Text style={{ color: Colors.textPlaceholder }} className="text-[9px] font-bold uppercase tracking-widest mb-1">
                     {field.label}
                   </Text>
@@ -117,20 +130,26 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
                     key={item.id}
                     onPress={() => toggleItem(item.id)}
                     disabled={item.locked}
-                    style={{ borderColor: Colors.border, backgroundColor: item.locked ? Colors.bgMuted : Colors.bgCard, opacity: item.locked ? 0.65 : 1 }}
-                    className="flex-row items-center justify-between rounded-xl border px-3 py-3 mb-2"
+                    style={{
+                      borderColor: Colors.border,
+                      backgroundColor: item.locked ? Colors.bgMuted : Colors.bgCard,
+                      opacity: item.locked ? 0.65 : 1,
+                    }}
+                    className="rounded-xl border px-3 py-3 mb-2"
                   >
-                    <View className="flex-1 pr-3">
-                      <Text style={{ color: item.locked ? Colors.textMuted : Colors.textPrimary }} className="font-semibold text-sm">
-                        {item.title}
-                      </Text>
-                      <Text style={{ color: Colors.textPlaceholder }} className="text-[10px] uppercase font-medium mt-0.5">
-                        {item.locked ? "Blocked until previous requirements are done" : "Tap to mark complete"}
-                      </Text>
-                    </View>
+                    <View className="flex-row items-start justify-between">
+                      <View className="flex-1 pr-3">
+                        <Text style={{ color: item.locked ? Colors.textMuted : Colors.textPrimary }} className="font-semibold text-sm leading-5">
+                          {item.title}
+                        </Text>
+                        <Text style={{ color: Colors.textPlaceholder }} className="text-[10px] uppercase font-medium mt-1">
+                          {item.locked ? "Complete prior requirements first" : "Tap to toggle completion"}
+                        </Text>
+                      </View>
 
-                    <View style={{ backgroundColor: tagBg, borderColor: tagBorder }} className="px-2.5 py-1 rounded-lg border">
-                      <Text style={{ color: tagText }} className="text-[10px] font-bold uppercase">{statusLabel}</Text>
+                      <View style={{ backgroundColor: tagBg, borderColor: tagBorder }} className="px-2.5 py-1 rounded-lg border">
+                        <Text style={{ color: tagText }} className="text-[10px] font-bold uppercase">{statusLabel}</Text>
+                      </View>
                     </View>
                   </Pressable>
                 );
