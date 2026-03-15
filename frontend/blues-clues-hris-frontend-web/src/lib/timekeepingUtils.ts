@@ -3,6 +3,7 @@ export type TimekeepingStatus = "present" | "absent" | "late" | "on-leave";
 // GET /users response row
 export type UserRow = {
   user_id: string;
+  employee_id: string;
   first_name: string | null;
   last_name: string | null;
   account_status: string | null;
@@ -11,22 +12,20 @@ export type UserRow = {
 // GET /timekeeping/timesheets response row — one per punch event
 export type PunchRow = {
   log_id: string;
-  punch_type: "TIME_IN" | "TIME_OUT";
-  timestamp: string;          // ISO datetime
-  date: string;               // YYYY-MM-DD (PST)
+  employee_id: string;
+  log_type: "clock-in" | "clock-out";
+  timestamp: string;
   latitude: number | null;
   longitude: number | null;
-  user_id: string;
-  employee_id: string | null;
-  user_profile: {
-    first_name: string | null;
-    last_name: string | null;
-  } | null;
+  ip_address: string | null;
+  is_mock_location: string;
+  log_status: string;
 };
 
 // Display row after transformation
 export type TimekeepingLog = {
   user_id: string;
+  employee_id: string;
   first_name: string;
   last_name: string;
   time_in: string | null;
@@ -72,7 +71,6 @@ export function formatHoursFromTimestamps(
   return formatHoursFromDecimal(diff);
 }
 
-// Returns today's date as YYYY-MM-DD in Philippine Standard Time
 export function todayPST(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
 }
@@ -92,7 +90,6 @@ export function isToday(date: Date): boolean {
   return toDateString(date) === toDateString(new Date());
 }
 
-// Derives status from TIME_IN timestamp. "on-leave" requires a future leave endpoint.
 export function deriveStatus(timeIn: string | null): TimekeepingStatus {
   if (!timeIn) return "absent";
   const hourPST = parseInt(
@@ -106,19 +103,25 @@ export function deriveStatus(timeIn: string | null): TimekeepingStatus {
 
 // Merges full user roster with punch records — absent employees still appear
 export function buildFullRoster(users: UserRow[], punches: PunchRow[]): TimekeepingLog[] {
+  // Build punch map keyed by employee_id
   const punchMap: Record<string, { timeIn: PunchRow | null; timeOut: PunchRow | null }> = {};
+
   for (const row of punches) {
-    if (!punchMap[row.user_id]) {
-      punchMap[row.user_id] = { timeIn: null, timeOut: null };
+    if (!punchMap[row.employee_id]) {
+      punchMap[row.employee_id] = { timeIn: null, timeOut: null };
     }
-    if (row.punch_type === "TIME_IN")  punchMap[row.user_id].timeIn  = row;
-    if (row.punch_type === "TIME_OUT") punchMap[row.user_id].timeOut = row;
+    if (row.log_type === "clock-in"  && !punchMap[row.employee_id].timeIn)  {
+      punchMap[row.employee_id].timeIn  = row;
+    }
+    if (row.log_type === "clock-out") {
+      punchMap[row.employee_id].timeOut = row;
+    }
   }
 
   return users
     .filter(u => u.account_status?.toLowerCase() !== "inactive")
     .map(u => {
-      const punched   = punchMap[u.user_id] ?? { timeIn: null, timeOut: null };
+      const punched   = punchMap[u.employee_id] ?? { timeIn: null, timeOut: null };
       const timeInTs  = punched.timeIn?.timestamp  ?? null;
       const timeOutTs = punched.timeOut?.timestamp ?? null;
 
@@ -129,6 +132,7 @@ export function buildFullRoster(users: UserRow[], punches: PunchRow[]): Timekeep
 
       return {
         user_id:      u.user_id,
+        employee_id:  u.employee_id,
         first_name:   u.first_name  ?? "Unknown",
         last_name:    u.last_name   ?? "",
         time_in:      timeInTs,

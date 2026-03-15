@@ -10,21 +10,29 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
-import { formatTime, formatHoursFromTimestamps } from "@/lib/timekeepingUtils";
+import { formatTime, formatHoursFromTimestamps, todayPST } from "@/lib/timekeepingUtils";
 
 // ─── Backend response types ───────────────────────────────────────────────────
 
 type MyStatus = {
   date: string;
-  current_status: "TIME_IN" | "TIME_OUT" | null;
+  current_status: "time-in" | "time-out" | null;
   time_in: { timestamp: string; latitude: number; longitude: number } | null;
   time_out: { timestamp: string; latitude: number; longitude: number } | null;
 };
 
 type TimesheetEntry = {
-  date: string; // YYYY-MM-DD
-  time_in: { timestamp: string } | null;
-  time_out: { timestamp: string } | null;
+  date: string;
+  time_in: { 
+    timestamp: string;
+    latitude: number | null;
+    longitude: number | null;
+  } | null;
+  time_out: { 
+    timestamp: string;
+    latitude: number | null;
+    longitude: number | null;
+  } | null;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -49,8 +57,20 @@ function formatEntryDate(iso: string): string {
   });
 }
 
-function todayPST(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+// Format time for calendar cell display (shorter format)
+function formatCellTime(timestamp: string | null | undefined): string {
+  if (!timestamp) return "—";
+  return new Date(timestamp).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+}
+
+// Format GPS coordinates for display
+function formatCoordinates(lat: number | null | undefined, lng: number | null | undefined): string {
+  if (lat == null || lng == null) return "No GPS";
+  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
 }
 
 type EntryStatus = "on-time" | "late" | "in-progress" | "absent";
@@ -68,25 +88,22 @@ function getEntryStatus(entry: TimesheetEntry): EntryStatus {
 }
 
 const ENTRY_STATUS_CONFIG: Record<EntryStatus, { label: string; badge: string; dot: string; cell: string }> = {
-  "on-time":    { label: "On Time",     badge: "bg-green-100 hover:bg-green-100 text-green-700 border-green-200",   dot: "bg-green-500",  cell: "bg-green-50 border-green-200 text-green-700" },
-  "late":       { label: "Late",        badge: "bg-amber-100 hover:bg-amber-100 text-amber-700 border-amber-200",   dot: "bg-amber-500",  cell: "bg-amber-50 border-amber-200 text-amber-700" },
-  "in-progress":{ label: "In Progress", badge: "bg-blue-100 hover:bg-blue-100 text-blue-700 border-blue-200",       dot: "bg-blue-500",   cell: "bg-blue-50 border-blue-200 text-blue-700" },
-  "absent":     { label: "Absent",      badge: "bg-red-100 hover:bg-red-100 text-red-700 border-red-200",           dot: "bg-red-500",    cell: "bg-red-50 border-red-200 text-red-700" },
+  "on-time":     { label: "On Time",     badge: "bg-green-100 hover:bg-green-100 text-green-700 border-green-200",  dot: "bg-green-500",  cell: "bg-green-50 border-green-200" },
+  "late":        { label: "Late",        badge: "bg-amber-100 hover:bg-amber-100 text-amber-700 border-amber-200",  dot: "bg-amber-500",  cell: "bg-amber-50 border-amber-200" },
+  "in-progress": { label: "In Progress", badge: "bg-blue-100 hover:bg-blue-100 text-blue-700 border-blue-200",      dot: "bg-blue-500",   cell: "bg-blue-50 border-blue-200" },
+  "absent":      { label: "Absent",      badge: "bg-red-100 hover:bg-red-100 text-red-700 border-red-200",          dot: "bg-red-500",    cell: "bg-red-50 border-red-200" },
 };
 
-// Build a map of date string → entry for O(1) calendar lookup
 function buildDateMap(entries: TimesheetEntry[]): Record<string, TimesheetEntry> {
   return Object.fromEntries(entries.map(e => [e.date, e]));
 }
 
-// Returns all day cells for a calendar month grid (including leading/trailing empty slots)
 function buildCalendarGrid(year: number, month: number): (number | null)[] {
-  const firstDay = new Date(year, month, 1).getDay(); // 0 = Sun
+  const firstDay = new Date(year, month, 1).getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const cells: (number | null)[] = [];
   for (let i = 0; i < firstDay; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-  // Pad to complete last row
   while (cells.length % 7 !== 0) cells.push(null);
   return cells;
 }
@@ -112,13 +129,12 @@ export default function EmployeeTimekeepingPage() {
   const [location, setLocation]           = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationError, setLocationError] = useState<string | null>(null);
 
-  // History view state
-  const [view, setView]                   = useState<"calendar" | "list">("calendar");
-  const [calMonth, setCalMonth]           = useState(() => {
+  const [view, setView]       = useState<"calendar" | "list">("calendar");
+  const [calMonth, setCalMonth] = useState(() => {
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
   });
-  const [page, setPage]                   = useState(1);
+  const [page, setPage] = useState(1);
 
   // Live clock
   useEffect(() => {
@@ -138,7 +154,7 @@ export default function EmployeeTimekeepingPage() {
     );
   }, []);
 
-  // Fetch status + timesheet
+  // Fetch status + timesheet on mount
   useEffect(() => {
     authFetch(`${API_BASE_URL}/timekeeping/my-status`)
       .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<MyStatus>; })
@@ -187,20 +203,20 @@ export default function EmployeeTimekeepingPage() {
     }
   }
 
-  const canTimeIn  = !status || status.current_status === null || status.current_status === "TIME_OUT";
-  const canTimeOut = status?.current_status === "TIME_IN";
+  const canTimeIn  = !status || status.current_status === null || status.current_status === "time-out";
+  const canTimeOut = status?.current_status === "time-in";
 
-  // Calendar derived data
-  const dateMap     = useMemo(() => buildDateMap(timesheet), [timesheet]);
-  const calGrid     = useMemo(() => buildCalendarGrid(calMonth.year, calMonth.month), [calMonth]);
-  const calTitle    = new Date(calMonth.year, calMonth.month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
-  const today       = todayPST();
+  const dateMap  = useMemo(() => buildDateMap(timesheet), [timesheet]);
+  const calGrid  = useMemo(() => buildCalendarGrid(calMonth.year, calMonth.month), [calMonth]);
+  const calTitle = new Date(calMonth.year, calMonth.month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  const today    = todayPST();
 
   function prevMonth() {
     setCalMonth(c => c.month === 0
       ? { year: c.year - 1, month: 11 }
       : { year: c.year, month: c.month - 1 });
   }
+
   function nextMonth() {
     const now = new Date();
     const currentYM = { year: now.getFullYear(), month: now.getMonth() };
@@ -210,7 +226,6 @@ export default function EmployeeTimekeepingPage() {
       : { year: c.year, month: c.month + 1 });
   }
 
-  // List view pagination
   const totalPages = Math.ceil(timesheet.length / ITEMS_PER_PAGE);
   const paged      = timesheet.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
@@ -302,7 +317,6 @@ export default function EmployeeTimekeepingPage() {
       {/* Attendance History */}
       <Card className="border-border overflow-hidden">
 
-        {/* Header with view toggle */}
         <div className="p-6 bg-muted/20 border-b border-border flex items-center justify-between">
           <div>
             <h2 className="font-bold text-base">Attendance History</h2>
@@ -340,7 +354,6 @@ export default function EmployeeTimekeepingPage() {
 
           // ─── Calendar View ────────────────────────────────────────────────
           <div className="p-6">
-            {/* Month navigation */}
             <div className="flex items-center justify-between mb-5">
               <Button variant="outline" size="icon" className="h-8 w-8" onClick={prevMonth}>
                 <ChevronLeft className="h-4 w-4" />
@@ -352,7 +365,6 @@ export default function EmployeeTimekeepingPage() {
               </Button>
             </div>
 
-            {/* Weekday headers */}
             <div className="grid grid-cols-7 mb-2">
               {WEEKDAYS.map(d => (
                 <div key={d} className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest py-2">
@@ -361,43 +373,86 @@ export default function EmployeeTimekeepingPage() {
               ))}
             </div>
 
-            {/* Day cells */}
-            <div className="grid grid-cols-7 gap-1.5">
+            <div className="grid grid-cols-7 gap-2">
               {calGrid.map((day, idx) => {
                 if (!day) return <div key={`empty-${idx}`} />;
 
-                const dateStr = toDateStr(calMonth.year, calMonth.month, day);
-                const entry   = dateMap[dateStr];
-                const isToday = dateStr === today;
+                const dateStr  = toDateStr(calMonth.year, calMonth.month, day);
+                const entry    = dateMap[dateStr];
+                const isToday  = dateStr === today;
                 const isFuture = dateStr > today;
-                const status  = entry ? getEntryStatus(entry) : null;
-                const cfg     = status ? ENTRY_STATUS_CONFIG[status] : null;
+                const entryStatus = entry ? getEntryStatus(entry) : null;
+                const cfg      = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
 
                 return (
                   <div
                     key={dateStr}
                     className={`
-                      relative aspect-square rounded-xl border flex flex-col items-center justify-center text-sm font-semibold transition-all
+                      relative rounded-xl border p-2 min-h-[120px] flex flex-col transition-all
                       ${isToday
-                        ? "bg-primary text-primary-foreground border-primary shadow-md"
+                        ? "bg-primary/10 border-primary shadow-md"
                         : isFuture
-                        ? "bg-background border-border text-muted-foreground/40"
+                        ? "bg-background border-border opacity-50"
                         : cfg
                         ? `${cfg.cell} border`
-                        : "bg-background border-border text-muted-foreground"}
+                        : "bg-background border-border"}
                     `}
                   >
-                    {day}
-                    {/* Status dot */}
+                    {/* Day number */}
+                    <div className={`text-sm font-bold mb-1 ${isToday ? "text-primary" : "text-foreground"}`}>
+                      {day}
+                    </div>
+
+                    {/* Time and location info */}
+                    {!isFuture && entry && entry.time_in && (
+                      <div className="flex-1 space-y-1 text-[9px] leading-tight">
+                        {/* Time In */}
+                        <div className="flex items-start gap-1">
+                          <LogIn className="h-3 w-3 shrink-0 mt-0.5 text-green-600" />
+                          <div>
+                            <div className="font-semibold text-foreground">
+                              {formatCellTime(entry.time_in.timestamp)}
+                            </div>
+                            <div className="text-muted-foreground flex items-center gap-0.5">
+                              <MapPin className="h-2.5 w-2.5" />
+                              <span className="truncate text-[8px]">
+                                {formatCoordinates(entry.time_in.latitude, entry.time_in.longitude)}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Time Out */}
+                        {entry.time_out && (
+                          <div className="flex items-start gap-1">
+                            <LogOut className="h-3 w-3 shrink-0 mt-0.5 text-red-600" />
+                            <div>
+                              <div className="font-semibold text-foreground">
+                                {formatCellTime(entry.time_out.timestamp)}
+                              </div>
+                              <div className="text-muted-foreground flex items-center gap-0.5">
+                                <MapPin className="h-2.5 w-2.5" />
+                                <span className="truncate text-[8px]">
+                                  {formatCoordinates(entry.time_out.latitude, entry.time_out.longitude)}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Status indicator dot */}
                     {!isToday && !isFuture && cfg && (
-                      <span className={`absolute bottom-1.5 h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+                      <div className="mt-auto pt-1">
+                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+                      </div>
                     )}
                   </div>
                 );
               })}
             </div>
 
-            {/* Legend */}
             <div className="flex items-center gap-4 mt-4 flex-wrap">
               {Object.entries(ENTRY_STATUS_CONFIG).map(([key, cfg]) => (
                 <div key={key} className="flex items-center gap-1.5">
