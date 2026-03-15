@@ -21,7 +21,6 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
 
-
 // Keep aligned with your existing user roles
 const HR_AND_ABOVE = [
   'Admin',
@@ -32,19 +31,12 @@ const HR_AND_ABOVE = [
   'Manager',
 ];
 
-
 @ApiTags('Timekeeping')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard)
 @Controller('timekeeping')
 export class TimekeepingController {
   constructor(private readonly timekeepingService: TimekeepingService) {}
-
-
-  // -------------------------
-  // EMPLOYEE ROUTES
-  // -------------------------
-
 
   @Post('time-in')
   @ApiOperation({
@@ -55,14 +47,8 @@ export class TimekeepingController {
       'Requires an assigned work schedule.',
   })
   timeIn(@Body() dto: TimePunchDto, @Req() req: any) {
-    return this.timekeepingService.timeIn(
-      req.user.sub_userid,
-      req.user.company_id,
-      dto,
-      req,
-    );
+    return this.timekeepingService.timeIn(req.user.sub_userid, dto, req);
   }
-
 
   @Post('time-out')
   @ApiOperation({
@@ -72,14 +58,8 @@ export class TimekeepingController {
       'Rejects if no prior clock-in exists for the current shift/day.',
   })
   timeOut(@Body() dto: TimePunchDto, @Req() req: any) {
-    return this.timekeepingService.timeOut(
-      req.user.sub_userid,
-      req.user.company_id,
-      dto,
-      req,
-    );
+    return this.timekeepingService.timeOut(req.user.sub_userid, dto, req);
   }
-
 
   @Get('my-status')
   @ApiOperation({
@@ -91,7 +71,6 @@ export class TimekeepingController {
   getMyStatus(@Req() req: any) {
     return this.timekeepingService.getMyStatus(req.user.sub_userid);
   }
-
 
   @Get('my-timesheet')
   @ApiOperation({
@@ -109,12 +88,6 @@ export class TimekeepingController {
   ) {
     return this.timekeepingService.getMyTimesheet(req.user.sub_userid, from, to);
   }
-
-
-  // -------------------------
-  // HR / MANAGER ROUTES
-  // -------------------------
-
 
   @Get('timesheets')
   @UseGuards(RolesGuard)
@@ -134,7 +107,6 @@ export class TimekeepingController {
   ) {
     return this.timekeepingService.getAllTimesheets(req.user.company_id, from, to);
   }
-
 
   @Get('timesheets/:userId/:date')
   @UseGuards(RolesGuard)
@@ -167,4 +139,3 @@ export class TimekeepingController {
     );
   }
 }
-
