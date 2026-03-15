@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   Clock, Search, Download, ChevronLeft, ChevronRight,
-  Users, CheckCircle2, Timer, MapPin, MapPinOff,
+  Users, TrendingUp, Timer, BarChart2, MapPin, MapPinOff,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -28,7 +28,7 @@ const FILTER_OPTIONS: { value: TimekeepingStatus | "all"; label: string }[] = [
 
 const ITEMS_PER_PAGE = 8;
 
-export default function ManagerTimekeepingPage() {
+export default function HRTimekeepingPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [logs, setLogs]                 = useState<TimekeepingLog[]>([]);
   const [loading, setLoading]           = useState(true);
@@ -51,7 +51,7 @@ export default function ManagerTimekeepingPage() {
       .finally(() => setLoading(false));
   }, [selectedDate]);
 
-  const stats    = useMemo(() => computeStats(logs), [logs]);
+  const stats   = useMemo(() => computeStats(logs), [logs]);
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return logs.filter(l => {
@@ -77,8 +77,8 @@ export default function ManagerTimekeepingPage() {
             <Clock className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-bold">Team Timekeeping</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Monitor your team's daily attendance and hours</p>
+            <h1 className="text-xl font-bold">Timekeeping Management</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">Company-wide attendance and compliance tracking</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -93,12 +93,12 @@ export default function ManagerTimekeepingPage() {
         </div>
       </div>
 
-      {/* Manager stat cards — team operational focus */}
+      {/* HR stat cards — company-wide compliance focus */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <StatCard icon={Users}        label="Total Team"     value={String(stats.total)}                  sub="employees"                              colorClass="bg-primary/10 text-primary" />
-        <StatCard icon={CheckCircle2} label="Present Today"  value={String(stats.present)}                sub={`${stats.attendance_rate}% attendance`} colorClass="bg-green-50 text-green-600" />
-        <StatCard icon={Timer}        label="Late Arrivals"  value={String(stats.late)}                   sub="needs follow-up"                        colorClass="bg-amber-50 text-amber-600" />
-        <StatCard icon={Clock}        label="Avg Hours"      value={`${stats.avg_hours.toFixed(1)}h`}     sub="per employee"                           colorClass="bg-blue-50 text-blue-600" />
+        <StatCard icon={Users}      label="Total Employees"  value={String(stats.total)}                          sub="tracked"                            colorClass="bg-primary/10 text-primary" />
+        <StatCard icon={TrendingUp} label="Attendance Rate"  value={`${stats.attendance_rate}%`}                 sub={`${stats.present} present`}         colorClass="bg-green-50 text-green-600" />
+        <StatCard icon={BarChart2}  label="Total Hours"      value={`${(stats.avg_hours * stats.total).toFixed(1)}h`} sub={`${stats.avg_hours.toFixed(1)}h avg`} colorClass="bg-blue-50 text-blue-600" />
+        <StatCard icon={Timer}      label="Compliance Issues" value={String(stats.late + stats.absent)}          sub="late + absent"                      colorClass="bg-red-50 text-red-600" />
       </div>
 
       {/* Table */}
