@@ -30,13 +30,6 @@ type JobItem = {
   salary_range: string;
 };
 
-type ApplicationItem = {
-  id: string;
-  jobTitle: string;
-  status: string;
-  stage: string;
-};
-
 type Question = {
   question_id: string;
   question_text: string;
@@ -46,24 +39,22 @@ type Question = {
   sort_order: number;
 };
 
-const STAGES = ["Applied", "Screening", "Interview", "Final", "Offer"];
-
-function stageIndex(stage: string): number {
-  const s = stage?.toLowerCase() ?? "";
-  if (s.includes("screen")) return 1;
-  if (
-    s.includes("interview") ||
-    s.includes("technical") ||
-    s.includes("1st") ||
-    s.includes("first")
-  )
-    return 2;
-  if (s.includes("final")) return 3;
-  if (s.includes("offer") || s.includes("decision")) return 4;
-  return 0;
+function statusPillStyle(type: string) {
+  switch (type?.toLowerCase()) {
+    case "full-time":
+      return { bg: "#ECFDF3", border: "#A7F3D0", text: "#15803D" };
+    case "part-time":
+      return { bg: "#FFFBEB", border: "#FDE68A", text: "#B45309" };
+    case "contract":
+      return { bg: "#EFF6FF", border: "#BFDBFE", text: "#1D4ED8" };
+    case "internship":
+      return { bg: "#F5F3FF", border: "#DDD6FE", text: "#6D28D9" };
+    default:
+      return { bg: "#F3F4F6", border: "#E5E7EB", text: "#374151" };
+  }
 }
 
-export function ApplicantDashboardScreen() {
+export function ApplicantJobsScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const session = route.params?.session ?? {
@@ -76,14 +67,12 @@ export function ApplicantDashboardScreen() {
 
   const [search, setSearch] = useState("");
   const [jobs, setJobs] = useState<JobItem[]>([]);
-  const [applications, setApplications] = useState<ApplicationItem[]>([]);
-  const [loadingJobs, setLoadingJobs] = useState(true);
-  const [loadingApps, setLoadingApps] = useState(true);
+  const [loading, setLoading] = useState(true);
 
-  // Job detail + apply modal
-  const [applyVisible, setApplyVisible] = useState(false);
+  // Detail + apply modal
+  const [modalVisible, setModalVisible] = useState(false);
   const [selectedJob, setSelectedJob] = useState<JobItem | null>(null);
-  const [applyTab, setApplyTab] = useState<"details" | "apply">("details");
+  const [activeTab, setActiveTab] = useState<"details" | "apply">("details");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [loadingQuestions, setLoadingQuestions] = useState(false);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -96,61 +85,30 @@ export function ApplicantDashboardScreen() {
         const res = await authFetch(`${API_BASE_URL}/jobs/applicant/open`);
         const data = await res.json().catch(() => []);
         if (!cancelled && Array.isArray(data)) {
-          const mapped: JobItem[] = data.map((j: any) => ({
-            job_posting_id:
-              j.job_posting_id ?? j.job_id ?? j.id ?? String(Math.random()),
-            title: j.title ?? j.job_title ?? "Untitled",
-            department: j.department ?? j.department_name ?? "—",
-            location: j.location ?? "—",
-            posted: j.posted_at
-              ? new Date(j.posted_at).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })
-              : j.created_at
-              ? new Date(j.created_at).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })
-              : "—",
-            type: j.employment_type ?? j.type ?? "Full-time",
-            description: j.description ?? "",
-            salary_range: j.salary_range ?? "",
-          }));
-          setJobs(mapped);
+          setJobs(
+            data.map((j: any) => ({
+              job_posting_id:
+                j.job_posting_id ?? j.job_id ?? j.id ?? String(Math.random()),
+              title: j.title ?? j.job_title ?? "Untitled",
+              department: j.department ?? j.department_name ?? "—",
+              location: j.location ?? "—",
+              posted: j.posted_at
+                ? new Date(j.posted_at).toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                    year: "numeric",
+                  })
+                : "—",
+              type: j.employment_type ?? j.type ?? "Full-time",
+              description: j.description ?? "",
+              salary_range: j.salary_range ?? "",
+            }))
+          );
         }
       } catch {
         // leave empty
       } finally {
-        if (!cancelled) setLoadingJobs(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await authFetch(
-          `${API_BASE_URL}/jobs/applicant/my-applications`
-        );
-        const data = await res.json().catch(() => []);
-        if (!cancelled && Array.isArray(data)) {
-          const mapped: ApplicationItem[] = data.map((a: any) => ({
-            id: a.application_id ?? a.id ?? String(Math.random()),
-            jobTitle: a.job_title ?? a.title ?? "Unknown Position",
-            status: a.status ?? "In Review",
-            stage: a.current_stage ?? a.stage ?? "Applied",
-          }));
-          setApplications(mapped);
-        }
-      } catch {
-        // leave empty
-      } finally {
-        if (!cancelled) setLoadingApps(false);
+        if (!cancelled) setLoading(false);
       }
     })();
     return () => {
@@ -159,26 +117,23 @@ export function ApplicantDashboardScreen() {
   }, []);
 
   const filteredJobs = useMemo(() => {
-    const keyword = search.trim().toLowerCase();
-    if (!keyword) return jobs;
+    const kw = search.trim().toLowerCase();
+    if (!kw) return jobs;
     return jobs.filter(
-      (job) =>
-        job.title.toLowerCase().includes(keyword) ||
-        job.department.toLowerCase().includes(keyword) ||
-        job.location.toLowerCase().includes(keyword) ||
-        job.type.toLowerCase().includes(keyword)
+      (j) =>
+        j.title.toLowerCase().includes(kw) ||
+        j.department.toLowerCase().includes(kw) ||
+        j.location.toLowerCase().includes(kw) ||
+        j.type.toLowerCase().includes(kw)
     );
   }, [search, jobs]);
 
-  const latestApp = applications[0] ?? null;
-  const currentStageIdx = latestApp ? stageIndex(latestApp.stage) : -1;
-
-  async function openJobDetail(job: JobItem) {
+  async function openJob(job: JobItem) {
     setSelectedJob(job);
-    setApplyTab("details");
+    setActiveTab("details");
     setAnswers({});
     setQuestions([]);
-    setApplyVisible(true);
+    setModalVisible(true);
     setLoadingQuestions(true);
     try {
       const res = await authFetch(
@@ -201,8 +156,7 @@ export function ApplicantDashboardScreen() {
 
   function toggleCheckbox(qid: string, option: string) {
     setAnswers((prev) => {
-      const current = prev[qid] ?? "";
-      const selected = current ? current.split(",") : [];
+      const selected = (prev[qid] ?? "").split(",").filter(Boolean);
       const idx = selected.indexOf(option);
       if (idx === -1) selected.push(option);
       else selected.splice(idx, 1);
@@ -213,7 +167,6 @@ export function ApplicantDashboardScreen() {
   async function handleSubmit() {
     if (!selectedJob) return;
 
-    // Validate required fields
     for (const q of questions) {
       if (q.is_required && !answers[q.question_id]?.trim()) {
         Alert.alert("Required", `Please answer: "${q.question_text}"`);
@@ -237,13 +190,13 @@ export function ApplicantDashboardScreen() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any)?.message || "Failed to submit application");
+        throw new Error((err as any)?.message || "Failed to submit");
       }
 
-      setApplyVisible(false);
+      setModalVisible(false);
       Alert.alert(
-        "Application Submitted",
-        `Your application for "${selectedJob.title}" has been submitted successfully.`
+        "Submitted!",
+        `Your application for "${selectedJob.title}" was submitted successfully.`
       );
     } catch (e: any) {
       Alert.alert("Error", e?.message || "Something went wrong.");
@@ -260,7 +213,7 @@ export function ApplicantDashboardScreen() {
             role="applicant"
             userName={session.name}
             email={session.email}
-            activeScreen="Dashboard"
+            activeScreen="Jobs"
             navigation={navigation}
           />
         )}
@@ -271,205 +224,183 @@ export function ApplicantDashboardScreen() {
               role="applicant"
               userName={session.name}
               email={session.email}
-              activeScreen="Dashboard"
+              activeScreen="Jobs"
               navigation={navigation}
             />
           )}
 
           <ScrollView
-            style={styles.container}
+            style={styles.scroll}
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
           >
+            {/* Hero */}
             <View style={styles.heroCard}>
-              <View style={styles.heroTextWrap}>
-                <Text style={styles.heroTitle}>Applicant Portal</Text>
-                <Text style={styles.heroSubtitle}>Blue&apos;s Clues HRIS</Text>
-              </View>
-              {!isMobile && (
-                <View style={styles.avatarCircle}>
-                  <Text style={styles.avatarText}>
-                    {session.name.charAt(0).toUpperCase()}
+              <Text style={styles.eyebrow}>Applicant Portal</Text>
+              <Text style={styles.heroTitle}>Open Positions</Text>
+              <Text style={styles.heroSubtitle}>
+                Browse available roles and submit your application directly from
+                your phone.
+              </Text>
+              <View style={styles.heroStats}>
+                <View style={styles.heroStat}>
+                  <Text style={styles.heroStatValue}>
+                    {loading ? "—" : jobs.length}
                   </Text>
+                  <Text style={styles.heroStatLabel}>Open Roles</Text>
                 </View>
-              )}
+              </View>
             </View>
 
+            {/* Search */}
             <View style={styles.searchWrap}>
               <Ionicons
                 name="search-outline"
-                size={22}
+                size={20}
                 color="#6B7280"
-                style={styles.searchIcon}
+                style={{ marginRight: 10 }}
               />
               <TextInput
                 value={search}
                 onChangeText={setSearch}
-                placeholder="Search jobs..."
-                placeholderTextColor="#6B7280"
+                placeholder="Search by title, department, location..."
+                placeholderTextColor="#9CA3AF"
                 style={styles.searchInput}
               />
+              {search.length > 0 && (
+                <Pressable onPress={() => setSearch("")}>
+                  <Ionicons name="close-circle" size={18} color="#9CA3AF" />
+                </Pressable>
+              )}
             </View>
 
-            {/* Application Status */}
-            {loadingApps ? (
-              <View style={styles.sectionCard}>
-                <ActivityIndicator color="#3366D6" />
-              </View>
-            ) : latestApp ? (
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionEyebrow}>Latest Application</Text>
-                <Text style={styles.currentStatus}>
-                  Status: {latestApp.status}
-                </Text>
-                <Text style={styles.currentRole}>{latestApp.jobTitle}</Text>
-                <View style={styles.phasePill}>
-                  <Text style={styles.phasePillText}>{latestApp.stage}</Text>
-                </View>
-              </View>
-            ) : null}
-
-            {/* Progress Tracker */}
-            {latestApp && (
-              <View style={styles.sectionCard}>
-                <Text style={styles.sectionTitle}>Application Progress</Text>
-                <View style={styles.progressLabels}>
-                  {STAGES.map((s, i) => (
-                    <Text
-                      key={s}
-                      style={
-                        i <= currentStageIdx
-                          ? styles.progressLabelActive
-                          : styles.progressLabelMuted
-                      }
-                      numberOfLines={1}
-                    >
-                      {s}
-                    </Text>
-                  ))}
-                </View>
-                <View style={styles.progressRow}>
-                  {STAGES.map((s, i) => (
-                    <React.Fragment key={s}>
-                      {i > 0 && (
-                        <View
-                          style={
-                            i <= currentStageIdx
-                              ? styles.progressLineActive
-                              : styles.progressLineMuted
-                          }
-                        />
-                      )}
-                      {i < currentStageIdx ? (
-                        <View style={styles.progressStepDone}>
-                          <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                        </View>
-                      ) : i === currentStageIdx ? (
-                        <View style={styles.progressStepCurrent}>
-                          <Text style={styles.progressStepCurrentText}>
-                            {i + 1}
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={styles.progressStepMuted}>
-                          <Text style={styles.progressStepMutedText}>
-                            {i + 1}
-                          </Text>
-                        </View>
-                      )}
-                    </React.Fragment>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* Available Positions */}
-            <View style={styles.positionsCard}>
-              <Text style={styles.sectionTitle}>Available Positions</Text>
-              <Text style={styles.positionsSubtitle}>
-                Tap a job to view details and apply
-              </Text>
-
-              {loadingJobs ? (
-                <ActivityIndicator
-                  color="#3366E8"
-                  style={{ marginVertical: 20 }}
+            {/* Job list */}
+            {loading ? (
+              <ActivityIndicator
+                size="large"
+                color="#3366E8"
+                style={{ marginTop: 32 }}
+              />
+            ) : filteredJobs.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <Ionicons
+                  name="briefcase-outline"
+                  size={36}
+                  color="#D1D5DB"
+                  style={{ marginBottom: 12 }}
                 />
-              ) : filteredJobs.length === 0 ? (
-                <View style={styles.emptyCard}>
-                  <Text style={styles.emptyTitle}>
-                    {jobs.length === 0 ? "No open positions" : "No jobs found"}
-                  </Text>
-                  <Text style={styles.emptySubtitle}>
-                    {jobs.length === 0
-                      ? "Check back later for new opportunities."
-                      : "Try a different keyword."}
-                  </Text>
-                </View>
-              ) : (
-                filteredJobs.map((job) => (
+                <Text style={styles.emptyTitle}>
+                  {jobs.length === 0
+                    ? "No open positions right now"
+                    : "No jobs match your search"}
+                </Text>
+                <Text style={styles.emptySubtitle}>
+                  {jobs.length === 0
+                    ? "Check back later for new opportunities."
+                    : "Try a different keyword."}
+                </Text>
+              </View>
+            ) : (
+              filteredJobs.map((job) => {
+                const pill = statusPillStyle(job.type);
+                return (
                   <Pressable
                     key={job.job_posting_id}
                     style={({ pressed }) => [
                       styles.jobCard,
-                      pressed && { opacity: 0.75 },
+                      pressed && styles.jobCardPressed,
                     ]}
-                    onPress={() => openJobDetail(job)}
+                    onPress={() => openJob(job)}
                   >
-                    <View style={styles.jobTopRow}>
+                    <View style={styles.jobTop}>
                       <View style={styles.jobTextWrap}>
                         <Text style={styles.jobTitle}>{job.title}</Text>
                         <Text style={styles.jobMeta}>
-                          {job.department} • {job.location}
+                          {job.department} · {job.location}
                         </Text>
-                        <Text style={styles.jobPosted}>{job.posted}</Text>
+                        <Text style={styles.jobPosted}>
+                          Posted {job.posted}
+                        </Text>
                       </View>
-                      <View style={styles.jobTypePill}>
-                        <Text style={styles.jobTypeText}>{job.type}</Text>
+                      <View
+                        style={[
+                          styles.typePill,
+                          {
+                            backgroundColor: pill.bg,
+                            borderColor: pill.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[styles.typePillText, { color: pill.text }]}
+                        >
+                          {job.type}
+                        </Text>
                       </View>
                     </View>
-                    <View style={styles.tapHint}>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={14}
-                        color="#3366E8"
-                      />
-                      <Text style={styles.tapHintText}>
-                        Tap to view &amp; apply
+
+                    {job.description ? (
+                      <Text style={styles.jobDesc} numberOfLines={2}>
+                        {job.description}
                       </Text>
+                    ) : null}
+
+                    <View style={styles.cardFooter}>
+                      {job.salary_range ? (
+                        <View style={styles.salaryBadge}>
+                          <Ionicons
+                            name="cash-outline"
+                            size={13}
+                            color="#15803D"
+                          />
+                          <Text style={styles.salaryText}>
+                            {job.salary_range}
+                          </Text>
+                        </View>
+                      ) : (
+                        <View />
+                      )}
+                      <View style={styles.applyHint}>
+                        <Text style={styles.applyHintText}>View & Apply</Text>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={14}
+                          color="#3366E8"
+                        />
+                      </View>
                     </View>
                   </Pressable>
-                ))
-              )}
-            </View>
+                );
+              })
+            )}
           </ScrollView>
         </View>
       </View>
 
       {/* Job Detail + Apply Modal */}
       <Modal
-        visible={applyVisible}
+        visible={modalVisible}
         animationType="slide"
         transparent
-        onRequestClose={() => setApplyVisible(false)}
+        onRequestClose={() => setModalVisible(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalSheet}>
-            {/* Header */}
+            {/* Modal header */}
             <View style={styles.modalHeader}>
               <View style={{ flex: 1, paddingRight: 10 }}>
                 <Text style={styles.modalTitle} numberOfLines={2}>
-                  {selectedJob?.title ?? "Job"}
+                  {selectedJob?.title ?? "Job Details"}
                 </Text>
                 {selectedJob && (
                   <Text style={styles.modalMeta}>
-                    {selectedJob.location} • {selectedJob.type}
+                    {selectedJob.department} · {selectedJob.location}
                   </Text>
                 )}
               </View>
               <Pressable
                 style={styles.closeBtn}
-                onPress={() => setApplyVisible(false)}
+                onPress={() => setModalVisible(false)}
               >
                 <Ionicons name="close" size={18} color="#374151" />
               </Pressable>
@@ -478,26 +409,29 @@ export function ApplicantDashboardScreen() {
             {/* Tabs */}
             <View style={styles.tabRow}>
               <Pressable
-                style={[styles.tab, applyTab === "details" && styles.tabActive]}
-                onPress={() => setApplyTab("details")}
+                style={[
+                  styles.tab,
+                  activeTab === "details" && styles.tabActive,
+                ]}
+                onPress={() => setActiveTab("details")}
               >
                 <Text
                   style={[
                     styles.tabText,
-                    applyTab === "details" && styles.tabTextActive,
+                    activeTab === "details" && styles.tabTextActive,
                   ]}
                 >
                   Details
                 </Text>
               </Pressable>
               <Pressable
-                style={[styles.tab, applyTab === "apply" && styles.tabActive]}
-                onPress={() => setApplyTab("apply")}
+                style={[styles.tab, activeTab === "apply" && styles.tabActive]}
+                onPress={() => setActiveTab("apply")}
               >
                 <Text
                   style={[
                     styles.tabText,
-                    applyTab === "apply" && styles.tabTextActive,
+                    activeTab === "apply" && styles.tabTextActive,
                   ]}
                 >
                   Apply
@@ -511,27 +445,45 @@ export function ApplicantDashboardScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {applyTab === "details" && selectedJob ? (
+              {/* ── Details tab ── */}
+              {activeTab === "details" && selectedJob && (
                 <View style={{ gap: 14 }}>
-                  {/* Meta cards */}
                   <View style={styles.metaGrid}>
                     {[
-                      { label: "Location", value: selectedJob.location || "—" },
-                      { label: "Type", value: selectedJob.type || "—" },
                       {
-                        label: "Salary",
-                        value: selectedJob.salary_range || "—",
+                        icon: "location-outline" as const,
+                        label: "Location",
+                        value: selectedJob.location || "—",
                       },
-                      { label: "Posted", value: selectedJob.posted || "—" },
+                      {
+                        icon: "briefcase-outline" as const,
+                        label: "Type",
+                        value: selectedJob.type || "—",
+                      },
+                      {
+                        icon: "cash-outline" as const,
+                        label: "Salary",
+                        value: selectedJob.salary_range || "Not specified",
+                      },
+                      {
+                        icon: "calendar-outline" as const,
+                        label: "Posted",
+                        value: selectedJob.posted || "—",
+                      },
                     ].map((m) => (
                       <View key={m.label} style={styles.metaCard}>
+                        <Ionicons
+                          name={m.icon}
+                          size={16}
+                          color="#3366E8"
+                          style={{ marginBottom: 6 }}
+                        />
                         <Text style={styles.metaLabel}>{m.label}</Text>
                         <Text style={styles.metaValue}>{m.value}</Text>
                       </View>
                     ))}
                   </View>
 
-                  {/* Description */}
                   <View style={styles.descCard}>
                     <Text style={styles.descTitle}>About this role</Text>
                     {selectedJob.description ? (
@@ -540,22 +492,25 @@ export function ApplicantDashboardScreen() {
                       </Text>
                     ) : (
                       <Text style={styles.descEmpty}>
-                        No description provided.
+                        No description provided for this role.
                       </Text>
                     )}
                   </View>
 
-                  {/* CTA */}
                   <Pressable
-                    style={styles.applyButton}
-                    onPress={() => setApplyTab("apply")}
+                    style={styles.applyBtn}
+                    onPress={() => setActiveTab("apply")}
                   >
-                    <Text style={styles.applyButtonText}>
-                      Apply for this Position →
+                    <Text style={styles.applyBtnText}>
+                      Apply for this Position
                     </Text>
+                    <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
                   </Pressable>
                 </View>
-              ) : applyTab === "apply" && selectedJob ? (
+              )}
+
+              {/* ── Apply tab ── */}
+              {activeTab === "apply" && selectedJob && (
                 <View style={{ gap: 16 }}>
                   <View style={styles.formHeader}>
                     <Text style={styles.formTitle}>Application Form</Text>
@@ -565,20 +520,23 @@ export function ApplicantDashboardScreen() {
                   </View>
 
                   {loadingQuestions ? (
-                    <ActivityIndicator color="#3366E8" />
+                    <ActivityIndicator
+                      color="#3366E8"
+                      style={{ marginVertical: 24 }}
+                    />
                   ) : questions.length === 0 ? (
                     <View style={styles.noQuestionsCard}>
                       <Ionicons
                         name="checkmark-circle-outline"
-                        size={32}
+                        size={36}
                         color="#3366E8"
-                        style={{ marginBottom: 8 }}
+                        style={{ marginBottom: 10 }}
                       />
                       <Text style={styles.noQuestionsTitle}>
                         No additional questions
                       </Text>
                       <Text style={styles.noQuestionsText}>
-                        This job has no form questions. You can submit your
+                        This posting has no form questions. You can submit your
                         application right away.
                       </Text>
                     </View>
@@ -586,12 +544,13 @@ export function ApplicantDashboardScreen() {
                     questions.map((q, idx) => (
                       <View key={q.question_id} style={styles.questionCard}>
                         <Text style={styles.questionLabel}>
-                          {idx + 1}. {q.question_text}
+                          {idx + 1}.{"  "}{q.question_text}
                           {q.is_required && (
-                            <Text style={styles.requiredAsterix}> *</Text>
+                            <Text style={styles.requiredStar}> *</Text>
                           )}
                         </Text>
 
+                        {/* Text answer */}
                         {q.question_type === "text" && (
                           <TextInput
                             style={styles.textAnswer}
@@ -605,16 +564,16 @@ export function ApplicantDashboardScreen() {
                           />
                         )}
 
+                        {/* Multiple choice */}
                         {q.question_type === "multiple_choice" &&
                           (q.options ?? []).map((opt, oidx) => {
-                            const selected =
-                              answers[q.question_id] === opt;
+                            const selected = answers[q.question_id] === opt;
                             return (
                               <Pressable
                                 key={`${q.question_id}-opt-${oidx}`}
                                 style={[
-                                  styles.radioOption,
-                                  selected && styles.radioOptionSelected,
+                                  styles.choiceOption,
+                                  selected && styles.choiceOptionSelected,
                                 ]}
                                 onPress={() => setAnswer(q.question_id, opt)}
                               >
@@ -630,8 +589,8 @@ export function ApplicantDashboardScreen() {
                                 </View>
                                 <Text
                                   style={[
-                                    styles.optionText,
-                                    selected && styles.optionTextSelected,
+                                    styles.choiceText,
+                                    selected && styles.choiceTextSelected,
                                   ]}
                                 >
                                   {opt}
@@ -640,19 +599,19 @@ export function ApplicantDashboardScreen() {
                             );
                           })}
 
+                        {/* Checkbox */}
                         {q.question_type === "checkbox" &&
                           (q.options ?? []).map((opt, oidx) => {
-                            const checked = (
-                              answers[q.question_id] ?? ""
-                            )
+                            const checked = (answers[q.question_id] ?? "")
                               .split(",")
+                              .filter(Boolean)
                               .includes(opt);
                             return (
                               <Pressable
                                 key={`${q.question_id}-chk-${oidx}`}
                                 style={[
-                                  styles.radioOption,
-                                  checked && styles.radioOptionSelected,
+                                  styles.choiceOption,
+                                  checked && styles.choiceOptionSelected,
                                 ]}
                                 onPress={() =>
                                   toggleCheckbox(q.question_id, opt)
@@ -674,8 +633,8 @@ export function ApplicantDashboardScreen() {
                                 </View>
                                 <Text
                                   style={[
-                                    styles.optionText,
-                                    checked && styles.optionTextSelected,
+                                    styles.choiceText,
+                                    checked && styles.choiceTextSelected,
                                   ]}
                                 >
                                   {opt}
@@ -698,13 +657,20 @@ export function ApplicantDashboardScreen() {
                     {submitting ? (
                       <ActivityIndicator color="#FFFFFF" size="small" />
                     ) : (
-                      <Text style={styles.submitBtnText}>
-                        Submit Application
-                      </Text>
+                      <>
+                        <Text style={styles.submitBtnText}>
+                          Submit Application
+                        </Text>
+                        <Ionicons
+                          name="checkmark-circle-outline"
+                          size={18}
+                          color="#FFFFFF"
+                        />
+                      </>
                     )}
                   </Pressable>
                 </View>
-              ) : null}
+              )}
             </ScrollView>
           </View>
         </View>
@@ -716,236 +682,88 @@ export function ApplicantDashboardScreen() {
 const styles = StyleSheet.create({
   safeArea: { flex: 1, backgroundColor: "#F3F4F6" },
   layout: { flex: 1, flexDirection: "row", backgroundColor: "#F3F4F6" },
-  mainContent: { flex: 1, backgroundColor: "#F3F4F6" },
-  container: { flex: 1, backgroundColor: "#F3F4F6" },
-  content: { padding: 16, paddingBottom: 28 },
+  mainContent: { flex: 1 },
+  scroll: { flex: 1 },
+  content: { padding: 16, paddingBottom: 32 },
+
+  // Hero
   heroCard: {
-    backgroundColor: "#2646A3",
-    borderRadius: 0,
-    paddingHorizontal: 20,
-    paddingVertical: 24,
-    marginHorizontal: -16,
-    marginTop: -16,
-    marginBottom: 20,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    backgroundColor: "#1E3A8A",
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
   },
-  heroTextWrap: { flex: 1 },
+  eyebrow: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 1.2,
+    marginBottom: 8,
+  },
   heroTitle: {
     color: "#FFFFFF",
     fontSize: 26,
     fontWeight: "800",
-    marginBottom: 4,
+    marginBottom: 6,
   },
   heroSubtitle: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 14,
+    color: "rgba(255,255,255,0.78)",
+    fontSize: 13,
+    lineHeight: 20,
+    marginBottom: 14,
+  },
+  heroStats: { flexDirection: "row" },
+  heroStat: {
+    backgroundColor: "rgba(255,255,255,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.18)",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  heroStatValue: {
+    color: "#FFFFFF",
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 2,
+  },
+  heroStatLabel: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
     fontWeight: "700",
-    letterSpacing: 1,
   },
-  avatarCircle: {
-    width: 68,
-    height: 68,
-    borderRadius: 34,
-    backgroundColor: "#E5E7EB",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 16,
-  },
-  avatarText: { color: "#2646A3", fontSize: 20, fontWeight: "800" },
+
+  // Search
   searchWrap: {
-    height: 52,
+    flexDirection: "row",
+    alignItems: "center",
+    height: 50,
     borderRadius: 16,
     borderWidth: 1.5,
     borderColor: "#D1D5DB",
     backgroundColor: "#FFFFFF",
-    flexDirection: "row",
-    alignItems: "center",
     paddingHorizontal: 14,
     marginBottom: 16,
   },
-  searchIcon: { marginRight: 10 },
-  searchInput: { flex: 1, fontSize: 15, color: "#111827" },
-  sectionCard: {
+  searchInput: { flex: 1, fontSize: 14, color: "#111827" },
+
+  // Empty
+  emptyCard: {
     backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    padding: 16,
-    marginBottom: 14,
-  },
-  sectionEyebrow: {
-    color: "#3366D6",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 2,
-    textTransform: "uppercase",
-    marginBottom: 10,
-  },
-  currentStatus: {
-    color: "#0F172A",
-    fontSize: 22,
-    fontWeight: "800",
-    marginBottom: 8,
-  },
-  currentRole: {
-    color: "#6B7280",
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 14,
-  },
-  phasePill: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-    backgroundColor: "#EEF4FF",
-    borderWidth: 1,
-    borderColor: "#BFD4FF",
-  },
-  phasePillText: { color: "#3366D6", fontSize: 13, fontWeight: "700" },
-  sectionTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "800",
-    marginBottom: 16,
-  },
-  progressLabels: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  progressLabelActive: {
-    color: "#3366D6",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    flex: 1,
-    textAlign: "center",
-  },
-  progressLabelMuted: {
-    color: "#9CA3AF",
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 1,
-    textTransform: "uppercase",
-    flex: 1,
-    textAlign: "center",
-  },
-  progressRow: { flexDirection: "row", alignItems: "center" },
-  progressStepDone: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#3366E8",
+    padding: 32,
     alignItems: "center",
-    justifyContent: "center",
+    marginTop: 8,
   },
-  progressStepCurrent: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 3,
-    borderColor: "#3366E8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  progressStepCurrentText: {
-    color: "#3366E8",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  progressStepMuted: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#F9FAFB",
-    borderWidth: 2,
-    borderColor: "#D1D5DB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  progressStepMutedText: { color: "#9CA3AF", fontSize: 15, fontWeight: "800" },
-  progressLineActive: { flex: 1, height: 4, backgroundColor: "#3366E8" },
-  progressLineMuted: { flex: 1, height: 4, backgroundColor: "#D1D5DB" },
-  positionsCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    padding: 16,
-  },
-  positionsSubtitle: {
-    color: "#6B7280",
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
-    marginTop: -8,
-  },
-  jobCard: {
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 18,
-    padding: 16,
-    marginBottom: 14,
-  },
-  jobTopRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-  jobTextWrap: { flex: 1, paddingRight: 10 },
-  jobTitle: {
+  emptyTitle: {
     color: "#0F172A",
     fontSize: 16,
     fontWeight: "800",
     marginBottom: 6,
-  },
-  jobMeta: { color: "#6B7280", fontSize: 13, lineHeight: 20, marginBottom: 2 },
-  jobPosted: { color: "#9CA3AF", fontSize: 12 },
-  jobTypePill: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: "#F9FAFB",
-  },
-  jobTypeText: { color: "#374151", fontSize: 12, fontWeight: "700" },
-  tapHint: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    paddingTop: 10,
-  },
-  tapHintText: { color: "#3366E8", fontSize: 12, fontWeight: "700" },
-  applyButton: {
-    backgroundColor: "#3366E8",
-    paddingVertical: 14,
-    borderRadius: 16,
-    alignItems: "center",
-  },
-  applyButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
-  emptyCard: {
-    backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    borderRadius: 16,
-    padding: 20,
-    alignItems: "center",
-  },
-  emptyTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "800",
-    marginBottom: 6,
+    textAlign: "center",
   },
   emptySubtitle: {
     color: "#6B7280",
@@ -953,6 +771,68 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 20,
   },
+
+  // Job card
+  jobCard: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 12,
+  },
+  jobCardPressed: { opacity: 0.75 },
+  jobTop: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: 10,
+  },
+  jobTextWrap: { flex: 1, paddingRight: 10 },
+  jobTitle: {
+    color: "#0F172A",
+    fontSize: 16,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  jobMeta: { color: "#6B7280", fontSize: 13, marginBottom: 2 },
+  jobPosted: { color: "#9CA3AF", fontSize: 12 },
+  typePill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  typePillText: { fontSize: 11, fontWeight: "800" },
+  jobDesc: {
+    color: "#6B7280",
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 12,
+  },
+  cardFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+    paddingTop: 10,
+  },
+  salaryBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#ECFDF3",
+    borderWidth: 1,
+    borderColor: "#A7F3D0",
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  salaryText: { color: "#15803D", fontSize: 12, fontWeight: "700" },
+  applyHint: { flexDirection: "row", alignItems: "center", gap: 3 },
+  applyHintText: { color: "#3366E8", fontSize: 13, fontWeight: "700" },
+
   // Modal
   modalOverlay: {
     flex: 1,
@@ -963,7 +843,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    maxHeight: "92%",
     flex: 1,
     marginTop: 60,
   },
@@ -974,16 +853,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#E5E7EB",
   },
-  modalTitle: {
-    color: "#0F172A",
-    fontSize: 18,
-    fontWeight: "800",
-  },
-  modalMeta: {
-    color: "#6B7280",
-    fontSize: 13,
-    marginTop: 4,
-  },
+  modalTitle: { color: "#0F172A", fontSize: 18, fontWeight: "800" },
+  modalMeta: { color: "#6B7280", fontSize: 13, marginTop: 4 },
   closeBtn: {
     width: 36,
     height: 36,
@@ -1000,22 +871,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "#E5E7EB",
     paddingHorizontal: 16,
   },
-  tab: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    marginRight: 4,
-  },
-  tabActive: {
-    borderBottomWidth: 2,
-    borderBottomColor: "#3366E8",
-  },
+  tab: { paddingVertical: 12, paddingHorizontal: 16, marginRight: 4 },
+  tabActive: { borderBottomWidth: 2, borderBottomColor: "#3366E8" },
   tabText: { color: "#6B7280", fontSize: 14, fontWeight: "700" },
   tabTextActive: { color: "#3366E8" },
-  metaGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
+
+  // Details tab
+  metaGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   metaCard: {
     backgroundColor: "#F9FAFB",
     borderWidth: 1,
@@ -1048,12 +910,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   descBody: { color: "#374151", fontSize: 13, lineHeight: 20 },
-  descEmpty: {
-    color: "#9CA3AF",
-    fontSize: 13,
-    fontStyle: "italic",
+  descEmpty: { color: "#9CA3AF", fontSize: 13, fontStyle: "italic" },
+  applyBtn: {
+    backgroundColor: "#3366E8",
+    borderRadius: 16,
+    paddingVertical: 15,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
-  // Apply form
+  applyBtnText: { color: "#FFFFFF", fontSize: 15, fontWeight: "800" },
+
+  // Apply tab
   formHeader: {
     backgroundColor: "#EEF4FF",
     borderWidth: 1,
@@ -1068,7 +937,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#BFD4FF",
     borderRadius: 16,
-    padding: 20,
+    padding: 24,
     alignItems: "center",
   },
   noQuestionsTitle: {
@@ -1097,7 +966,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     lineHeight: 20,
   },
-  requiredAsterix: { color: "#DC2626" },
+  requiredStar: { color: "#DC2626" },
   textAnswer: {
     borderWidth: 1,
     borderColor: "#D1D5DB",
@@ -1108,7 +977,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
     minHeight: 80,
   },
-  radioOption: {
+  choiceOption: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
@@ -1117,7 +986,7 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 10,
   },
-  radioOptionSelected: {
+  choiceOptionSelected: {
     borderColor: "#3366E8",
     backgroundColor: "#EEF4FF",
   },
@@ -1146,17 +1015,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  checkBoxSelected: {
-    borderColor: "#3366E8",
-    backgroundColor: "#3366E8",
-  },
-  optionText: { color: "#374151", fontSize: 14, flex: 1 },
-  optionTextSelected: { color: "#1D4ED8", fontWeight: "700" },
+  checkBoxSelected: { borderColor: "#3366E8", backgroundColor: "#3366E8" },
+  choiceText: { color: "#374151", fontSize: 14, flex: 1 },
+  choiceTextSelected: { color: "#1D4ED8", fontWeight: "700" },
   submitBtn: {
     backgroundColor: "#3366E8",
-    paddingVertical: 16,
     borderRadius: 16,
+    paddingVertical: 16,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
   },
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },

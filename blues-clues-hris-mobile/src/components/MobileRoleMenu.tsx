@@ -1,10 +1,16 @@
 import React, { useState } from "react";
-import { View, Text, Pressable, Modal, StyleSheet } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  Modal,
+  StyleSheet,
+  ScrollView,
+} from "react-native";
 import { Ionicons, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
 import { CommonActions } from "@react-navigation/native";
 import { clearSession, UserRole } from "../services/auth";
-import { ROLE_LABELS, MENU_CONFIG, APP_SUBTITLE } from "../constants/config";
-import { getInitial } from "../lib/utils";
+import { MENU_CONFIG, ROLE_LABELS } from "../constants/config";
 
 type Props = {
   role: UserRole;
@@ -14,22 +20,20 @@ type Props = {
   navigation: any;
 };
 
-export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }: Props) => {
+export function MobileRoleMenu({
+  role,
+  userName,
+  email = "",
+  activeScreen,
+  navigation,
+}: Props) {
+  const [visible, setVisible] = useState(false);
   const [showLogout, setShowLogout] = useState(false);
-  const initial = getInitial(userName);
-
-  async function confirmLogout() {
-    await clearSession();
-    setShowLogout(false);
-    navigation.reset({
-      index: 0,
-      routes: [{ name: "Login" }],
-    });
-  }
 
   const session = { name: userName, role, email };
 
   const switchTo = (target: string) => {
+    setVisible(false);
     navigation.dispatch(
       CommonActions.reset({
         index: 0,
@@ -39,7 +43,7 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
   };
 
   const goToScreen = (screenName: string) => {
-    if (screenName === activeScreen) return;
+    if (screenName === activeScreen) { setVisible(false); return; }
 
     if (role === "system_admin" || role === "admin") {
       if (screenName === "Dashboard") { switchTo("SystemAdminDashboard"); return; }
@@ -54,26 +58,36 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
     }
 
     if (role === "hr") {
-      if (screenName === "Dashboard")   { switchTo("HROfficerDashboard");    return; }
-      if (screenName === "Timekeeping") { switchTo("HROfficerTimekeeping");  return; }
-      if (screenName === "Recruitment") { switchTo("HROfficerRecruitment");  return; }
+      if (screenName === "Dashboard")   { switchTo("HROfficerDashboard");   return; }
+      if (screenName === "Timekeeping") { switchTo("HROfficerTimekeeping"); return; }
+      if (screenName === "Recruitment") { switchTo("HROfficerRecruitment"); return; }
     }
 
     if (role === "employee") {
-      if (screenName === "Dashboard")   { switchTo("EmployeeDashboard");     return; }
-      if (screenName === "Timekeeping") { switchTo("EmployeeTimekeeping");   return; }
+      if (screenName === "Dashboard")   { switchTo("EmployeeDashboard");    return; }
+      if (screenName === "Timekeeping") { switchTo("EmployeeTimekeeping");  return; }
     }
 
     if (role === "applicant") {
       if (screenName === "Dashboard") { switchTo("ApplicantDashboard"); return; }
       if (screenName === "Jobs")      { switchTo("ApplicantJobs");      return; }
     }
+
+    setVisible(false);
   };
 
-  const menu = MENU_CONFIG[role] ?? [];
+  async function confirmLogout() {
+    await clearSession();
+    setShowLogout(false);
+    setVisible(false);
+    navigation.reset({
+      index: 0,
+      routes: [{ name: "Login" }],
+    });
+  }
 
   const renderIcon = (name: string, isActive: boolean) => {
-    const color = isActive ? "#FFFFFF" : "rgba(255,255,255,0.88)";
+    const color = isActive ? "#1F3F95" : "#475569";
 
     switch (name) {
       case "Dashboard":
@@ -127,78 +141,95 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
     }
   };
 
+  const menu = MENU_CONFIG[role] ?? [];
+  const activeItem =
+    menu.find((item) => item.name === activeScreen)?.label || "Menu";
+
   return (
     <>
-      <View style={styles.sidebar}>
-        <View style={styles.topBrand}>
-          <View style={styles.brandRow}>
-            <View style={styles.logoCircle}>
-              <MaterialCommunityIcons
-                name="layers-outline"
-                size={18}
-                color="#FFFFFF"
-              />
-            </View>
-            <View>
-              <Text style={styles.brandTitle}>Blue&apos;s Clues</Text>
-              <Text style={styles.brandSubtitle}>{APP_SUBTITLE}</Text>
-            </View>
-          </View>
+      <View style={styles.header}>
+        <View style={styles.headerTextWrap}>
+          <Text style={styles.portalLabel}>{ROLE_LABELS[role] ?? "Portal"}</Text>
+          <Text style={styles.userName} numberOfLines={1}>
+            {userName}
+          </Text>
         </View>
 
-        <View style={styles.menuSection}>
-          <Text style={styles.sectionLabel}>MAIN MENU</Text>
-
-          {menu.map((item) => {
-            const isActive = activeScreen === item.name;
-
-            return (
-              <Pressable
-                key={item.name}
-                style={[styles.menuItem, isActive && styles.menuItemActive]}
-                onPress={() => goToScreen(item.name)}
-              >
-                <View style={styles.menuIcon}>
-                  {renderIcon(item.name, isActive)}
-                </View>
-                <Text style={[styles.menuText, isActive && styles.menuTextActive]}>
-                  {item.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        <View style={styles.accountSection}>
-          <Text style={styles.sectionLabel}>ACCOUNT</Text>
-
-          <Pressable style={styles.signOutRow} onPress={() => setShowLogout(true)}>
-            <Ionicons
-              name="log-out-outline"
-              size={17}
-              color="rgba(255,255,255,0.9)"
-            />
-            <Text style={styles.signOutText}>Sign Out</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.bottomProfile}>
-          <View style={styles.bottomProfileRow}>
-            <View style={styles.bottomAvatar}>
-              <Text style={styles.bottomAvatarText}>{initial}</Text>
-            </View>
-
-            <View style={styles.bottomProfileText}>
-              <Text numberOfLines={1} style={styles.bottomName}>
-                {userName}
-              </Text>
-              <Text numberOfLines={1} style={styles.bottomRole}>
-                {ROLE_LABELS[role] ?? role}
-              </Text>
-            </View>
-          </View>
-        </View>
+        <Pressable style={styles.menuButton} onPress={() => setVisible(true)}>
+          <Ionicons name="menu" size={22} color="#FFFFFF" />
+        </Pressable>
       </View>
+
+      <View style={styles.activeBar}>
+        <Text style={styles.activeBarText}>{activeItem}</Text>
+      </View>
+
+      <Modal visible={visible} transparent animationType="fade">
+        <View style={styles.overlay}>
+          <View style={styles.sheet}>
+            <View style={styles.sheetTop}>
+              <View>
+                <Text style={styles.sheetTitle}>Navigate</Text>
+                <Text style={styles.sheetSubtitle}>
+                  {ROLE_LABELS[role] ?? "Portal"}
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.closeButton}
+                onPress={() => setVisible(false)}
+              >
+                <Ionicons name="close" size={20} color="#0F172A" />
+              </Pressable>
+            </View>
+
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.menuList}
+            >
+              {menu.map((item) => {
+                const isActive = item.name === activeScreen;
+
+                return (
+                  <Pressable
+                    key={item.name}
+                    style={[
+                      styles.menuItem,
+                      isActive && styles.menuItemActive,
+                    ]}
+                    onPress={() => goToScreen(item.name)}
+                  >
+                    <View style={styles.iconWrap}>
+                      {renderIcon(item.name, isActive)}
+                    </View>
+                    <Text
+                      style={[
+                        styles.menuText,
+                        isActive && styles.menuTextActive,
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+
+              <Pressable
+                style={styles.logoutRow}
+                onPress={() => {
+                  setVisible(false);
+                  setShowLogout(true);
+                }}
+              >
+                <View style={styles.iconWrap}>
+                  <Ionicons name="log-out-outline" size={18} color="#DC2626" />
+                </View>
+                <Text style={styles.logoutText}>Sign Out</Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
 
       <Modal transparent visible={showLogout} animationType="fade">
         <View style={styles.modalOverlay}>
@@ -208,7 +239,7 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
                 <Text style={styles.modalIcon}>⚠️</Text>
               </View>
 
-              <View style={{ flex: 1 }}>
+              <View style={styles.modalTextWrap}>
                 <Text style={styles.modalTitle}>Confirm Logout</Text>
                 <Text style={styles.modalDesc}>
                   Are you sure you want to log out? Your session will end
@@ -234,144 +265,140 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
       </Modal>
     </>
   );
-};
+}
 
 const styles = StyleSheet.create({
-  sidebar: {
-    width: 240,
+  header: {
     backgroundColor: "#1F3F95",
-    borderRightWidth: 1,
-    borderRightColor: "rgba(255,255,255,0.08)",
-  },
-  topBrand: {
-    paddingHorizontal: 22,
-    paddingTop: 26,
-    paddingBottom: 18,
-  },
-  brandRow: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
   },
-  logoCircle: {
+  headerTextWrap: {
+    flex: 1,
+    paddingRight: 12,
+  },
+  portalLabel: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  userName: {
+    color: "#FFFFFF",
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  menuButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activeBar: {
+    backgroundColor: "#FFFFFF",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  activeBarText: {
+    color: "#1F3F95",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.38)",
+    justifyContent: "flex-start",
+  },
+  sheet: {
+    marginTop: 70,
+    marginHorizontal: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    maxHeight: "75%",
+  },
+  sheetTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  sheetTitle: {
+    color: "#0F172A",
+    fontSize: 20,
+    fontWeight: "800",
+  },
+  sheetSubtitle: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  closeButton: {
     width: 38,
     height: 38,
     borderRadius: 19,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.25)",
+    backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
   },
-  brandTitle: {
-    color: "#FFFFFF",
-    fontSize: 17,
-    fontWeight: "800",
-    lineHeight: 20,
-  },
-  brandSubtitle: {
-    color: "rgba(255,255,255,0.75)",
-    fontSize: 14,
-    fontWeight: "800",
-    letterSpacing: 1,
-    marginTop: 1,
-  },
-  menuSection: {
-    paddingHorizontal: 14,
-    paddingTop: 14,
-  },
-  sectionLabel: {
-    color: "rgba(255,255,255,0.45)",
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.2,
-    marginBottom: 12,
+  menuList: {
+    paddingBottom: 4,
   },
   menuItem: {
-    height: 38,
+    minHeight: 46,
     borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
     marginBottom: 8,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
   },
   menuItemActive: {
-    backgroundColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "#EFF6FF",
+    borderColor: "#BFDBFE",
   },
-  menuIcon: {
-    width: 18,
+  iconWrap: {
+    width: 20,
     alignItems: "center",
     marginRight: 12,
   },
   menuText: {
-    color: "rgba(255,255,255,0.88)",
-    fontSize: 16,
+    color: "#0F172A",
+    fontSize: 15,
     fontWeight: "600",
   },
   menuTextActive: {
-    color: "#FFFFFF",
-    fontWeight: "700",
+    color: "#1F3F95",
+    fontWeight: "800",
   },
-  accountSection: {
-    marginTop: "auto",
-    paddingHorizontal: 14,
-    paddingBottom: 18,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(255,255,255,0.08)",
-    paddingTop: 18,
-  },
-  signOutRow: {
-    height: 38,
-    borderRadius: 12,
+  logoutRow: {
+    minHeight: 46,
+    borderRadius: 14,
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-  },
-  signOutText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-    marginLeft: 12,
-  },
-  bottomProfile: {
-    backgroundColor: "#18357F",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-  },
-  bottomProfileRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  bottomAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#0F172A",
+    marginTop: 6,
+    backgroundColor: "#FEF2F2",
     borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.18)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
+    borderColor: "#FECACA",
   },
-  bottomAvatarText: {
-    color: "#FFFFFF",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-  bottomProfileText: {
-    flex: 1,
-  },
-  bottomName: {
-    color: "#FFFFFF",
+  logoutText: {
+    color: "#DC2626",
     fontSize: 15,
     fontWeight: "700",
-  },
-  bottomRole: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 11,
-    fontWeight: "700",
-    letterSpacing: 0.8,
-    marginTop: 2,
-    textTransform: "uppercase",
   },
   modalOverlay: {
     flex: 1,
@@ -402,6 +429,9 @@ const styles = StyleSheet.create({
   },
   modalIcon: {
     fontSize: 22,
+  },
+  modalTextWrap: {
+    flex: 1,
   },
   modalTitle: {
     color: "#111827",

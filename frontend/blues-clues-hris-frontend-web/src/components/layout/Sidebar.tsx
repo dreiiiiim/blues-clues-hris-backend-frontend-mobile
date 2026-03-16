@@ -17,6 +17,7 @@ import {
   FileCheck,
   Layers,
   ClipboardCheck,
+  Clock,
   Loader2
 } from "lucide-react";
 
@@ -37,15 +38,17 @@ const ROLE_LABELS: Record<string, string> = {
   manager: "Management Portal",
   employee: "Staff Portal",
   applicant: "Candidate Portal",
-  admin: "System Admin",
+  admin: "Admin Portal",
+  "system-admin": "System Admin",
 };
 
-type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin";
+type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
 
 const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }[]> = {
   manager: [
     { name: "Dashboard", href: "/manager", icon: LayoutDashboard },
     { name: "Team", href: "/manager/team", icon: Users },
+    { name: "Timekeeping", href: "/manager/timekeeping", icon: Clock },
     { name: "Approvals", href: "/manager/approvals", icon: ClipboardCheck },
   ],
   applicant: [
@@ -54,20 +57,28 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "My Applications", href: "/applicant/applications", icon: FileText },
   ],
   employee: [
-    { name: "Dashboard", href: "/employee", icon: LayoutDashboard },
-    { name: "My Profile", href: "/employee/profile", icon: Users },
-    { name: "Documents", href: "/employee/documents", icon: FileCheck },
+    { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
+    { name: "Timekeeping", href: "/employee/timekeeping",  icon: Clock },
+    { name: "My Profile",  href: "/employee/profile",      icon: Users },
+    { name: "Documents",   href: "/employee/documents",    icon: FileCheck },
   ],
   hr: [
-    { name: "Dashboard", href: "/hr", icon: LayoutDashboard },
-    { name: "Recruitment", href: "/hr/recruitment", icon: Users },
-    { name: "Onboarding", href: "/hr/onboarding", icon: UserPlus },
-    { name: "Compensation", href: "/hr/payroll", icon: DollarSign },
-    { name: "Performance", href: "/hr/performance", icon: BarChart },
+    { name: "Dashboard",    href: "/hr",              icon: LayoutDashboard },
+    { name: "Timekeeping",  href: "/hr/timekeeping",  icon: Clock },
+    { name: "Recruitment",  href: "/hr/jobs",          icon: Briefcase },
+    { name: "Onboarding",   href: "/hr/onboarding",   icon: UserPlus },
+    { name: "Compensation", href: "/hr/payroll",      icon: DollarSign },
+    { name: "Performance",  href: "/hr/performance",  icon: BarChart },
   ],
   admin: [
+    { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
+    { name: "Users", href: "/admin/users", icon: Users },
+  ],
+  "system-admin": [
     { name: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
     { name: "Users", href: "/system-admin/users", icon: Users },
+    { name: "Subscriptions", href: "/system-admin/subscriptions", icon: DollarSign },
+    { name: "Global Settings", href: "/system-admin/settings", icon: ClipboardCheck },
   ],
 };
 
@@ -81,8 +92,14 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
   }, []);
 
   const handleLogout = async () => {
-    await logoutApi();
-    router.push("/login");
+    if (user?.role === "applicant") {
+      const { applicantLogoutApi } = await import("@/lib/authApi");
+      await applicantLogoutApi();
+      router.push("/applicant/login");
+    } else {
+      await logoutApi();
+      router.push("/login");
+    }
   };
 
   const ROOT_PATHS = ["/system-admin", "/admin", "/hr", "/manager", "/employee"];

@@ -42,7 +42,7 @@ export class AuthController {
 
     res.cookie(COOKIE_NAME, refresh_token, setCookieOptions(loginDto.rememberMe ?? false));
 
-    return { access_token };
+    return { access_token, refresh_token };
   }
 
   @UseGuards(ThrottlerGuard)

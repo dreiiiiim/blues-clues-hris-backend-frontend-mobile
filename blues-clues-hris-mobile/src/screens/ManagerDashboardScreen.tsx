@@ -1,145 +1,390 @@
-import React, { useState, useMemo, useEffect } from "react";
-import { View, Text, ScrollView, SafeAreaView, StatusBar, TextInput, ActivityIndicator } from "react-native";
+import React, { useState, useEffect, useCallback } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  SafeAreaView,
+  useWindowDimensions,
+  ActivityIndicator,
+  Pressable,
+  Alert,
+} from "react-native";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { Header } from "../components/Header";
-import { MetricCard } from "../components/MetricCard";
-import { Colors } from "../constants/colors";
-import { UserSession, authFetch } from "../services/auth";
+import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { TimekeepingTable, TimekeepingLog } from "../components/TimekeepingTable";
+import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
 
-type Employee = {
-  user_id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string;
-  role_id: string;
+// Parse Supabase timestamps (no Z suffix) as UTC
+function parseTs(ts: string): Date {
+  return new Date(ts.includes("Z") || ts.includes("+") ? ts : ts + "Z");
+}
+
+function formatTime(ts: string | null): string {
+  if (!ts) return "--";
+  return parseTs(ts).toLocaleTimeString("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+}
+
+function formatHours(timeIn: string | null, timeOut: string | null): string {
+  if (!timeIn || !timeOut) return "0h 00m";
+  const diff =
+    (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3_600_000;
+  const h = Math.floor(diff);
+  const m = Math.round((diff - h) * 60);
+  return `${h}h ${String(m).padStart(2, "0")}m`;
+}
+
+function deriveStatus(
+  timeIn: string | null
+): "Present" | "Late" | "Absent" {
+  if (!timeIn) return "Absent";
+  const hour = parseInt(
+    parseTs(timeIn).toLocaleString("en-US", {
+      hour: "numeric",
+      hour12: false,
+      timeZone: "Asia/Manila",
+    }),
+    10
+  );
+  return hour >= 9 ? "Late" : "Present";
+}
+
+function todayPHT(): string {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function formatDateDisplay(dateStr: string): string {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+type PunchRow = {
+  log_id: string;
+  employee_id: string;
+  log_type: "time-in" | "time-out";
+  timestamp: string;
 };
 
-export const ManagerDashboardScreen = ({ route, navigation }: any) => {
-  const session: UserSession = route.params.session;
-  const [search, setSearch] = useState("");
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [totalCount, setTotalCount] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
+type UserRow = {
+  user_id: string;
+  employee_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  account_status: string | null;
+};
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [usersRes, statsRes] = await Promise.all([
-          authFetch(`${API_BASE_URL}/users`),
-          authFetch(`${API_BASE_URL}/users/stats`),
-        ]);
-        const usersData = await usersRes.json().catch(() => []);
-        const statsData = await statsRes.json().catch(() => ({}));
-        if (!cancelled) {
-          setEmployees(Array.isArray(usersData) ? usersData : []);
-          setTotalCount(statsData?.total ?? null);
-        }
-      } catch {
-        // session expired or network error — leave empty state
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
+function buildTimekeepingLogs(
+  users: UserRow[],
+  punches: PunchRow[],
+  dateStr: string
+): TimekeepingLog[] {
+  const dateDisplay = formatDateDisplay(dateStr);
+
+  const punchMap: Record<
+    string,
+    { timeIn: string | null; timeOut: string | null }
+  > = {};
+  for (const p of punches) {
+    if (!punchMap[p.employee_id])
+      punchMap[p.employee_id] = { timeIn: null, timeOut: null };
+    if (p.log_type === "time-in" && !punchMap[p.employee_id].timeIn)
+      punchMap[p.employee_id].timeIn = p.timestamp;
+    if (p.log_type === "time-out")
+      punchMap[p.employee_id].timeOut = p.timestamp;
+  }
+
+  return users
+    .filter((u) => u.account_status?.toLowerCase() !== "inactive")
+    .map((u) => {
+      const punched = punchMap[u.employee_id] ?? {
+        timeIn: null,
+        timeOut: null,
+      };
+      const name =
+        `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown";
+      return {
+        id: u.employee_id,
+        employeeName: name,
+        date: dateDisplay,
+        timeIn: formatTime(punched.timeIn),
+        timeOut: formatTime(punched.timeOut),
+        totalHours: formatHours(punched.timeIn, punched.timeOut),
+        status: deriveStatus(punched.timeIn),
+      } satisfies TimekeepingLog;
+    });
+}
+
+export function ManagerDashboardScreen() {
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const session = route.params?.session ?? {
+    name: "Manager",
+    email: "",
+    role: "manager",
+  };
+  const { width } = useWindowDimensions();
+  const isMobile = width < 900;
+
+  const [logs, setLogs] = useState<TimekeepingLog[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  const loadData = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const today = todayPHT();
+      const [timesheetsRes, usersRes] = await Promise.all([
+        authFetch(`${API_BASE_URL}/timekeeping/timesheets?date=${today}`),
+        authFetch(`${API_BASE_URL}/users`),
+      ]);
+
+      if (!timesheetsRes.ok || !usersRes.ok)
+        throw new Error("Failed to fetch data");
+
+      const punches: PunchRow[] = await timesheetsRes.json();
+      const users: UserRow[] = await usersRes.json();
+
+      setLogs(buildTimekeepingLogs(users, punches, today));
+    } catch {
+      setError(true);
+      Alert.alert("Error", "Failed to load timekeeping data.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return employees.filter((e) => {
-      const fullName = [e.first_name, e.last_name].filter(Boolean).join(" ").toLowerCase();
-      return fullName.includes(q) || e.email.toLowerCase().includes(q);
-    });
-  }, [search, employees]);
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  const present = logs.filter((l) => l.status === "Present").length;
+  const late = logs.filter((l) => l.status === "Late").length;
+  const absent = logs.filter((l) => l.status === "Absent").length;
+
+  const summaryCards = [
+    { id: "1", label: "Total Employees", value: loading ? "—" : String(logs.length), helper: "Active accounts" },
+    { id: "2", label: "Present Today", value: loading ? "—" : String(present), helper: "On time" },
+    { id: "3", label: "Late / Issues", value: loading ? "—" : String(late), helper: "Needs attention" },
+    { id: "4", label: "Absent", value: loading ? "—" : String(absent), helper: "Not clocked in" },
+  ];
 
   return (
-    <SafeAreaView style={{ backgroundColor: Colors.bgApp }} className="flex-1">
-      <StatusBar barStyle="dark-content" />
-      <View className="flex-1 flex-row">
-        <Sidebar role="manager" userName={session.name} activeScreen="Dashboard" navigation={navigation} />
-        <View className="flex-1">
-          <Header role="manager" userName={session.name} />
-          <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
+    <SafeAreaView style={styles.safeArea}>
+      <View style={styles.layout}>
+        {!isMobile && (
+          <Sidebar
+            role="manager"
+            userName={session.name}
+            email={session.email}
+            activeScreen="Timekeeping"
+            navigation={navigation}
+          />
+        )}
 
-            <View className="flex-row gap-3 mb-4">
-              <MetricCard
-                label="Team Size"
-                value={totalCount !== null ? String(totalCount) : "—"}
-                sub="Direct Reports"
-                trend="Stable"
-              />
-              <MetricCard label="Pending Requests" value="—" sub="Time-off approvals" trend="N/A" alert />
+        <View style={styles.mainContent}>
+          {isMobile && (
+            <MobileRoleMenu
+              role="manager"
+              userName={session.name}
+              email={session.email}
+              activeScreen="Timekeeping"
+              navigation={navigation}
+            />
+          )}
+
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+          >
+            <View style={styles.heroCard}>
+              <Text style={styles.eyebrow}>Manager Portal</Text>
+              <Text style={styles.title}>Timekeeping Logs</Text>
+              <Text style={styles.subtitle}>
+                Review daily attendance records of all employees under your
+                department, including time in, time out, total hours, and
+                status.
+              </Text>
+              <Pressable
+                style={styles.refreshBtn}
+                onPress={loadData}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="rgba(255,255,255,0.85)" size="small" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="refresh-outline"
+                      size={14}
+                      color="rgba(255,255,255,0.85)"
+                    />
+                    <Text style={styles.refreshBtnText}>Refresh</Text>
+                  </>
+                )}
+              </Pressable>
             </View>
-            <View className="mb-4">
-              <MetricCard label="Approvals Needed" value="—" sub="Performance reviews" trend="Pending" />
+
+            <View style={styles.summaryRow}>
+              {summaryCards.map((card) => (
+                <View key={card.id} style={styles.summaryCard}>
+                  <Text style={styles.summaryLabel}>{card.label}</Text>
+                  <Text style={styles.summaryValue}>{card.value}</Text>
+                  <Text style={styles.summaryHelper}>{card.helper}</Text>
+                </View>
+              ))}
             </View>
 
-            <View className="rounded-2xl bg-white shadow-sm mb-6 overflow-hidden">
-              <View style={{ backgroundColor: Colors.bgMuted, borderBottomColor: Colors.border }} className="px-4 pt-4 pb-3 border-b">
-                <Text style={{ color: Colors.textPrimary }} className="font-bold text-base">Direct Reports</Text>
-                <Text style={{ color: Colors.textMuted }} className="text-xs mt-0.5">Monitor team status</Text>
-                <View style={{ borderColor: Colors.border }} className="mt-3 flex-row items-center rounded-xl border bg-white px-3 py-2.5">
-                  <Text style={{ color: Colors.textPlaceholder }} className="mr-2">🔍</Text>
-                  <TextInput value={search} onChangeText={setSearch} placeholder="Search team..."
-                    placeholderTextColor={Colors.textPlaceholder} style={{ color: Colors.textPrimary }}
-                    className="flex-1 text-xs" />
-                </View>
-              </View>
-
-              <View style={{ backgroundColor: Colors.bgSubtle, borderBottomColor: Colors.border }} className="flex-row px-4 py-2 border-b">
-                <Text style={{ color: Colors.textPlaceholder }} className="flex-1 text-[9px] font-bold uppercase tracking-widest">Member</Text>
-                <Text style={{ color: Colors.textPlaceholder }} className="w-16 text-[9px] font-bold uppercase tracking-widest">Status</Text>
-              </View>
-
-              {loading ? (
-                <View className="px-4 py-8 items-center">
-                  <ActivityIndicator color={Colors.primary} />
-                </View>
-              ) : (
-                <>
-                  {filtered.map((row) => {
-                    const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.email;
-                    const initials = (row.first_name?.charAt(0) ?? row.email.charAt(0)).toUpperCase();
-                    return (
-                      <View key={row.user_id} style={{ borderBottomColor: Colors.bgSubtle }} className="flex-row items-center px-4 py-3 border-b">
-                        <View className="flex-1 flex-row items-center">
-                          <View style={{ backgroundColor: Colors.primaryLight, borderColor: Colors.primaryBorder }}
-                            className="h-9 w-9 rounded-full items-center justify-center mr-3 border">
-                            <Text style={{ color: Colors.primary }} className="font-bold text-sm">{initials}</Text>
-                          </View>
-                          <View className="flex-1">
-                            <Text style={{ color: Colors.textPrimary }} className="font-semibold text-sm">{fullName}</Text>
-                            <Text style={{ color: Colors.textPlaceholder }} className="text-[10px]">{row.email}</Text>
-                          </View>
-                        </View>
-                        <View className="w-16 items-end">
-                          <View style={{ backgroundColor: Colors.success + "22" }} className="px-2 py-0.5 rounded-full">
-                            <Text style={{ color: Colors.successText }} className="text-[9px] font-bold uppercase">Active</Text>
-                          </View>
-                        </View>
-                      </View>
-                    );
-                  })}
-
-                  {filtered.length === 0 && (
-                    <View className="px-4 py-8 items-center">
-                      <Text style={{ color: Colors.textPlaceholder }} className="text-sm">No team members found.</Text>
-                    </View>
-                  )}
-                </>
-              )}
-
-              <View style={{ backgroundColor: Colors.bgMuted }} className="px-4 py-3">
-                <Text style={{ color: Colors.textPlaceholder }} className="text-[10px] font-bold uppercase tracking-widest">
-                  Showing {filtered.length} of {employees.length} members
+            {error ? (
+              <View style={styles.errorCard}>
+                <Text style={styles.errorTitle}>Failed to load data</Text>
+                <Text style={styles.errorText}>
+                  Could not fetch timekeeping records. Tap Refresh to try again.
                 </Text>
               </View>
-            </View>
-
+            ) : (
+              <TimekeepingTable
+                logs={logs}
+                title="Today's Timekeeping Logs"
+                subtitle="Track and filter employee attendance records."
+              />
+            )}
           </ScrollView>
         </View>
       </View>
     </SafeAreaView>
   );
-};
+}
+
+const styles = StyleSheet.create({
+  safeArea: {
+    flex: 1,
+    backgroundColor: "#F1F5F9",
+  },
+  layout: {
+    flex: 1,
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+  },
+  mainContent: {
+    flex: 1,
+    backgroundColor: "#F1F5F9",
+  },
+  container: {
+    flex: 1,
+    backgroundColor: "#F1F5F9",
+  },
+  content: {
+    padding: 16,
+    paddingBottom: 28,
+  },
+  heroCard: {
+    backgroundColor: "#0F2D7A",
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 16,
+  },
+  eyebrow: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: "rgba(255,255,255,0.75)",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#FFFFFF",
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: "rgba(255,255,255,0.78)",
+    marginBottom: 12,
+  },
+  refreshBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    gap: 6,
+  },
+  refreshBtnText: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  summaryRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginBottom: 16,
+  },
+  summaryCard: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 18,
+    padding: 16,
+    minWidth: 160,
+    flexGrow: 1,
+    marginRight: 12,
+    marginBottom: 12,
+  },
+  summaryLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#64748B",
+    marginBottom: 8,
+  },
+  summaryValue: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginBottom: 6,
+  },
+  summaryHelper: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  errorCard: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 18,
+    padding: 20,
+    alignItems: "center",
+  },
+  errorTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#DC2626",
+    marginBottom: 6,
+  },
+  errorText: {
+    fontSize: 13,
+    color: "#B91C1C",
+    textAlign: "center",
+    lineHeight: 20,
+  },
+});

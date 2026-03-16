@@ -271,40 +271,47 @@ export async function updateSubscription(
 
 // ─── HR Lifecycle RBAC ────────────────────────────────────────────────────────
 
-export type HRRole = "HR Officer" | "Manager" | "Employee" | "Applicant";
+export type PermissionKey = "read" | "create" | "update" | "delete";
+
+export interface PermissionSet {
+  read: boolean;
+  create: boolean;
+  update: boolean;
+  delete: boolean;
+}
+
+export interface LifecycleRolePermission {
+  role_name: string;
+  permissions: PermissionSet;
+}
 
 export interface LifecycleModule {
   module_id: string;
   name: string;
   description: string;
   icon: string; // used by frontend to pick icon — see settings/page.tsx MODULE_ICONS
-  permissions: Record<HRRole, boolean>;
+  roles: LifecycleRolePermission[];
 }
 
 // GET /admin/hr-lifecycle/permissions
 export async function getLifecyclePermissions(): Promise<LifecycleModule[]> {
-  // const res = await authFetch(`${ADMIN_URL}/hr-lifecycle/permissions`);
-  // if (!res.ok) throw new Error("Failed to fetch lifecycle permissions");
-  // return res.json();
-  return [
-    { module_id: "recruitment",  name: "Recruitment",            description: "Job postings, candidate screening, interviews",       icon: "recruitment",  permissions: { "HR Officer": true,  Manager: true,  Employee: false, Applicant: true  } },
-    { module_id: "onboarding",   name: "Onboarding",             description: "New hire paperwork, orientation, training setup",     icon: "onboarding",   permissions: { "HR Officer": true,  Manager: true,  Employee: false, Applicant: false } },
-    { module_id: "compensation", name: "Compensation & Benefits", description: "Payroll, benefits administration, salary reviews",   icon: "compensation", permissions: { "HR Officer": true,  Manager: false, Employee: true,  Applicant: false } },
-    { module_id: "performance",  name: "Performance Management", description: "Goal setting, appraisals, performance reviews",       icon: "performance",  permissions: { "HR Officer": true,  Manager: true,  Employee: true,  Applicant: false } },
-    { module_id: "offboarding",  name: "Offboarding",            description: "Exit interviews, clearance, account deactivation",   icon: "offboarding",  permissions: { "HR Officer": true,  Manager: false, Employee: false, Applicant: false } },
-  ];
+  const res = await authFetch(`${API_BASE_URL}/users/hr-lifecycle/permissions`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as any)?.message || "Failed to fetch lifecycle permissions");
+  return data as LifecycleModule[];
 }
 
-// PUT /admin/hr-lifecycle/permissions — body: { module_id, permissions }[]
+// PUT /admin/hr-lifecycle/permissions — body: { module_id, roles }[]
 export async function saveLifecyclePermissions(
-  modules: Pick<LifecycleModule, "module_id" | "permissions">[]
+  modules: Pick<LifecycleModule, "module_id" | "roles">[]
 ): Promise<void> {
-  // const res = await authFetch(`${ADMIN_URL}/hr-lifecycle/permissions`, {
-  //   method: "PUT",
-  //   headers: { "Content-Type": "application/json" },
-  //   body: JSON.stringify(modules),
-  // });
-  // if (!res.ok) throw new Error("Failed to save permissions");
+  const res = await authFetch(`${API_BASE_URL}/users/hr-lifecycle/permissions`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(modules),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any)?.message || "Failed to save permissions");
 }
 
 // ─── Departments ──────────────────────────────────────────────────────────────

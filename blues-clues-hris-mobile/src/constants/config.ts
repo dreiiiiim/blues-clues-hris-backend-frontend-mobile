@@ -1,49 +1,59 @@
-/**
- * App-wide config constants — mirrors web MENU_CONFIG, ROLE_LABELS, TOPBAR_CONFIG
- * Single source of truth for persona-based navigation and labels.
- */
-
 import { UserRole } from "../services/auth";
 
 export const MENU_CONFIG: Record<UserRole, { name: string; label: string }[]> = {
   hr: [
-    { name: "Dashboard",    label: "Dashboard"    },
-    { name: "Recruitment",  label: "Recruitment"  },
-    { name: "Onboarding",   label: "Onboarding"   },
+    { name: "Dashboard", label: "Dashboard" },
+    { name: "Timekeeping", label: "Timekeeping" },
+    { name: "Recruitment", label: "Recruitment" },
+    { name: "Onboarding", label: "Onboarding" },
     { name: "Compensation", label: "Compensation" },
-    { name: "Performance",  label: "Performance"  },
+    { name: "Performance", label: "Performance" },
   ],
   manager: [
     { name: "Dashboard", label: "Dashboard" },
-    { name: "Team",      label: "Team"      },
+    { name: "Timekeeping", label: "Timekeeping Logs" },
+    { name: "Team", label: "Team" },
     { name: "Approvals", label: "Approvals" },
   ],
   employee: [
-    { name: "Dashboard", label: "Dashboard"  },
-    { name: "Profile",   label: "My Profile" },
-    { name: "Documents", label: "Documents"  },
+    { name: "Dashboard", label: "Dashboard" },
+    { name: "Timekeeping", label: "Timekeeping" },
+    { name: "Profile", label: "My Profile" },
+    { name: "Documents", label: "Documents" },
   ],
   applicant: [
-    { name: "Dashboard",    label: "Dashboard" },
-    { name: "Jobs",         label: "Jobs"      },
-    { name: "Applications", label: "My Apps"   },
+    { name: "Dashboard", label: "Dashboard" },
+    { name: "Jobs", label: "Jobs" },
+    { name: "Applications", label: "My Apps" },
+  ],
+  system_admin: [
+    { name: "Dashboard", label: "Dashboard" },
+    { name: "Users", label: "Users" },
+    { name: "Billing", label: "Billing" },
+  ],
+  admin: [
+    { name: "Dashboard", label: "Dashboard" },
+    { name: "Users", label: "Users" },
+    { name: "Billing", label: "Billing" },
   ],
 };
 
-// Mirrors web ROLE_LABELS
 export const ROLE_LABELS: Record<UserRole, string> = {
-  hr:        "HR Portal",
-  manager:   "Management Portal",
-  employee:  "Staff Portal",
+  hr: "HR Portal",
+  manager: "Management Portal",
+  employee: "Staff Portal",
   applicant: "Candidate Portal",
+  system_admin: "System Admin",
+  admin: "Admin",
 };
 
-// Mirrors web TOPBAR_CONFIG
 export const SEARCH_PLACEHOLDERS: Record<UserRole, string> = {
-  hr:        "Search employees...",
-  manager:   "Search team members...",
-  employee:  "Search...",
+  hr: "Search employees...",
+  manager: "Search timekeeping logs...",
+  employee: "Search...",
   applicant: "Search jobs...",
+  system_admin: "Search...",
+  admin: "Search...",
 };
 
 export const APP_NAME = "Blue's Clues";
