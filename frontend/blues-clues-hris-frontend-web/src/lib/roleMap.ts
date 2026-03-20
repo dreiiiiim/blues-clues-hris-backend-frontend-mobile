@@ -2,6 +2,8 @@ export function roleToPath(roleName?: string) {
   switch (roleName) {
     case "System Admin":
       return "/system-admin";
+    case "Admin":
+      return "/admin";
     case "HR Officer":
     case "HR Recruiter":
     case "HR Interviewer":

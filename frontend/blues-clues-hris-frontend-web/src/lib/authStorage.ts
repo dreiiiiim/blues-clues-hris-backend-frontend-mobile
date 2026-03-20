@@ -57,6 +57,9 @@ export function clearAuthStorage() {
 
 export function saveUserInfo(info: StoredUser) {
   if (typeof window === "undefined") return;
+  // Always clear both storages first so a previous user's stale data never leaks
+  localStorage.removeItem(USER_KEY);
+  sessionStorage.removeItem(USER_KEY);
   const storage = _rememberMe ? localStorage : sessionStorage;
   storage.setItem(USER_KEY, JSON.stringify(info));
 }

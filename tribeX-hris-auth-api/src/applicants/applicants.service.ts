@@ -52,14 +52,14 @@ export class ApplicantsService {
       throw new ConflictException('An account with this email already exists.');
     }
 
-    // 2. Hash the password — same salt rounds as auth.service.ts (12)
+    // 2. Hash the password
     const password_hash = await bcrypt.hash(dto.password, 12);
 
     // 3. Generate unique IDs
     const applicant_id = crypto.randomUUID();
     const applicant_code = `APP-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
-    // 4. Insert the applicant — role and status are always set server-side
+    // 4. Insert the applicant
     const { error: insertError } = await supabase
       .from('applicant_profile')
       .insert({
@@ -81,7 +81,7 @@ export class ApplicantsService {
     // 5. Generate email verification token (raw → email, hashed → DB)
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24hr
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
 
     const { error: tokenError } = await supabase
       .from('email_verifications')
@@ -112,7 +112,6 @@ export class ApplicantsService {
       );
     }
 
-    // 7. Return only safe fields — NEVER return password_hash
     return {
       applicant_id,
       applicant_code,
@@ -129,7 +128,6 @@ export class ApplicantsService {
     const supabase = this.supabaseService.getClient();
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
 
-    // 1. Find the token record
     const { data: record, error } = await supabase
       .from('email_verifications')
       .select('verification_id, applicant_id, expires_at, used_at')
@@ -140,13 +138,11 @@ export class ApplicantsService {
     if (record.used_at) throw new UnauthorizedException('This verification link has already been used');
     if (new Date(record.expires_at) <= new Date()) throw new UnauthorizedException('This verification link has expired');
 
-    // 2. Mark token as consumed
     await supabase
       .from('email_verifications')
       .update({ used_at: new Date().toISOString() })
       .eq('verification_id', record.verification_id);
 
-    // 3. Activate the applicant account
     await supabase
       .from('applicant_profile')
       .update({ status: 'active' })
@@ -248,7 +244,79 @@ export class ApplicantsService {
         last_name: applicant.last_name,
         phone_number: applicant.phone_number ?? null,
       },
-      { expiresIn: '8h' },
+      { expiresIn: '15m' },
+    );
+
+    // 5. Issue 7-day refresh token
+    const refresh_token = await this.jwtService.signAsync(
+      {
+        type: 'refresh',
+        role_name: applicant.role,   // 'Applicant' — used to distinguish from staff refresh
+        sub_userid: applicant.applicant_id,
+        session_id,
+      },
+      { expiresIn: '7d' },
+    );
+
+    // 6. Persist the refresh session
+    const decoded: any = this.jwtService.decode(refresh_token);
+    const expires_at = new Date(decoded.exp * 1000).toISOString();
+
+    await supabase.from('refresh_session').insert({
+      user_id: applicant.applicant_id,   // UUID column — no type conflict
+      token_hash: sha256(refresh_token),
+      expires_at,
+    });
+
+    return { access_token, refresh_token };
+  }
+
+  async refresh(refreshToken: string) {
+    const supabase = this.supabaseService.getClient();
+
+    let decoded: any;
+    try {
+      decoded = await this.jwtService.verifyAsync(refreshToken);
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    if (decoded.type !== 'refresh') throw new UnauthorizedException('Invalid refresh token type');
+    if (decoded.role_name !== 'Applicant') throw new UnauthorizedException('Not an applicant refresh token');
+
+    const token_hash = sha256(refreshToken);
+
+    const { data: session, error } = await supabase
+      .from('refresh_session')
+      .select('expires_at, revoked_at')
+      .eq('user_id', decoded.sub_userid)
+      .eq('token_hash', token_hash)
+      .maybeSingle();
+
+    if (error || !session) throw new UnauthorizedException('Session not found');
+    if (session.revoked_at) throw new UnauthorizedException('Session revoked');
+    if (new Date(session.expires_at) <= new Date()) throw new UnauthorizedException('Session expired');
+
+    // Fetch fresh applicant data
+    const { data: applicant, error: appErr } = await supabase
+      .from('applicant_profile')
+      .select('applicant_id, first_name, last_name, role, company_id, status')
+      .eq('applicant_id', decoded.sub_userid)
+      .maybeSingle();
+
+    if (appErr || !applicant) throw new UnauthorizedException('Applicant not found');
+    if (applicant.status === 'inactive') throw new UnauthorizedException('Account deactivated');
+
+    const access_token = await this.jwtService.signAsync(
+      {
+        type: 'access',
+        sub_userid: applicant.applicant_id,
+        role_name: applicant.role,
+        first_name: applicant.first_name,
+        last_name: applicant.last_name,
+        company_id: applicant.company_id ?? null,
+      },
+      { expiresIn: '15m' },
     );
 
     return { access_token };

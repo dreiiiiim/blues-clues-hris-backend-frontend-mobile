@@ -1,4 +1,9 @@
-import { CanActivate, ExecutionContext, Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  CanActivate,
+  ExecutionContext,
+  Injectable,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -45,7 +50,8 @@ export class JwtAuthGuard implements CanActivate {
         .select('token_hash')
         .eq('token_hash', sha256(token))
         .maybeSingle();
-      if (blacklisted) throw new UnauthorizedException('Token has been revoked');
+      if (blacklisted)
+        throw new UnauthorizedException('Token has been revoked');
 
       // Reject deactivated accounts — checked on every request so enforcement is immediate
       const { data: userStatus } = await supabase

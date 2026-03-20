@@ -14,7 +14,7 @@ import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Search, Briefcase, TrendingUp, AlertCircle, Loader2, Mail } from "lucide-react";
 
-export default function ApplicantPortalAuth() {
+function ApplicantPortalAuthInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -33,6 +33,7 @@ export default function ApplicantPortalAuth() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [resentEmail, setResentEmail] = useState<string | null>(null);
 
@@ -61,19 +62,28 @@ export default function ApplicantPortalAuth() {
 
       const { access_token } = await applicantLoginApi({ email, password });
 
-      setTokens({ access_token, rememberMe: false });
+        const payload = parseJwt(access_token);
+        if (!payload) throw new Error("Invalid token received from server.");
 
-      const payload = parseJwt(access_token);
-      if (!payload) throw new Error("Invalid token received from server.");
+        // If arriving from a specific company's careers page, block applicants
+        // that belong to a different company from signing in here.
+        if (companyId && payload.company_id && payload.company_id !== companyId) {
+          throw new Error(
+            "This account is registered with a different company. Please use your own company's careers page to sign in."
+          );
+        }
 
-      const name = [payload.first_name ?? "", payload.last_name ?? ""]
-        .filter(Boolean)
-        .join(" ") || email;
+        setTokens({ access_token, rememberMe: false });
 
-      saveUserInfo({ name, email, role: "applicant" });
+        const name = [payload.first_name ?? "", payload.last_name ?? ""]
+          .filter(Boolean)
+          .join(" ") || email;
 
-      // Soft navigation — keeps in-memory access token alive (no refresh cookie for applicants)
-      router.push("/applicant/dashboard");
+        saveUserInfo({ name, email, role: "applicant" });
+
+        // Soft navigation — keeps in-memory access token alive (no refresh cookie for applicants)
+        router.push("/applicant/dashboard");
+      }
     } catch (err: any) {
       const msg: string = err?.message || "";
       if (msg.startsWith("UNVERIFIED_RESENT:")) {
@@ -87,8 +97,8 @@ export default function ApplicantPortalAuth() {
 
   // TODO (Sprint 2 - Frontend): wire credentialResponse.credential to googleLoginApi()
   // once backend endpoint POST /api/tribeX/auth/v1/auth/google is ready.
-  const handleGoogleSignIn = (credentialResponse: any) => {
-    // TODO: googleLoginApi(credentialResponse.credential)
+  const handleGoogleSignIn = (_credentialResponse: any) => {
+    setError("Google sign-in is not enabled yet in this environment.");
   };
 
   return (
@@ -179,6 +189,12 @@ export default function ApplicantPortalAuth() {
             </div>
           )}
 
+          {successMsg && (
+            <div className="bg-green-500/10 border border-green-500/20 text-green-700 dark:text-green-400 text-xs font-medium p-4 rounded-xl">
+              {successMsg}
+            </div>
+          )}
+
           {/* Google SSO Button */}
           {/* TODO (Sprint 2): replace GoogleSignInButton with GoogleLogin once Client ID is available */}
           {/* <div className="flex justify-center">
@@ -192,7 +208,7 @@ export default function ApplicantPortalAuth() {
               width="368"
             />
           </div> */}
-          <GoogleSignInButton disabled={isLoading} onClick={() => {}} />
+          <GoogleSignInButton disabled={isLoading} onClick={() => setError("Google sign-in is not enabled yet in this environment.")} />
 
           {/* Divider */}
           <div className="flex items-center gap-3">
@@ -208,14 +224,14 @@ export default function ApplicantPortalAuth() {
             <button
               type="button"
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${!isSignUp ? "bg-background shadow-md text-primary" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => { setIsSignUp(false); setError(""); }}
+              onClick={() => { setIsSignUp(false); setError(""); setSuccessMsg(""); }}
             >
               Sign In
             </button>
             <button
               type="button"
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${isSignUp ? "bg-background shadow-md text-primary" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => { setIsSignUp(true); setError(""); }}
+              onClick={() => { setIsSignUp(true); setError(""); setSuccessMsg(""); }}
             >
               Sign Up
             </button>
@@ -309,6 +325,14 @@ export default function ApplicantPortalAuth() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function ApplicantPortalAuth() {
+  return (
+    <Suspense>
+      <ApplicantPortalAuthInner />
+    </Suspense>
   );
 }
 

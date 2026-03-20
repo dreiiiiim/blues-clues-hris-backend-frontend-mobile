@@ -287,11 +287,52 @@ export default function ApplicantDashboardPage() {
 
   return (
     <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-500">
+      <Card className="relative overflow-hidden rounded-[28px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] text-white shadow-sm">
+        <div className="absolute inset-y-0 right-0 w-80 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.18),transparent_58%)]" />
+        <CardHeader className="relative z-10 border-b border-white/15 pb-6">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-white/70 mb-1">Candidate Dashboard</p>
+          <CardTitle className="text-2xl font-bold tracking-tight text-white">
+            Welcome back, {session?.name?.split(" ")[0] || "Applicant"}
+          </CardTitle>
+          <p className="text-sm text-white/75 mt-1">
+            Track your applications and discover fresh opportunities in one place.
+          </p>
+        </CardHeader>
+        <CardContent className="relative z-10 p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <MetricCard
+            label="Open Jobs"
+            value={loading ? "..." : jobs.length.toString()}
+            helper="Roles available now"
+            icon={<Briefcase className="h-4 w-4" />}
+            inverted
+          />
+          <MetricCard
+            label="Applications"
+            value={loading ? "..." : applications.length.toString()}
+            helper="Total submitted"
+            icon={<FileText className="h-4 w-4" />}
+            inverted
+          />
+          <MetricCard
+            label="In Progress"
+            value={loading ? "..." : activeCount.toString()}
+            helper="Awaiting next step"
+            icon={<TrendingUp className="h-4 w-4" />}
+            inverted
+          />
+          <MetricCard
+            label="Interviews"
+            value={loading ? "..." : interviewCount.toString()}
+            helper="Interview stages reached"
+            icon={<CalendarClock className="h-4 w-4" />}
+            inverted
+          />
+        </CardContent>
+      </Card>
 
-      {/* Application Status Tracker */}
       <Card className="border-border shadow-sm overflow-hidden bg-card">
         <CardHeader className="bg-muted/20 border-b border-border pb-6">
-          <div className="flex justify-between items-start">
+          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Current Application</p>
               {latestApp ? (
@@ -307,7 +348,7 @@ export default function ApplicantDashboardPage() {
                 </>
               ) : (
                 <CardTitle className="text-xl font-bold tracking-tight text-muted-foreground">
-                  No active application
+                  No applications yet
                 </CardTitle>
               )}
             </div>
@@ -339,7 +380,7 @@ export default function ApplicantDashboardPage() {
             </div>
           ) : (
             <p className="text-center text-muted-foreground text-sm">
-              You have no active application. Browse open positions below.
+              Start by applying to an open role, then track every stage here.
             </p>
           )}
         </CardContent>
@@ -444,8 +485,50 @@ export default function ApplicantDashboardPage() {
                 </Button>
               </div>
             )}
-          </>
-        )}
+          </CardContent>
+        </Card>
+
+        <Card className="xl:col-span-2 border-border shadow-sm bg-card overflow-hidden">
+          <CardHeader className="pb-4 bg-[linear-gradient(145deg,rgba(23,37,84,0.09),rgba(15,118,110,0.06))] border-b border-border/70">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Application Feed</p>
+            <CardTitle className="text-lg font-bold tracking-tight">Recent Applications</CardTitle>
+            <p className="text-xs text-muted-foreground mt-1">
+              Quick view of your latest submissions and status.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {loading ? (
+              <div className="flex items-center justify-center py-10">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : recentApplications.length === 0 ? (
+              <p className="text-center text-muted-foreground text-sm py-8">No applications yet.</p>
+            ) : (
+              recentApplications.map((app) => (
+                <div key={app.application_id} className="rounded-xl border border-border p-4 bg-muted/10">
+                  <p className="font-semibold text-sm truncate text-foreground">
+                    {app.job_postings?.title ?? "Untitled role"}
+                  </p>
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-md border ${statusPillClass(app.status)}`}>
+                      {statusLabel(app.status)}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{formatDate(app.applied_at)}</span>
+                  </div>
+                </div>
+              ))
+            )}
+
+            <div className="pt-1">
+              <Button asChild variant="outline" className="w-full">
+                <Link href="/applicant/applications">
+                  <Sparkles className="h-4 w-4" />
+                  Open Full Tracker
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* Application form modal */}
@@ -480,18 +563,15 @@ function StepItem({ icon, label, active, completed, current }: {
   current: boolean;
 }) {
   return (
-    <div className="relative z-10 flex flex-col items-center gap-3 bg-card px-3">
-      <div className={`
-        h-10 w-10 rounded-full flex items-center justify-center border-4 border-card shadow-md transition-all duration-500
-        ${completed ? "bg-primary text-primary-foreground" : ""}
-        ${current   ? "bg-card border-primary text-primary ring-4 ring-primary/10" : ""}
-        ${!active   ? "bg-muted text-muted-foreground border-muted" : ""}
-      `}>
-        {icon}
+    <div className={`rounded-xl border p-4 ${inverted ? "border-white/20 bg-white/10 backdrop-blur" : "border-border bg-muted/20"}`}>
+      <div className="flex items-center justify-between mb-3">
+        <p className={`text-[10px] font-bold uppercase tracking-widest ${inverted ? "text-white/70" : "text-muted-foreground"}`}>{label}</p>
+        <span className={`h-7 w-7 rounded-md border flex items-center justify-center ${inverted ? "bg-white/10 border-white/25 text-white" : "bg-primary/10 border-primary/20 text-primary"}`}>
+          {icon}
+        </span>
       </div>
-      <span className={`text-[10px] font-bold uppercase tracking-widest ${active ? "text-primary" : "text-muted-foreground"}`}>
-        {label}
-      </span>
+      <p className={`text-2xl font-bold tracking-tight ${inverted ? "text-white" : "text-foreground"}`}>{value}</p>
+      <p className={`text-xs mt-1 ${inverted ? "text-white/70" : "text-muted-foreground"}`}>{helper}</p>
     </div>
   );
 }

@@ -11,7 +11,9 @@ export class SupabaseService {
     const serviceRoleKey = this.config.get<string>('SUPABASE_SERVICE_ROLE_KEY');
 
     if (!url || !serviceRoleKey) {
-      throw new Error('Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env');
+      throw new Error(
+        'Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in .env',
+      );
     }
 
     this.client = createClient(url, serviceRoleKey, {

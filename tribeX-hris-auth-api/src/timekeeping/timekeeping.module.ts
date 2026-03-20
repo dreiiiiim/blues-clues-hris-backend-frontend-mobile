@@ -6,8 +6,8 @@ import { SupabaseModule } from '../supabase/supabase.module';
 
 @Module({
   imports: [
-    AuthModule,      // provides JwtAuthGuard, RolesGuard, Roles decorator
-    SupabaseModule,  // provides SupabaseService
+    AuthModule, // provides JwtAuthGuard, RolesGuard, Roles decorator
+    SupabaseModule, // provides SupabaseService
   ],
   controllers: [TimekeepingController],
   providers: [TimekeepingService],

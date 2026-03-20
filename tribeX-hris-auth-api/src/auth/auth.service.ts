@@ -1,9 +1,12 @@
 import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { LoginDto } from '../auth/dto/login.dto';
+import { MailService } from '../mail/mail.service';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
 
 type UserRow = {
   user_id: string;
@@ -42,7 +45,107 @@ export class AuthService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService,
+    private readonly mailService: MailService,
   ) {}
+
+  private logDevLink(label: string, recipient: string, link: string) {
+    if (this.config.get<string>('NODE_ENV') === 'production') return;
+
+    console.log('==========================================');
+    console.log(`DEV MODE - ${label}`);
+    console.log(`Recipient: ${recipient}`);
+    console.log(link);
+    console.log('==========================================');
+  }
+
+  private async issueFreshUserInvite(userId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    await supabase
+      .from('user_invites')
+      .delete()
+      .eq('user_id', userId)
+      .is('used_at', null);
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = sha256(rawToken);
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+
+    const { error: inviteError } = await supabase.from('user_invites').insert({
+      invite_id: crypto.randomUUID(),
+      user_id: userId,
+      token_hash: tokenHash,
+      expires_at: expiresAt,
+    });
+
+    if (inviteError) {
+      throw new Error(inviteError.message);
+    }
+
+    const appUrl =
+      this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
+    return `${appUrl}/set-password?token=${rawToken}`;
+  }
+
+  private async resendActivationInvite(user: UserRow) {
+    const inviteLink = await this.issueFreshUserInvite(user.user_id);
+    this.logDevLink('activation link', user.email, inviteLink);
+
+    try {
+      await this.mailService.sendInvite(user.email, inviteLink);
+    } catch (error) {
+      this.logger.error(
+        `Failed to resend activation email to ${user.email}`,
+        error,
+      );
+      throw error;
+    }
+  }
+
+  async requestPasswordReset(dto: ForgotPasswordDto) {
+    const supabase = this.supabaseService.getClient();
+    const email = dto.email.trim().toLowerCase();
+
+    const { data: user, error } = await supabase
+      .from('user_profile')
+      .select(
+        'user_id, company_id, role_id, password_hash, email, username, first_name, last_name, start_date, account_status',
+      )
+      .eq('email', email)
+      .maybeSingle<UserRow>();
+
+    if (error) {
+      this.logger.error(`DB error during forgot-password for: ${email}`, error);
+      return {
+        message:
+          'If an account exists for that email, a reset link has been sent.',
+      };
+    }
+
+    if (!user || user.account_status === 'Inactive') {
+      return {
+        message:
+          'If an account exists for that email, a reset link has been sent.',
+      };
+    }
+
+    try {
+      const resetLink = await this.issueFreshUserInvite(user.user_id);
+      this.logDevLink('password reset link', user.email, resetLink);
+      await this.mailService.sendPasswordResetEmail(user.email, resetLink);
+    } catch (resetError) {
+      this.logger.error(
+        `Failed to process forgot-password for ${email}`,
+        resetError,
+      );
+    }
+
+    return {
+      message:
+        'If an account exists for that email, a reset link has been sent.',
+    };
+  }
 
   async login(loginDto: LoginDto, req?: any) {
     const supabase = this.supabaseService.getClient();
@@ -55,7 +158,9 @@ export class AuthService {
 
     const { data: user, error } = await supabase
       .from('user_profile')
-      .select('user_id, company_id, role_id, password_hash, email, username, first_name, last_name, start_date, account_status')
+      .select(
+        'user_id, company_id, role_id, password_hash, email, username, first_name, last_name, start_date, account_status',
+      )
       .or(`email.eq."${identifier}",username.eq."${identifier}"`)
       .maybeSingle<UserRow>();
 
@@ -75,7 +180,7 @@ export class AuthService {
       startDate.setHours(0, 0, 0, 0);
       if (today < startDate) {
         throw new UnauthorizedException(
-          `Your account is not active yet. Your start date is ${startDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.`
+          `Your account is not active yet. Your start date is ${startDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.`,
         );
       }
     }
@@ -100,7 +205,8 @@ export class AuthService {
       .eq('role_id', user.role_id)
       .single();
 
-    if (roleError || !roleRow) throw new UnauthorizedException('Role not found');
+    if (roleError || !roleRow)
+      throw new UnauthorizedException('Role not found');
 
     const { data: companydb, error: companyError } = await supabase
       .from('company')
@@ -108,7 +214,8 @@ export class AuthService {
       .eq('company_id', user.company_id)
       .single();
 
-    if (companyError || !companydb) throw new UnauthorizedException('Company not found');
+    if (companyError || !companydb)
+      throw new UnauthorizedException('Company not found');
 
     const login_id = crypto.randomUUID();
     const session_id = crypto.randomUUID();
@@ -185,14 +292,17 @@ export class AuthService {
     // pollute the blacklist table with junk rows.
     if (accessToken) {
       try {
-        const accessDecoded: any = await this.jwtService.verifyAsync(accessToken);
+        const accessDecoded: any =
+          await this.jwtService.verifyAsync(accessToken);
         if (accessDecoded?.exp) {
           await supabase.from('token_blacklist').insert({
             token_hash: sha256(accessToken),
             expires_at: new Date(accessDecoded.exp * 1000).toISOString(),
           });
         }
-      } catch { /* best-effort: ignore if access token is already invalid */ }
+      } catch {
+        /* best-effort: ignore if access token is already invalid */
+      }
     }
 
     await supabase.from('logout_history').insert({
@@ -226,7 +336,8 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    if (decoded.type !== 'refresh') throw new UnauthorizedException('Invalid refresh token type');
+    if (decoded.type !== 'refresh')
+      throw new UnauthorizedException('Invalid refresh token type');
 
     const userId = decoded.sub_userid;
     const token_hash = sha256(refreshToken);
@@ -240,16 +351,20 @@ export class AuthService {
 
     if (error || !session) throw new UnauthorizedException('Session not found');
     if (session.revoked_at) throw new UnauthorizedException('Session revoked');
-    if (new Date(session.expires_at) <= new Date()) throw new UnauthorizedException('Session expired');
+    if (new Date(session.expires_at) <= new Date())
+      throw new UnauthorizedException('Session expired');
 
     const { data: user, error: userErr } = await supabase
       .from('user_profile')
-      .select('user_id, company_id, role_id, first_name, last_name, account_status')
+      .select(
+        'user_id, company_id, role_id, first_name, last_name, account_status',
+      )
       .eq('user_id', userId)
       .single();
 
     if (userErr || !user) throw new UnauthorizedException('User not found');
-    if (user.account_status === 'Inactive') throw new UnauthorizedException('Account deactivated');
+    if (user.account_status === 'Inactive')
+      throw new UnauthorizedException('Account deactivated');
 
     const { data: roleRow } = await supabase
       .from('role')
@@ -285,7 +400,8 @@ export class AuthService {
   async me(accessToken: string) {
     try {
       const decoded: any = await this.jwtService.verifyAsync(accessToken);
-      if (decoded.type !== 'access') throw new UnauthorizedException('Invalid token type');
+      if (decoded.type !== 'access')
+        throw new UnauthorizedException('Invalid token type');
       const supabase = this.supabaseService.getClient();
 
       // Reject blacklisted (logged-out) access tokens
@@ -294,19 +410,23 @@ export class AuthService {
         .select('token_hash')
         .eq('token_hash', sha256(accessToken))
         .maybeSingle();
-      if (blacklisted) throw new UnauthorizedException('Token has been revoked');
+      if (blacklisted)
+        throw new UnauthorizedException('Token has been revoked');
 
       const userId = decoded.sub_userid;
       if (!userId) throw new UnauthorizedException('Invalid token payload');
 
       const { data: user, error } = await supabase
         .from('user_profile')
-        .select('user_id, email, username, employee_id, company_id, role_id, account_status')
+        .select(
+          'user_id, email, username, employee_id, company_id, role_id, account_status',
+        )
         .eq('user_id', userId)
         .maybeSingle<UserRow>();
 
       if (error || !user) throw new UnauthorizedException('User not found');
-      if (user.account_status === 'Inactive') throw new UnauthorizedException('Account deactivated');
+      if (user.account_status === 'Inactive')
+        throw new UnauthorizedException('Account deactivated');
 
       return {
         user_id: user.user_id,
@@ -333,9 +453,12 @@ export class AuthService {
       .eq('token_hash', tokenHash)
       .maybeSingle();
 
-    if (inviteError || !invite) throw new UnauthorizedException('Invalid or expired invite link');
-    if (invite.used_at)          throw new UnauthorizedException('This invite link has already been used');
-    if (new Date(invite.expires_at) <= new Date()) throw new UnauthorizedException('This invite link has expired');
+    if (inviteError || !invite)
+      throw new UnauthorizedException('Invalid or expired invite link');
+    if (invite.used_at)
+      throw new UnauthorizedException('This invite link has already been used');
+    if (new Date(invite.expires_at) <= new Date())
+      throw new UnauthorizedException('This invite link has expired');
 
     // Hash the new password
     const password_hash = await bcrypt.hash(password, 12);

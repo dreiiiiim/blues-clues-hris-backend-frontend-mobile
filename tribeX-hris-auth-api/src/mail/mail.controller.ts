@@ -1,4 +1,11 @@
-import { Controller, Get, Query, BadRequestException, ForbiddenException, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  BadRequestException,
+  ForbiddenException,
+  UseGuards,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { MailService } from './mail.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -18,7 +25,10 @@ export class MailController {
     }
     if (!to) throw new BadRequestException('Missing ?to= query param');
 
-    await this.mailService.sendInvite(to, 'http://localhost:3000/set-password?token=test-token');
+    await this.mailService.sendInvite(
+      to,
+      'http://localhost:3000/set-password?token=test-token',
+    );
     return { message: `Test email sent to ${to}` };
   }
 }

@@ -36,6 +36,7 @@ interface Employee {
   first_name: string;
   last_name: string;
   email: string;
+  company_id: string | null;
   role_id: string | null;
   department_id: string | null;
   start_date: string | null;
@@ -253,6 +254,7 @@ function ProfileField({ icon: Icon, label, value }: { icon: React.ElementType; l
 
 function AddUserPanel({ roles, onClose, onCreated }: {
   roles: Role[];
+  departments: Department[];
   onClose: () => void;
   onCreated: (employee: Employee) => void;
 }) {
@@ -270,6 +272,7 @@ function AddUserPanel({ roles, onClose, onCreated }: {
     if (!form.first_name.trim()) e.first_name = "Required";
     if (!form.last_name.trim()) e.last_name = "Required";
     if (!form.username.trim()) e.username = "Required";
+    else if (/\s/.test(form.username)) e.username = "Username must not contain spaces";
     if (!form.email.trim()) e.email = "Required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Invalid email";
     if (!form.role_id) e.role_id = "Required";
@@ -285,7 +288,7 @@ function AddUserPanel({ roles, onClose, onCreated }: {
         first_name: form.first_name, last_name: form.last_name,
         username: form.username, email: form.email, role_id: form.role_id,
       };
-      if (form.department_id.trim()) payload.department_id = form.department_id.trim();
+      if (form.department_id) payload.department_id = form.department_id;
       if (form.start_date) payload.start_date = form.start_date;
 
       const res = await apiFetch<{ user_id: string; employee_id: string; email: string; username: string }>("/users", {
@@ -323,7 +326,7 @@ function AddUserPanel({ roles, onClose, onCreated }: {
       <div className="relative bg-card w-full max-w-md h-full shadow-2xl flex flex-col overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
-            <h2 className="font-bold text-lg">Add New Employee</h2>
+            <h2 className="font-bold text-lg">Add New User</h2>
             <p className="text-xs text-muted-foreground">Provision a new account for your company</p>
           </div>
           <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
@@ -739,6 +742,7 @@ export default function AdminUsersPage() {
   const searchParams = useSearchParams();
   const user = getUserInfo();
   const currentUserId = parseJwt(getAccessToken() ?? "")?.sub_userid as string | undefined;
+  const isSystemAdmin = user?.role === "system-admin";
   useWelcomeToast(user?.name || "Admin", "User Management");
 
   const [employees, setEmployees]         = useState<Employee[]>([]);
@@ -773,6 +777,11 @@ export default function AdminUsersPage() {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -795,6 +804,11 @@ export default function AdminUsersPage() {
 
   useEffect(() => { load(); }, [load]);
 
+  const departmentNameById = (departmentId: string | null) => {
+    if (!departmentId) return "—";
+    return departments.find(d => d.department_id === departmentId)?.department_name ?? departmentId;
+  };
+
   const filtered = employees.filter(e => {
     const q = search.toLowerCase();
     const matchesSearch = (
@@ -804,7 +818,8 @@ export default function AdminUsersPage() {
       e.employee_id.toLowerCase().includes(q)
     );
     const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status);
-    return matchesSearch && matchesStatus;
+    const matchesDept = !deptFilter || e.department_id === deptFilter;
+    return matchesSearch && matchesStatus && matchesDept;
   });
 
   const toggleStatus = (status: string) => {
@@ -818,6 +833,7 @@ export default function AdminUsersPage() {
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
+  const tableColSpan = 8;
 
   const activeCount   = employees.filter(e => e.account_status === "Active").length;
   const pendingCount  = employees.filter(e => e.account_status === "Pending").length;
@@ -832,6 +848,18 @@ export default function AdminUsersPage() {
   const handleEditSaved = (updated: Employee) => {
     setEmployees(prev => prev.map(e => e.user_id === updated.user_id ? updated : e));
     setEditEmployee(null);
+  };
+
+  const handleResendInvite = async (employee: Employee) => {
+    try {
+      const res = await apiFetch<{ message: string; invite_expires_at: string }>(`/users/${employee.user_id}/resend-invite`, { method: "PATCH" });
+      setEmployees(prev => prev.map(e =>
+        e.user_id === employee.user_id ? { ...e, invite_expires_at: res.invite_expires_at } : e
+      ));
+      toast.success(`Invite resent to ${employee.email}.`);
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to resend invite.");
+    }
   };
 
   const handleDeactivate = async (employee: Employee) => {
@@ -849,11 +877,12 @@ export default function AdminUsersPage() {
 
   const handleReactivate = async (employee: Employee) => {
     try {
-      await apiFetch(`/users/${employee.user_id}/reactivate`, { method: "PATCH" });
+      const res = await apiFetch<{ message?: string }>(`/users/${employee.user_id}/reactivate`, { method: "PATCH" });
+      const nextStatus = res.message?.includes("Pending") ? "Pending" : "Active";
       setEmployees(prev => prev.map(e =>
-        e.user_id === employee.user_id ? { ...e, account_status: "Active" } : e
+        e.user_id === employee.user_id ? { ...e, account_status: nextStatus } : e
       ));
-      toast.success(`${employee.first_name}'s account reactivated.`);
+      toast.success(`${employee.first_name}'s account reactivated as ${nextStatus.toLowerCase()}.`);
     } catch (err: any) {
       toast.error(err?.message || "Failed to reactivate account.");
     }
@@ -990,8 +1019,8 @@ export default function AdminUsersPage() {
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 border-b border-border">
           <div>
-            <h2 className="font-bold text-base">Internal Users</h2>
-            <p className="text-xs text-muted-foreground">Manage all internal accounts</p>
+            <h2 className="font-bold text-base">System Users</h2>
+            <p className="text-xs text-muted-foreground">Manage your organization's user accounts</p>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <div className="relative flex-1 sm:flex-none">
@@ -1011,14 +1040,14 @@ export default function AdminUsersPage() {
                 className={`h-9 w-9 ${statusFilter.size > 0 ? "border-primary text-primary" : ""}`}
                 onClick={() => setShowFilter(v => !v)}>
                 <Filter className="h-4 w-4" />
-                {statusFilter.size > 0 && (
+                {(statusFilter.size > 0 || deptFilter) && (
                   <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
-                    {statusFilter.size}
+                    {statusFilter.size + (deptFilter ? 1 : 0)}
                   </span>
                 )}
               </Button>
               {showFilter && (
-                <div className="absolute right-0 top-10 z-50 w-44 bg-card border border-border rounded-lg shadow-lg py-1.5">
+                <div className="absolute right-0 top-10 z-50 w-52 bg-card border border-border rounded-lg shadow-lg py-1.5">
                   <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</p>
                   {(["Active", "Inactive", "Pending"] as const).map(s => (
                     <button key={s}
@@ -1028,7 +1057,30 @@ export default function AdminUsersPage() {
                       {statusFilter.has(s) && <Check className="h-3.5 w-3.5 text-primary" />}
                     </button>
                   ))}
-                  {statusFilter.size > 0 && (
+                  {departments.length > 0 && (
+                    <>
+                      <div className="border-t border-border my-1" />
+                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</p>
+                      <button
+                        className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
+                        onClick={() => { setDeptFilter(""); setPage(1); }}
+                      >
+                        <span>All departments</span>
+                        {!deptFilter && <Check className="h-3.5 w-3.5 text-primary" />}
+                      </button>
+                      {departments.map(d => (
+                        <button
+                          key={d.department_id}
+                          className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
+                          onClick={() => { setDeptFilter(d.department_id); setPage(1); }}
+                        >
+                          <span className="truncate mr-2">{d.department_name}</span>
+                          {deptFilter === d.department_id && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {(statusFilter.size > 0 || deptFilter) && (
                     <>
                       <div className="border-t border-border my-1" />
                       <button className="px-3 py-2 w-full text-left text-xs text-muted-foreground hover:bg-muted/50"
@@ -1042,6 +1094,9 @@ export default function AdminUsersPage() {
             </div>
             <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
               <Download className="h-4 w-4" />
+            </Button>
+            <Button variant="outline" className="h-9 gap-1.5 shrink-0" onClick={() => setShowDeptPanel(true)}>
+              <Building2 className="h-4 w-4" /> Departments
             </Button>
             <Button className="h-9 gap-1.5 shrink-0" onClick={() => setShowAdd(true)}>
               <UserPlus className="h-4 w-4" /> Add User
@@ -1058,6 +1113,7 @@ export default function AdminUsersPage() {
                 <th className="px-5 py-3">Role</th>
                 <th className="px-5 py-3">Department</th>
                 <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">Invite Expires In</th>
                 <th className="px-5 py-3">Last Login</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>

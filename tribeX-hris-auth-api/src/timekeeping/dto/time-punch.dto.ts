@@ -3,7 +3,8 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class TimePunchDto {
   @ApiProperty({
-    description: 'GPS latitude coordinate (required — location must be granted)',
+    description:
+      'GPS latitude coordinate (required — location must be granted)',
     example: 14.5995,
   })
   @IsNumber()
@@ -12,7 +13,8 @@ export class TimePunchDto {
   latitude: number;
 
   @ApiProperty({
-    description: 'GPS longitude coordinate (required — location must be granted)',
+    description:
+      'GPS longitude coordinate (required — location must be granted)',
     example: 120.9842,
   })
   @IsNumber()

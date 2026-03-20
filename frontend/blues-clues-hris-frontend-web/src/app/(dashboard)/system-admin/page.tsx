@@ -71,7 +71,7 @@ export default function AdminDashboardPage() {
   const [loading, setLoading]           = useState(true);
   const [resendingId, setResendingId]   = useState<string | null>(null);
 
-  useWelcomeToast(adminName, "Admin Portal");
+  useWelcomeToast(adminName, "System Administration");
 
   useEffect(() => {
     Promise.all([

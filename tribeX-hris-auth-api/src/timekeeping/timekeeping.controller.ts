@@ -86,7 +86,11 @@ export class TimekeepingController {
     @Query('from') from?: string,
     @Query('to') to?: string,
   ) {
-    return this.timekeepingService.getMyTimesheet(req.user.sub_userid, from, to);
+    return this.timekeepingService.getMyTimesheet(
+      req.user.sub_userid,
+      from,
+      to,
+    );
   }
 
   @Get('employees')
