@@ -1084,7 +1084,7 @@ export default function AdminUsersPage() {
             <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
               <Download className="h-4 w-4" />
             </Button>
-            <Button variant="outline" className="h-9 gap-1.5 shrink-0" onClick={() => setShowDeptPanel(true)}>
+            <Button variant="outline" className="h-9 gap-1.5 shrink-0" onClick={() => document.getElementById("dept-section")?.scrollIntoView({ behavior: "smooth" })}>
               <Building2 className="h-4 w-4" /> Departments
             </Button>
             <Button className="h-9 gap-1.5 shrink-0" onClick={() => setShowAdd(true)}>
@@ -1170,7 +1170,7 @@ export default function AdminUsersPage() {
       </div>
 
       {/* Department Management */}
-      <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
+      <div id="dept-section" className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
         <div className="flex items-center justify-between px-5 py-4 border-b border-border">
           <div>
             <h2 className="font-bold text-base">Department Management</h2>
