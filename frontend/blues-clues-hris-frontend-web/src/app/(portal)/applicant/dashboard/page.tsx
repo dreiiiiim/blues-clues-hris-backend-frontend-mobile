@@ -485,6 +485,8 @@ export default function ApplicantDashboardPage() {
                 </Button>
               </div>
             )}
+          </>
+        )}
           </CardContent>
         </Card>
 
