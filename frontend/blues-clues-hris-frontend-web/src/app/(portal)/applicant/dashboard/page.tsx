@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import {
   Check, Briefcase, MapPin, Clock,
   Search, ChevronRight, Building2, X, Loader2, CheckCircle,
-  DollarSign,
+  DollarSign, FileText, TrendingUp, CalendarClock, Sparkles,
 } from "lucide-react";
 
 // ─── Application Form Modal (same as in /applicant/jobs) ─────────────────────
