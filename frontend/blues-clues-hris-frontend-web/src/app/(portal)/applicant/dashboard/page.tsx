@@ -247,6 +247,7 @@ export default function ApplicantDashboardPage() {
   const router = useRouter();
   const [session, setSession] = useState<StoredUser | null>(null);
   const [jobs, setJobs] = useState<JobPosting[]>([]);
+  const [applications, setApplications] = useState<MyApplication[]>([]);
   const [appliedJobIds, setAppliedJobIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -260,6 +261,7 @@ export default function ApplicantDashboardPage() {
       getMyApplications().catch(() => [] as MyApplication[]),
     ]).then(([jobList, myApps]) => {
       setJobs(jobList);
+      setApplications(myApps);
       setAppliedJobIds(new Set(myApps.map((a) => a.job_posting_id)));
       // Show the most recently applied job for the tracker
       if (myApps.length > 0) {
@@ -270,6 +272,13 @@ export default function ApplicantDashboardPage() {
       }
     }).finally(() => setLoading(false));
   }, []);
+
+  const recentApplications = useMemo(() =>
+    [...applications].sort((a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime()).slice(0, 5),
+    [applications]
+  );
+  const activeCount = applications.filter(a => !["rejected", "hired", "withdrawn"].includes(a.status)).length;
+  const interviewCount = applications.filter(a => a.status.includes("interview")).length;
 
   useWelcomeToast(session?.name || "Applicant", "Candidate Portal");
 
