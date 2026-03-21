@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { getUserInfo, getAccessToken, parseJwt, type StoredUser } from "@/lib/authStorage";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import {
