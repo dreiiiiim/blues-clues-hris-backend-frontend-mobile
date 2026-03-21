@@ -83,7 +83,6 @@ function ApplicantPortalAuthInner() {
 
         // Soft navigation — keeps in-memory access token alive (no refresh cookie for applicants)
         router.push("/applicant/dashboard");
-      }
     } catch (err: any) {
       const msg: string = err?.message || "";
       if (msg.startsWith("UNVERIFIED_RESENT:")) {
