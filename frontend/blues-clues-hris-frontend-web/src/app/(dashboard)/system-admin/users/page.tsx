@@ -888,20 +888,6 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleResendInvite = async (employee: Employee) => {
-    try {
-      const res = await apiFetch<{ message: string; invite_expires_at: string }>(
-        `/users/${employee.user_id}/resend-invite`, { method: "PATCH" }
-      );
-      setEmployees(prev => prev.map(e =>
-        e.user_id === employee.user_id ? { ...e, invite_expires_at: res.invite_expires_at } : e
-      ));
-      toast.success(`Invite resent to ${employee.email}.`);
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to resend invite.");
-    }
-  };
-
   const handleAddDept = async () => {
     const name = newDeptName.trim();
     if (!name) return;
