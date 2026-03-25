@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link"; // <-- ADDED THIS
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import { Progress } from "@/components/ui/progress";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button"; // <-- ADDED THIS
 import {
   Briefcase,
   CheckCircle2,
@@ -33,7 +35,6 @@ export default function EmployeeDashboardPage() {
 
   useWelcomeToast(session?.name || "Employee", "Staff Portal");
 
-  // TODO: replace with GET /employees/:id fields.
   const checklist: ChecklistItemData[] = [
     { title: "Upload Identification Documents", status: "Pending", icon: Upload, locked: false },
     { title: "Review Employee Handbook", status: "Pending", icon: FileText, locked: false },
@@ -50,7 +51,6 @@ export default function EmployeeDashboardPage() {
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-500">
-
       <section className="relative overflow-hidden rounded-[26px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 py-7 text-white shadow-sm md:px-7 md:py-8">
         <div className="absolute inset-y-0 right-0 w-72 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.20),transparent_60%)]" />
         <div className="relative z-10">
@@ -75,7 +75,6 @@ export default function EmployeeDashboardPage() {
           <CardContent className="space-y-3 p-5">
             <ProfileField label="Full Name" value={session?.name || "-"} />
             <ProfileField label="Role" value={session?.role === "employee" ? "Internal Staff" : session?.role || "-"} />
-            {/* TODO: replace with start_date from GET /employees/:id */}
             <ProfileField label="Member Since" value="-" />
           </CardContent>
         </Card>
@@ -89,29 +88,25 @@ export default function EmployeeDashboardPage() {
                 </div>
                 <CardTitle className="text-lg font-bold tracking-tight">Onboarding Progress</CardTitle>
               </div>
-              {/* TODO: replace with real completion % from GET /employees/:id */}
-              <span className="font-bold text-primary text-xs bg-primary/10 border border-primary/20 px-3 py-1 rounded-full uppercase tracking-wide">
-                {completion}% Complete
-              </span>
+              {/* <-- ADDED LINK TO ONBOARDING PAGE --> */}
+              <Link href="/employee/onboarding">
+                <Button size="sm" variant="outline" className="h-8">
+                  Resume Onboarding
+                </Button>
+              </Link>
             </div>
             <Progress value={completion} className="mt-5 h-2.5" />
           </CardHeader>
           <CardContent className="mt-1 p-5 space-y-3">
             {checklist.map((item) => (
-              <ChecklistItem key={item.title} item={item} />
+              /* <-- WRAPPED ITEM IN LINK --> */
+              <Link href="/employee/onboarding" key={item.title} className="block group">
+                <ChecklistItem item={item} />
+              </Link>
             ))}
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
-}
-
-function HeroStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-      <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/65">{label}</p>
-      <p className="mt-1 text-xl font-bold leading-none">{value}</p>
     </div>
   );
 }
@@ -131,7 +126,7 @@ function ChecklistItem({ item }: { item: ChecklistItemData }) {
       className={`flex items-center justify-between p-4 rounded-xl border transition-all ${
         item.locked
           ? "bg-muted/20 border-border opacity-60"
-          : "bg-card border-border hover:border-primary/40 hover:bg-primary/5"
+          : "bg-card border-border group-hover:border-primary/40 group-hover:bg-primary/5" // <-- updated hover
       }`}
     >
       <div className="flex items-center gap-4 min-w-0">
@@ -156,7 +151,7 @@ function ChecklistItem({ item }: { item: ChecklistItemData }) {
           {!item.locked && <Clock className="h-3 w-3" />}
           {item.status}
         </div>
-        {!item.locked && <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+        {!item.locked && <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1" />}
       </div>
     </div>
   );

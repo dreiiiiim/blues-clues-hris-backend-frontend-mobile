@@ -23,7 +23,7 @@ export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const config = TOPBAR_CONFIG[persona];
 
   useEffect(() => {

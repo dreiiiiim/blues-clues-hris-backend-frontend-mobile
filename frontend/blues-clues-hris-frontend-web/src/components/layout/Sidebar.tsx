@@ -58,6 +58,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   ],
   employee: [
     { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
+    { name: "Onboarding",  href: "/employee/onboarding",   icon: UserPlus }, // <-- ADD THIS LINE
     { name: "Timekeeping", href: "/employee/timekeeping",  icon: Clock },
     { name: "My Profile",  href: "/employee/profile",      icon: Users },
     { name: "Documents",   href: "/employee/documents",    icon: FileCheck },
@@ -75,11 +76,12 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "Users", href: "/admin/users", icon: Users },
   ],
   "system-admin": [
-    { name: "Dashboard",      href: "/system-admin",              icon: LayoutDashboard },
-    { name: "Users",          href: "/system-admin/users",        icon: Users },
-    { name: "Timekeeping",    href: "/system-admin/timekeeping",  icon: Clock },
+    { name: "Dashboard",      href: "/system-admin",               icon: LayoutDashboard },
+    { name: "Users",          href: "/system-admin/users",         icon: Users },
+    { name: "Timekeeping",    href: "/system-admin/timekeeping",   icon: Clock },
+    { name: "Onboarding",     href: "/system-admin/onboarding",   icon: UserPlus },
     { name: "Subscriptions",  href: "/system-admin/subscriptions", icon: DollarSign },
-    { name: "Global Settings", href: "/system-admin/settings",   icon: ClipboardCheck },
+    { name: "Global Settings", href: "/system-admin/settings",    icon: ClipboardCheck },
   ],
 };
 
