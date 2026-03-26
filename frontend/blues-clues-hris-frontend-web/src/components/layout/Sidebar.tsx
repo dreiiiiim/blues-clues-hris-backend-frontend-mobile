@@ -20,6 +20,7 @@ import {
   Clock,
   Loader2,
   ScrollText,
+  Trophy,
 } from "lucide-react";
 
 import {
@@ -67,6 +68,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "Dashboard",    href: "/hr",              icon: LayoutDashboard },
     { name: "Timekeeping",  href: "/hr/timekeeping",  icon: Clock },
     { name: "Recruitment",  href: "/hr/jobs",         icon: Briefcase },
+    { name: "Candidates",   href: "/hr/candidates",   icon: Trophy },
     { name: "Onboarding",   href: "/hr/onboarding",   icon: UserPlus },
     { name: "Compensation", href: "/hr/payroll",      icon: DollarSign },
     { name: "Performance",  href: "/hr/performance",  icon: BarChart },
