@@ -8,6 +8,7 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Req,
   UseGuards,
 } from '@nestjs/common';
@@ -21,6 +22,8 @@ import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { SetQuestionsDto } from './dto/create-questions.dto';
+import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
+import { SaveManualRankingDto } from './dto/save-manual-ranking.dto';
 
 const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
 
@@ -146,6 +149,35 @@ export class JobsController {
   @ApiOperation({ summary: 'Public: Get application questions for a job posting' })
   getQuestions(@Param('id') id: string) {
     return this.jobsService.getQuestionsForPosting(id);
+  }
+
+  @Get(':id/candidates/ranked')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Get ranked candidates for a job posting' })
+  getRankedCandidates(
+    @Param('id') id: string,
+    @Query() query: GetRankedCandidatesDto,
+    @Req() req: any,
+  ) {
+    return this.jobsService.getRankedCandidates(id, req.user.company_id, query);
+  }
+
+  @Put(':id/candidates/manual-rank')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Save manual candidate ranking for a job posting' })
+  saveManualRanking(
+    @Param('id') id: string,
+    @Body() dto: SaveManualRankingDto,
+    @Req() req: any,
+  ) {
+    return this.jobsService.saveManualRanking(
+      id,
+      req.user.company_id,
+      req.user.sub_userid,
+      dto.rankings,
+    );
   }
 
   @Get(':id/applications')
