@@ -195,6 +195,46 @@ export class UsersService {
     return aIndex - bIndex;
   }
 
+  private parseModuleRoleEntry(
+    roleEntry: unknown,
+    moduleId: string,
+    roleNames: string[],
+  ): { roleName: string; permissions: PermissionSet } {
+    if (!roleEntry || typeof roleEntry !== 'object') {
+      throw new BadRequestException(
+        `Module "${moduleId}" has an invalid role entry.`,
+      );
+    }
+    const roleRecord = roleEntry as Record<string, unknown>;
+    const roleName = roleRecord.role_name;
+    if (typeof roleName !== 'string' || !roleName.trim()) {
+      throw new BadRequestException(`Module "${moduleId}" is missing a role_name.`);
+    }
+    if (!roleNames.includes(roleName)) {
+      throw new BadRequestException(
+        `Module "${moduleId}" includes an unknown role "${roleName}".`,
+      );
+    }
+    const permissions = roleRecord.permissions;
+    if (!permissions || typeof permissions !== 'object' || Array.isArray(permissions)) {
+      throw new BadRequestException(
+        `Module "${moduleId}" must include a permissions object for "${roleName}".`,
+      );
+    }
+    const permissionMap = permissions as Record<string, unknown>;
+    const normalizedPermissions = {} as PermissionSet;
+    for (const permissionKey of PERMISSION_KEYS) {
+      const permVal = permissionMap[permissionKey];
+      if (typeof permVal !== 'boolean') {
+        throw new BadRequestException(
+          `Module "${moduleId}" is missing a boolean "${permissionKey}" permission for "${roleName}".`,
+        );
+      }
+      normalizedPermissions[permissionKey] = permVal;
+    }
+    return { roleName, permissions: normalizedPermissions };
+  }
+
   private normalizeLifecycleModules(
     input: unknown,
     roleNames: string[],
@@ -213,113 +253,103 @@ export class UsersService {
           'Each lifecycle permission entry must be an object.',
         );
       }
-
       const entry = item as Record<string, unknown>;
       const moduleId = entry.module_id;
       if (typeof moduleId !== 'string' || !moduleId.trim()) {
         throw new BadRequestException('Each entry must include a module_id.');
       }
-
       if (providedById.has(moduleId)) {
-        throw new BadRequestException(
-          `Duplicate lifecycle module "${moduleId}" found.`,
-        );
+        throw new BadRequestException(`Duplicate lifecycle module "${moduleId}" found.`);
       }
-
       providedById.set(moduleId, entry);
     }
 
     for (const moduleId of providedById.keys()) {
-      if (
-        !LIFECYCLE_MODULE_DEFINITIONS.some(
-          (definition) => definition.module_id === moduleId,
-        )
-      ) {
-        throw new BadRequestException(
-          `Unknown lifecycle module "${moduleId}".`,
-        );
+      if (!LIFECYCLE_MODULE_DEFINITIONS.some((d) => d.module_id === moduleId)) {
+        throw new BadRequestException(`Unknown lifecycle module "${moduleId}".`);
       }
     }
 
     return LIFECYCLE_MODULE_DEFINITIONS.map((defaultModule) => {
       const provided = providedById.get(defaultModule.module_id);
-      const providedRoles = Array.isArray(provided?.roles)
-        ? provided.roles
-        : [];
+      const providedRoles = Array.isArray(provided?.roles) ? provided.roles : [];
 
       const providedRolesByName = new Map<string, PermissionSet>();
       for (const roleEntry of providedRoles) {
-        if (!roleEntry || typeof roleEntry !== 'object') {
-          throw new BadRequestException(
-            `Module "${defaultModule.module_id}" has an invalid role entry.`,
-          );
-        }
-
-        const roleRecord = roleEntry as Record<string, unknown>;
-        const roleName = roleRecord.role_name;
-        if (typeof roleName !== 'string' || !roleName.trim()) {
-          throw new BadRequestException(
-            `Module "${defaultModule.module_id}" is missing a role_name.`,
-          );
-        }
-
-        if (!roleNames.includes(roleName)) {
-          throw new BadRequestException(
-            `Module "${defaultModule.module_id}" includes an unknown role "${roleName}".`,
-          );
-        }
-
+        const { roleName, permissions } = this.parseModuleRoleEntry(
+          roleEntry,
+          defaultModule.module_id,
+          roleNames,
+        );
         if (providedRolesByName.has(roleName)) {
           throw new BadRequestException(
             `Module "${defaultModule.module_id}" includes duplicate role "${roleName}".`,
           );
         }
-
-        const permissions = roleRecord.permissions;
-        if (
-          !permissions ||
-          typeof permissions !== 'object' ||
-          Array.isArray(permissions)
-        ) {
-          throw new BadRequestException(
-            `Module "${defaultModule.module_id}" must include a permissions object for "${roleName}".`,
-          );
-        }
-
-        const permissionMap = permissions as Record<string, unknown>;
-        const normalizedPermissions = {} as PermissionSet;
-        for (const permissionKey of PERMISSION_KEYS) {
-          if (typeof permissionMap[permissionKey] !== 'boolean') {
-            throw new BadRequestException(
-              `Module "${defaultModule.module_id}" is missing a boolean "${permissionKey}" permission for "${roleName}".`,
-            );
-          }
-          normalizedPermissions[permissionKey] =
-            permissionMap[permissionKey] as boolean;
-        }
-
-        providedRolesByName.set(roleName, normalizedPermissions);
-      }
-
-      if (!provided) {
-        return {
-          ...defaultModule,
-          roles: roleNames.map((roleName) => ({
-            role_name: roleName,
-            permissions: this.buildEmptyPermissionSet(),
-          })),
-        };
+        providedRolesByName.set(roleName, permissions);
       }
 
       return {
         ...defaultModule,
         roles: roleNames.map((roleName) => ({
           role_name: roleName,
-          permissions:
-            providedRolesByName.get(roleName) ?? this.buildEmptyPermissionSet(),
+          permissions: providedRolesByName.get(roleName) ?? this.buildEmptyPermissionSet(),
         })),
       };
     });
+  }
+
+  private async validateDepartmentBelongsToCompany(
+    supabase: ReturnType<SupabaseService['getClient']>,
+    dto: { department_id?: string },
+    companyId: string,
+  ): Promise<void> {
+    if (!dto.department_id) return;
+    const { data: departmentRow, error: departmentError } = await supabase
+      .from('department')
+      .select('department_id, company_id')
+      .eq('department_id', dto.department_id)
+      .maybeSingle();
+    if (departmentError) throw new InternalServerErrorException(departmentError.message);
+    if (!departmentRow) throw new BadRequestException('Selected department does not exist.');
+    if (departmentRow.company_id && departmentRow.company_id !== companyId) {
+      throw new BadRequestException('Selected department belongs to a different company.');
+    }
+  }
+
+  private throwInsertUserError(insertError: { message: string; code?: string }): never {
+    const dbCode = (insertError as any)?.code as string | undefined;
+    if (dbCode === '23505') {
+      throw new ConflictException('A user with the same username or email already exists.');
+    }
+    if (dbCode === '23503') {
+      throw new BadRequestException('Invalid role or department selected.');
+    }
+    throw new BadRequestException(insertError.message);
+  }
+
+  private collectModuleRows(
+    module: LifecycleModuleSetting,
+    roleGroups: { role_name: string; role_ids: string[] }[],
+    moduleFeatureIds: string[],
+    rowsToUpsert: RoleFeatureRow[],
+  ): void {
+    for (const roleSetting of module.roles) {
+      const roleGroup = roleGroups.find((g) => g.role_name === roleSetting.role_name);
+      if (!roleGroup) continue;
+      for (const roleId of roleGroup.role_ids) {
+        for (const featureId of moduleFeatureIds) {
+          rowsToUpsert.push({
+            role_id: roleId,
+            feature_id: featureId,
+            can_read: roleSetting.permissions.read,
+            can_create: roleSetting.permissions.create,
+            can_update: roleSetting.permissions.update,
+            can_delete: roleSetting.permissions.delete,
+          });
+        }
+      }
+    }
   }
 
   private mapRoleIdsByRoleName(roles: RoleRow[]) {
@@ -489,26 +519,7 @@ export class UsersService {
           `No features are configured in the database for "${module.name}".`,
         );
       }
-
-      for (const roleSetting of module.roles) {
-        const roleGroup = roleGroups.find(
-          (group) => group.role_name === roleSetting.role_name,
-        );
-        if (!roleGroup) continue;
-
-        for (const roleId of roleGroup.role_ids) {
-          for (const featureId of moduleFeatureIds) {
-            rowsToUpsert.push({
-              role_id: roleId,
-              feature_id: featureId,
-              can_read: roleSetting.permissions.read,
-              can_create: roleSetting.permissions.create,
-              can_update: roleSetting.permissions.update,
-              can_delete: roleSetting.permissions.delete,
-            });
-          }
-        }
-      }
+      this.collectModuleRows(module, roleGroups, moduleFeatureIds, rowsToUpsert);
     }
 
     if (rowsToUpsert.length > 0) {
@@ -833,23 +844,7 @@ export class UsersService {
       );
     }
 
-    if (dto.department_id) {
-      const { data: departmentRow, error: departmentError } = await supabase
-        .from('department')
-        .select('department_id, company_id')
-        .eq('department_id', dto.department_id)
-        .maybeSingle();
-      if (departmentError)
-        throw new InternalServerErrorException(departmentError.message);
-      if (!departmentRow)
-        throw new BadRequestException('Selected department does not exist.');
-
-      if (departmentRow.company_id && departmentRow.company_id !== companyId) {
-        throw new BadRequestException(
-          'Selected department belongs to a different company.',
-        );
-      }
-    }
+    await this.validateDepartmentBelongsToCompany(supabase, dto, companyId);
 
     const { error: insertError } = await supabase.from('user_profile').insert({
       user_id,
@@ -866,16 +861,7 @@ export class UsersService {
     });
 
     if (insertError) {
-      const dbCode = (insertError as any)?.code as string | undefined;
-      if (dbCode === '23505') {
-        throw new ConflictException(
-          'A user with the same username or email already exists.',
-        );
-      }
-      if (dbCode === '23503') {
-        throw new BadRequestException('Invalid role or department selected.');
-      }
-      throw new BadRequestException(insertError.message);
+      this.throwInsertUserError(insertError);
     }
 
     const rawToken = crypto.randomBytes(32).toString('hex');

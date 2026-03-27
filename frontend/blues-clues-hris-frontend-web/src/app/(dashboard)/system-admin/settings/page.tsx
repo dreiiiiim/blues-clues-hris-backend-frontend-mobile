@@ -60,11 +60,11 @@ function PermissionToggle({
   Icon,
   onToggle,
 }: {
-  label: string;
-  short: string;
-  active: boolean;
-  Icon: ElementType;
-  onToggle: () => void;
+  readonly label: string;
+  readonly short: string;
+  readonly active: boolean;
+  readonly Icon: ElementType;
+  readonly onToggle: () => void;
 }) {
   return (
     <button
@@ -89,9 +89,9 @@ function RolePermissionRow({
   permissions,
   onToggle,
 }: {
-  roleName: string;
-  permissions: Record<PermissionKey, boolean>;
-  onToggle: (permission: PermissionKey, value: boolean) => void;
+  readonly roleName: string;
+  readonly permissions: Record<PermissionKey, boolean>;
+  readonly onToggle: (permission: PermissionKey, value: boolean) => void;
 }) {
   const enabledCount = Object.values(permissions).filter(Boolean).length;
 
@@ -124,8 +124,8 @@ function ModuleCard({
   module,
   onToggle,
 }: {
-  module: LifecycleModule;
-  onToggle: (
+  readonly module: LifecycleModule;
+  readonly onToggle: (
     roleName: string,
     permission: PermissionKey,
     value: boolean,
@@ -215,7 +215,7 @@ export default function GlobalSettingsPage() {
     try {
       const data = await getLifecyclePermissions();
       setModules(data);
-      setOriginal(JSON.parse(JSON.stringify(data)));
+      setOriginal(structuredClone(data));
       setIsDirty(false);
     } catch (err: any) {
       toast.error(err?.message || "Failed to load permissions.");
@@ -232,7 +232,6 @@ export default function GlobalSettingsPage() {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
       if (!isDirty) return;
       event.preventDefault();
-      event.returnValue = "";
     };
 
     const handleDocumentClick = (event: MouseEvent) => {
@@ -270,6 +269,17 @@ export default function GlobalSettingsPage() {
     };
   }, [isDirty]);
 
+  const updateRole = (
+    roleName: string,
+    permission: PermissionKey,
+    value: boolean,
+  ) => (role: { role_name: string; permissions: Record<PermissionKey, boolean> }) => {
+    if (role.role_name === roleName) {
+      return { ...role, permissions: { ...role.permissions, [permission]: value } };
+    }
+    return role;
+  };
+
   const handleToggle = (
     moduleId: string,
     roleName: string,
@@ -277,24 +287,12 @@ export default function GlobalSettingsPage() {
     value: boolean,
   ) => {
     setModules((current) => {
-      const updated = current.map((module) =>
-        module.module_id !== moduleId
-          ? module
-          : {
-              ...module,
-              roles: module.roles.map((role) =>
-                role.role_name !== roleName
-                  ? role
-                  : {
-                      ...role,
-                      permissions: {
-                        ...role.permissions,
-                        [permission]: value,
-                      },
-                    },
-              ),
-            },
-      );
+      const updated = current.map((module) => {
+        if (module.module_id === moduleId) {
+          return { ...module, roles: module.roles.map(updateRole(roleName, permission, value)) };
+        }
+        return module;
+      });
 
       setIsDirty(JSON.stringify(updated) !== JSON.stringify(original));
       return updated;
@@ -302,7 +300,7 @@ export default function GlobalSettingsPage() {
   };
 
   const handleReset = () => {
-    setModules(JSON.parse(JSON.stringify(original)));
+    setModules(structuredClone(original));
     setIsDirty(false);
   };
 
@@ -315,7 +313,7 @@ export default function GlobalSettingsPage() {
           roles: module.roles,
         })),
       );
-      const snapshot = JSON.parse(JSON.stringify(modules));
+      const snapshot = structuredClone(modules);
       setOriginal(snapshot);
       setModules(snapshot);
       setIsDirty(false);
@@ -413,8 +411,8 @@ export default function GlobalSettingsPage() {
 
         {isDirty && (
           <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />
-            You have unsaved permission changes.
+            <span className="h-2 w-2 shrink-0 rounded-full bg-amber-500" />{" "}
+            <span>You have unsaved permission changes.</span>
           </div>
         )}
 

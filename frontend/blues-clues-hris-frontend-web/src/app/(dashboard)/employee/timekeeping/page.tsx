@@ -120,6 +120,20 @@ function toDateStr(year: number, month: number, day: number): string {
 const ITEMS_PER_PAGE = 7;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
+// ─── Outer-scope helpers ───────────────────────────────────────────────────────
+
+async function executePunch(type: "time-in" | "time-out", coords: { latitude: number; longitude: number }) {
+  const res = await authFetch(`${API_BASE_URL}/timekeeping/${type}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(coords),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as { message?: string })?.message || `Failed to clock ${type === "time-in" ? "in" : "out"}.`);
+  }
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function EmployeeTimekeepingPage() {
@@ -162,13 +176,13 @@ export default function EmployeeTimekeepingPage() {
   // Fetch status + timesheet on mount
   useEffect(() => {
     authFetch(`${API_BASE_URL}/timekeeping/my-status`)
-      .then(r => { if (!r.ok) throw new Error("Failed to fetch status"); return r.json() as Promise<MyStatus>; })
+      .then(r => { if (!r.ok) { throw new Error("Failed to fetch status"); } return r.json() as Promise<MyStatus>; })
       .then(setStatus)
       .catch(() => setFetchError(true))
       .finally(() => setStatusLoading(false));
 
     authFetch(`${API_BASE_URL}/timekeeping/my-timesheet`)
-      .then(r => { if (!r.ok) throw new Error("Failed to fetch timesheet"); return r.json() as Promise<TimesheetEntry[]>; })
+      .then(r => { if (!r.ok) { throw new Error("Failed to fetch timesheet"); } return r.json() as Promise<TimesheetEntry[]>; })
       .then(setTimesheet)
       .catch(() => setFetchError(true))
       .finally(() => setSheetLoading(false));
@@ -181,18 +195,6 @@ export default function EmployeeTimekeepingPage() {
     ]);
     setStatus(s);
     setTimesheet(t);
-  }
-
-  async function executePunch(type: "time-in" | "time-out", coords: { latitude: number; longitude: number }) {
-    const res = await authFetch(`${API_BASE_URL}/timekeeping/${type}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(coords),
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error((err as { message?: string })?.message || `Failed to clock ${type === "time-in" ? "in" : "out"}.`);
-    }
   }
 
   async function handlePunch(type: "time-in" | "time-out") {
@@ -242,6 +244,171 @@ export default function EmployeeTimekeepingPage() {
     const n = new Date();
     return calMonth.year === n.getFullYear() && calMonth.month === n.getMonth();
   })();
+
+  const calendarView = (
+    // ─── Calendar View ────────────────────────────────────────────────
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-5">
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={prevMonth}>
+          <ChevronLeft className="h-4 w-4" />
+        </Button>
+        <p className="font-bold text-sm">{calTitle}</p>
+        <Button variant="outline" size="icon" className="h-8 w-8"
+          onClick={nextMonth} disabled={isCurrentMonth}>
+          <ChevronRight className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <div className="grid grid-cols-7 mb-2">
+        {WEEKDAYS.map(d => (
+          <div key={d} className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest py-2">
+            {d}
+          </div>
+        ))}
+      </div>
+
+      <div className="grid grid-cols-7 gap-2">
+        {calGrid.map((day, idx) => {
+          if (!day) return <div key={`empty-${calMonth.year}-${calMonth.month}-${idx}`} />;
+
+          const dateStr  = toDateStr(calMonth.year, calMonth.month, day);
+          const entry    = dateMap[dateStr];
+          const isToday  = dateStr === today;
+          const isFuture = dateStr > today;
+          const entryStatus = entry ? getEntryStatus(entry) : null;
+          const cfg      = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
+
+          let cellClass = "bg-background border-border";
+          if (isToday) {
+            cellClass = "bg-primary/10 border-primary shadow-md";
+          } else if (isFuture) {
+            cellClass = "bg-background border-border opacity-50";
+          } else if (cfg) {
+            cellClass = `${cfg.cell} border`;
+          }
+
+          return (
+            <div
+              key={dateStr}
+              className={`relative rounded-xl border p-2 min-h-30 flex flex-col transition-all ${cellClass}`}
+            >
+              {/* Day number */}
+              <div className={`text-sm font-bold mb-1 ${isToday ? "text-primary" : "text-foreground"}`}>
+                {day}
+              </div>
+
+              {/* Time and location info */}
+              {!isFuture && entry?.time_in && (
+                <div className="flex-1 space-y-1 text-[9px] leading-tight">
+                  {/* Time In */}
+                  <div className="flex items-start gap-1">
+                    <LogIn className="h-3 w-3 shrink-0 mt-0.5 text-green-600" />
+                    <div>
+                      <div className="font-semibold text-foreground">
+                        {formatCellTime(entry.time_in.timestamp)}
+                      </div>
+                      <div className="text-muted-foreground flex items-center gap-0.5">
+                        <MapPin className="h-2.5 w-2.5" />
+                        <span className="truncate text-[8px]">
+                          {formatCoordinates(entry.time_in.latitude, entry.time_in.longitude)}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Time Out */}
+                  {entry.time_out && (
+                    <div className="flex items-start gap-1">
+                      <LogOut className="h-3 w-3 shrink-0 mt-0.5 text-red-600" />
+                      <div>
+                        <div className="font-semibold text-foreground">
+                          {formatCellTime(entry.time_out.timestamp)}
+                        </div>
+                        <div className="text-muted-foreground flex items-center gap-0.5">
+                          <MapPin className="h-2.5 w-2.5" />
+                          <span className="truncate text-[8px]">
+                            {formatCoordinates(entry.time_out.latitude, entry.time_out.longitude)}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Status indicator dot */}
+              {!isToday && !isFuture && cfg && (
+                <div className="mt-auto pt-1">
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center gap-4 mt-4 flex-wrap">
+        {Object.entries(ENTRY_STATUS_CONFIG).map(([key, cfg]) => (
+          <div key={key} className="flex items-center gap-1.5">
+            <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
+            <span className="text-[10px] text-muted-foreground font-medium">{cfg.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+
+  const listView = (
+    // ─── List View ────────────────────────────────────────────────────
+    <>
+      <div className="divide-y divide-border">
+        {timesheet.length === 0 ? (
+          <p className="px-6 py-10 text-center text-muted-foreground text-sm">No attendance records found.</p>
+        ) : paged.map(entry => {
+          const entryStatus = getEntryStatus(entry);
+          const cfg = ENTRY_STATUS_CONFIG[entryStatus];
+          return (
+            <div key={entry.date} className="px-6 py-4 hover:bg-muted/20 transition-colors">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${cfg.dot}`} />
+                  <span className="font-semibold text-sm">{formatEntryDate(entry.date)}</span>
+                </div>
+                <Badge className={`text-[9px] font-bold border ${cfg.badge}`}>
+                  {cfg.label}
+                </Badge>
+              </div>
+              {entry.time_in && (
+                <div className="flex items-center gap-6 mt-2 ml-5 text-xs text-muted-foreground">
+                  <span>In: <span className="font-semibold text-foreground">{formatTime(entry.time_in.timestamp)}</span></span>
+                  {entry.time_out && <span>Out: <span className="font-semibold text-foreground">{formatTime(entry.time_out.timestamp)}</span></span>}
+                  {entry.time_out && <span>Hours: <span className="font-semibold text-foreground">{formatHoursFromTimestamps(entry.time_in.timestamp, entry.time_out.timestamp)}</span></span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="p-4 bg-muted/10 border-t border-border flex items-center justify-between">
+        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+          {timesheet.length > 0
+            ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}–${Math.min(page * ITEMS_PER_PAGE, timesheet.length)} of ${timesheet.length}`
+            : "No records"}
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" className="h-8 gap-1"
+            onClick={() => setPage(p => p - 1)} disabled={page === 1 || totalPages === 0}>
+            <ChevronLeft className="h-4 w-4" /> Prev
+          </Button>
+          <Button variant="outline" size="sm" className="h-8 gap-1"
+            onClick={() => setPage(p => p + 1)} disabled={page === totalPages || totalPages === 0}>
+            Next <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
@@ -354,170 +521,8 @@ export default function EmployeeTimekeepingPage() {
           <p className="px-6 py-10 text-center text-muted-foreground text-sm">Loading records...</p>
         ) : fetchError ? (
           <p className="px-6 py-10 text-center text-destructive text-sm">Failed to load records. Please refresh or contact support.</p>
-        ) : view === "calendar" ? (
-
-          // ─── Calendar View ────────────────────────────────────────────────
-          <div className="p-6">
-            <div className="flex items-center justify-between mb-5">
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={prevMonth}>
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <p className="font-bold text-sm">{calTitle}</p>
-              <Button variant="outline" size="icon" className="h-8 w-8"
-                onClick={nextMonth} disabled={isCurrentMonth}>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </div>
-
-            <div className="grid grid-cols-7 mb-2">
-              {WEEKDAYS.map(d => (
-                <div key={d} className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest py-2">
-                  {d}
-                </div>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-7 gap-2">
-              {calGrid.map((day, idx) => {
-                if (!day) return <div key={`empty-${idx}`} />;
-
-                const dateStr  = toDateStr(calMonth.year, calMonth.month, day);
-                const entry    = dateMap[dateStr];
-                const isToday  = dateStr === today;
-                const isFuture = dateStr > today;
-                const entryStatus = entry ? getEntryStatus(entry) : null;
-                const cfg      = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
-
-                return (
-                  <div
-                    key={dateStr}
-                    className={`
-                      relative rounded-xl border p-2 min-h-30 flex flex-col transition-all
-                      ${isToday
-                        ? "bg-primary/10 border-primary shadow-md"
-                        : isFuture
-                        ? "bg-background border-border opacity-50"
-                        : cfg
-                        ? `${cfg.cell} border`
-                        : "bg-background border-border"}
-                    `}
-                  >
-                    {/* Day number */}
-                    <div className={`text-sm font-bold mb-1 ${isToday ? "text-primary" : "text-foreground"}`}>
-                      {day}
-                    </div>
-
-                    {/* Time and location info */}
-                    {!isFuture && entry && entry.time_in && (
-                      <div className="flex-1 space-y-1 text-[9px] leading-tight">
-                        {/* Time In */}
-                        <div className="flex items-start gap-1">
-                          <LogIn className="h-3 w-3 shrink-0 mt-0.5 text-green-600" />
-                          <div>
-                            <div className="font-semibold text-foreground">
-                              {formatCellTime(entry.time_in.timestamp)}
-                            </div>
-                            <div className="text-muted-foreground flex items-center gap-0.5">
-                              <MapPin className="h-2.5 w-2.5" />
-                              <span className="truncate text-[8px]">
-                                {formatCoordinates(entry.time_in.latitude, entry.time_in.longitude)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-
-                        {/* Time Out */}
-                        {entry.time_out && (
-                          <div className="flex items-start gap-1">
-                            <LogOut className="h-3 w-3 shrink-0 mt-0.5 text-red-600" />
-                            <div>
-                              <div className="font-semibold text-foreground">
-                                {formatCellTime(entry.time_out.timestamp)}
-                              </div>
-                              <div className="text-muted-foreground flex items-center gap-0.5">
-                                <MapPin className="h-2.5 w-2.5" />
-                                <span className="truncate text-[8px]">
-                                  {formatCoordinates(entry.time_out.latitude, entry.time_out.longitude)}
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Status indicator dot */}
-                    {!isToday && !isFuture && cfg && (
-                      <div className="mt-auto pt-1">
-                        <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="flex items-center gap-4 mt-4 flex-wrap">
-              {Object.entries(ENTRY_STATUS_CONFIG).map(([key, cfg]) => (
-                <div key={key} className="flex items-center gap-1.5">
-                  <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
-                  <span className="text-[10px] text-muted-foreground font-medium">{cfg.label}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
         ) : (
-
-          // ─── List View ────────────────────────────────────────────────────
-          <>
-            <div className="divide-y divide-border">
-              {timesheet.length === 0 ? (
-                <p className="px-6 py-10 text-center text-muted-foreground text-sm">No attendance records found.</p>
-              ) : paged.map(entry => {
-                const entryStatus = getEntryStatus(entry);
-                const cfg = ENTRY_STATUS_CONFIG[entryStatus];
-                return (
-                  <div key={entry.date} className="px-6 py-4 hover:bg-muted/20 transition-colors">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${cfg.dot}`} />
-                        <span className="font-semibold text-sm">{formatEntryDate(entry.date)}</span>
-                      </div>
-                      <Badge className={`text-[9px] font-bold border ${cfg.badge}`}>
-                        {cfg.label}
-                      </Badge>
-                    </div>
-                    {entry.time_in && (
-                      <div className="flex items-center gap-6 mt-2 ml-5 text-xs text-muted-foreground">
-                        <span>In: <span className="font-semibold text-foreground">{formatTime(entry.time_in.timestamp)}</span></span>
-                        {entry.time_out && <span>Out: <span className="font-semibold text-foreground">{formatTime(entry.time_out.timestamp)}</span></span>}
-                        {entry.time_out && <span>Hours: <span className="font-semibold text-foreground">{formatHoursFromTimestamps(entry.time_in.timestamp, entry.time_out.timestamp)}</span></span>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-
-            <div className="p-4 bg-muted/10 border-t border-border flex items-center justify-between">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                {timesheet.length > 0
-                  ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}–${Math.min(page * ITEMS_PER_PAGE, timesheet.length)} of ${timesheet.length}`
-                  : "No records"}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" className="h-8 gap-1"
-                  onClick={() => setPage(p => p - 1)} disabled={page === 1 || totalPages === 0}>
-                  <ChevronLeft className="h-4 w-4" /> Prev
-                </Button>
-                <Button variant="outline" size="sm" className="h-8 gap-1"
-                  onClick={() => setPage(p => p + 1)} disabled={page === totalPages || totalPages === 0}>
-                  Next <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            </div>
-          </>
+          view === "calendar" ? calendarView : listView
         )}
       </Card>
     </div>

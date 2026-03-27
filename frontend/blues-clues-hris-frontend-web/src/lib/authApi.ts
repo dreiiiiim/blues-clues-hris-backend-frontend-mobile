@@ -340,7 +340,7 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
   } catch {
     // refresh failed: session is fully expired — clear storage and send to correct login page
     clearAuthStorage();
-    if (typeof globalThis.window !== "undefined") {
+    if (globalThis.window !== undefined) {
       const userInfo = getUserInfo();
       globalThis.location.href = userInfo?.role === "applicant" ? "/applicant/login" : "/login";
     }

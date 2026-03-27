@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
+import { getAccessToken, parseJwt } from "@/lib/authStorage";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input";
 import {
   Search, MoreHorizontal, X,
   ChevronLeft, ChevronRight, Pencil, UserX, UserCheck,
-  Filter, Download, Check, Mail, Users, Eye,
+  Filter, Download, Check, Mail, Eye,
   Hash, User, Building2, Calendar, Shield, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -66,13 +66,13 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as any)?.message || "Request failed");
+  if (!res.ok) throw new Error((data as Record<string, unknown>)?.message as string || "Request failed");
   return data as T;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, color }: { label: string; value: number; sub: string; color: string }) {
+function StatCard({ label, value, sub, color }: { readonly label: string; readonly value: number; readonly sub: string; readonly color: string }) {
   return (
     <Card className="border-border shadow-sm">
       <CardContent className="p-5">
@@ -84,7 +84,7 @@ function StatCard({ label, value, sub, color }: { label: string; value: number; 
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: { readonly status: string }) {
   const style = STATUS_STYLES[status] ?? "bg-gray-100 text-gray-700 border-gray-200";
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${style}`}>
@@ -139,7 +139,7 @@ function formatInviteCountdown(expiresAt: string | null, now: number) {
 
 // Row action dropdown
 function MenuRow({ icon: Icon, label, onClick, color }: {
-  icon: React.ElementType; label: string; onClick: () => void; color?: string;
+  readonly icon: React.ElementType; readonly label: string; readonly onClick: () => void; readonly color?: string;
 }) {
   return (
     <button
@@ -159,12 +159,12 @@ function RowMenu({
   onReactivate,
   onResendInvite,
 }: {
-  employee: Employee;
-  onView: () => void;
-  onEdit: () => void;
-  onDeactivate: () => void;
-  onReactivate: () => void;
-  onResendInvite: () => void;
+  readonly employee: Employee;
+  readonly onView: () => void;
+  readonly onEdit: () => void;
+  readonly onDeactivate: () => void;
+  readonly onReactivate: () => void;
+  readonly onResendInvite: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -226,7 +226,7 @@ function RowMenu({
 
 // View Profile sheet (right-side slide-in)
 function ProfileField({ icon: Icon, label, value }: {
-  icon: React.ElementType; label: string; value: string;
+  readonly icon: React.ElementType; readonly label: string; readonly value: string;
 }) {
   return (
     <div className="flex items-start gap-3 py-3 border-b border-border last:border-0">
@@ -247,17 +247,17 @@ function ViewProfileSheet({
   departments,
   onClose,
 }: {
-  employee: Employee;
-  roles: Role[];
-  departments: Department[];
-  onClose: () => void;
+  readonly employee: Employee;
+  readonly roles: Role[];
+  readonly departments: Department[];
+  readonly onClose: () => void;
 }) {
   const roleName = roles.find(r => r.role_id === employee.role_id)?.role_name ?? "—";
   const deptName = departments.find(d => d.department_id === employee.department_id)?.department_name ?? "—";
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/30" onClick={onClose} />
+      <button type="button" className="absolute inset-0 bg-black/30 cursor-default" aria-label="Close" onClick={onClose} />
       <div className="relative bg-card w-full max-w-sm h-full shadow-2xl flex flex-col overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
@@ -307,11 +307,11 @@ function EditEmployeeModal({
   onClose,
   onSaved,
 }: {
-  employee: Employee;
-  roles: Role[];
-  departments: Department[];
-  onClose: () => void;
-  onSaved: (updated: Employee) => void;
+  readonly employee: Employee;
+  readonly roles: Role[];
+  readonly departments: Department[];
+  readonly onClose: () => void;
+  readonly onSaved: (updated: Employee) => void;
 }) {
   const [form, setForm] = useState({
     first_name: employee.first_name,
@@ -383,8 +383,9 @@ function EditEmployeeModal({
         <div className="flex-1 px-6 py-6 space-y-5 overflow-y-auto">
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">First Name</label>
+              <label htmlFor="team-edit-first-name" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">First Name</label>
               <Input
+                id="team-edit-first-name"
                 value={form.first_name}
                 onChange={e => set("first_name", e.target.value)}
                 className={errors.first_name ? "border-red-400 focus-visible:ring-red-300" : ""}
@@ -392,8 +393,9 @@ function EditEmployeeModal({
               {errors.first_name && <p className="text-xs text-red-500">{errors.first_name}</p>}
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Last Name</label>
+              <label htmlFor="team-edit-last-name" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Last Name</label>
               <Input
+                id="team-edit-last-name"
                 value={form.last_name}
                 onChange={e => set("last_name", e.target.value)}
                 className={errors.last_name ? "border-red-400 focus-visible:ring-red-300" : ""}
@@ -403,8 +405,9 @@ function EditEmployeeModal({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Role</label>
+            <label htmlFor="team-edit-role" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Role</label>
             <select
+              id="team-edit-role"
               value={form.role_id}
               onChange={e => set("role_id", e.target.value)}
               className={`w-full h-10 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 ${
@@ -418,8 +421,9 @@ function EditEmployeeModal({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department</label>
+            <label htmlFor="team-edit-department" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department</label>
             <select
+              id="team-edit-department"
               value={form.department_id}
               onChange={e => set("department_id", e.target.value)}
               className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -431,8 +435,8 @@ function EditEmployeeModal({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Start Date</label>
-            <Input type="date" value={form.start_date} onChange={e => set("start_date", e.target.value)} />
+            <label htmlFor="team-edit-start-date" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Start Date</label>
+            <Input id="team-edit-start-date" type="date" value={form.start_date} onChange={e => set("start_date", e.target.value)} />
           </div>
         </div>
 
@@ -454,9 +458,9 @@ function ConfirmDeactivate({
   onClose,
   onConfirm,
 }: {
-  employee: Employee;
-  onClose: () => void;
-  onConfirm: () => void;
+  readonly employee: Employee;
+  readonly onClose: () => void;
+  readonly onConfirm: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40">
@@ -490,7 +494,6 @@ export default function ManagerTeamPage() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const user = getUserInfo();
   const currentUserId = parseJwt(getAccessToken() ?? "")?.sub_userid as string | undefined;
 
   const [employees, setEmployees]     = useState<Employee[]>([]);
@@ -779,13 +782,14 @@ export default function ManagerTeamPage() {
                     Loading team...
                   </td>
                 </tr>
-              ) : paged.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">
-                    No team members found.
-                  </td>
-                </tr>
-              ) : paged.map(e => (
+              ) : (
+                paged.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">
+                      No team members found.
+                    </td>
+                  </tr>
+                ) : paged.map(e => (
                 <tr key={e.user_id} className="hover:bg-muted/20 transition-colors">
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
@@ -842,7 +846,8 @@ export default function ManagerTeamPage() {
                     />
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>

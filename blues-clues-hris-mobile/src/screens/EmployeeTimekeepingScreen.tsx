@@ -95,6 +95,14 @@ type DayRecord = {
   status: "Present" | "Late" | "Absent";
 };
 
+function getStatusStyle(status: "Present" | "Late" | "Absent") {
+  if (status === "Present")
+    return { bg: "#DCFCE7", border: "#BBF7D0", text: "#166534" };
+  if (status === "Late")
+    return { bg: "#FEF3C7", border: "#FDE68A", text: "#92400E" };
+  return { bg: "#E5E7EB", border: "#D1D5DB", text: "#374151" };
+}
+
 export function EmployeeTimekeepingScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -187,14 +195,6 @@ export function EmployeeTimekeepingScreen() {
 
   const canClockIn = !todayIn;
   const canClockOut = !!todayIn && !todayOut;
-
-  const getStatusStyle = (status: "Present" | "Late" | "Absent") => {
-    if (status === "Present")
-      return { bg: "#DCFCE7", border: "#BBF7D0", text: "#166534" };
-    if (status === "Late")
-      return { bg: "#FEF3C7", border: "#FDE68A", text: "#92400E" };
-    return { bg: "#E5E7EB", border: "#D1D5DB", text: "#374151" };
-  };
 
   return (
     <SafeAreaView style={styles.safeArea}>

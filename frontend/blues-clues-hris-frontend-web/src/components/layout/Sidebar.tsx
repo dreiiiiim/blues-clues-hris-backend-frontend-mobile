@@ -85,7 +85,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   ],
 };
 
-export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
+export function Sidebar({ persona = "applicant" }: { readonly persona?: PersonaType }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);
@@ -105,9 +105,9 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
     }
   };
 
-  const ROOT_PATHS = ["/system-admin", "/admin", "/hr", "/manager", "/employee"];
+  const ROOT_PATHS = new Set(["/system-admin", "/admin", "/hr", "/manager", "/employee"]);
   const linkStyle = (href: string) => {
-    const isActive = ROOT_PATHS.includes(href)
+    const isActive = ROOT_PATHS.has(href)
       ? pathname === href
       : pathname === href || pathname.startsWith(href + "/");
     return `flex items-center gap-3 px-3 py-2.5 rounded-md font-medium text-sm transition-all ${

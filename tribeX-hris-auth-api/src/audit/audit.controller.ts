@@ -20,8 +20,8 @@ export class AuditController {
     @Query('offset') offset?: string,
   ) {
     return this.auditService.getLogs(
-      limit ? parseInt(limit, 10) : 50,
-      offset ? parseInt(offset, 10) : 0,
+      limit ? Number.parseInt(limit, 10) : 50,
+      offset ? Number.parseInt(offset, 10) : 0,
     );
   }
 

@@ -164,12 +164,13 @@ export default function AuditLogsPage() {
           <div className="flex items-center justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : displayed.length === 0 ? (
-          <div className="flex flex-col items-center py-16 gap-3 text-muted-foreground">
-            <ScrollText className="h-8 w-8 opacity-20" />
-            <p className="text-sm">{search ? "No logs match your search." : "No audit logs recorded yet."}</p>
-          </div>
         ) : (
+          displayed.length === 0 ? (
+            <div className="flex flex-col items-center py-16 gap-3 text-muted-foreground">
+              <ScrollText className="h-8 w-8 opacity-20" />
+              <p className="text-sm">{search ? "No logs match your search." : "No audit logs recorded yet."}</p>
+            </div>
+          ) : (
           <div className="divide-y divide-border">
             {displayed.map((log) => {
               const meta = getActionMeta(log.action);
@@ -208,6 +209,7 @@ export default function AuditLogsPage() {
               );
             })}
           </div>
+          )
         )}
 
         {/* Pagination footer */}

@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { LoginDto } from '../auth/dto/login.dto';
 import { MailService } from '../mail/mail.service';
@@ -152,7 +152,7 @@ export class AuthService {
     const { identifier, password } = loginDto;
     const rememberMe = !!loginDto.rememberMe;
 
-    if (!/^[a-zA-Z0-9._@\-]+$/.test(identifier)) {
+    if (!/^[a-zA-Z0-9._@-]+$/.test(identifier)) {
       throw new UnauthorizedException('Invalid identifier format');
     }
 
@@ -296,7 +296,7 @@ export class AuthService {
     await supabase.from('logout_history').insert({
       logout_id: crypto.randomUUID(),
       login_id: decoded.login_id ?? null,
-      role_id: decoded.role_id != null ? String(decoded.role_id) : null,
+      role_id: decoded.role_id == null ? null : String(decoded.role_id),
       user_id: decoded.sub_userid ?? null,
       session_id: decoded.session_id ?? token_hash,
       ip_address: getIp(req),

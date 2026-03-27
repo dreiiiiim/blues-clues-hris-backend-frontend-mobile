@@ -4,7 +4,7 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { TimePunchDto } from './dto/time-punch.dto';
 
@@ -117,11 +117,11 @@ export class TimekeepingService {
     const timeStr = String(rawTime).trim();
 
     const fullDate = new Date(timeStr);
-    if (!isNaN(fullDate.getTime()) && timeStr.includes('T')) {
+    if (!Number.isNaN(fullDate.getTime()) && timeStr.includes('T')) {
       return fullDate;
     }
 
-    const militaryMatch = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    const militaryMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeStr);
     if (militaryMatch) {
       const [, hh, mm, ss] = militaryMatch;
       const d = new Date(baseDate);
@@ -129,17 +129,15 @@ export class TimekeepingService {
       return d;
     }
 
-    const ampmMatch = timeStr.match(
-      /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i,
-    );
+    const ampmMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i.exec(timeStr);
     if (ampmMatch) {
       let [, hh, mm, ss, ampm] = ampmMatch;
       let hour = Number(hh);
 
       if (ampm.toUpperCase() === 'AM') {
         if (hour === 12) hour = 0;
-      } else {
-        if (hour !== 12) hour += 12;
+      } else if (hour !== 12) {
+        hour += 12;
       }
 
       const d = new Date(baseDate);
@@ -600,8 +598,8 @@ export class TimekeepingService {
       string,
       {
         date: string;
-        time_in: any | null;
-        time_out: any | null;
+        time_in: any;
+        time_out: any;
         all_logs: any[];
       }
     > = {};

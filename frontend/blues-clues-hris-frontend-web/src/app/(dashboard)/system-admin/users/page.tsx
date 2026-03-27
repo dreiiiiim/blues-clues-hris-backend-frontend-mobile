@@ -71,7 +71,7 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
     ...init,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as any)?.message || "Request failed");
+  if (!res.ok) throw new Error((data as Record<string, unknown>)?.message as string || "Request failed");
   return data as T;
 }
 
@@ -173,7 +173,7 @@ function ViewProfileSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" role="button" tabIndex={0} onClick={onClose} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); } }} />
+      <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-sm cursor-default" aria-label="Close" onClick={onClose} />
       <div className="relative ml-auto h-full w-full max-w-md bg-background shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
         <div className="flex items-center justify-between px-6 py-5 border-b border-border shrink-0">
           <div>
@@ -302,7 +302,7 @@ function AddUserPanel({ roles, onClose, onCreated }: Readonly<{
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
-      <div className="absolute inset-0 bg-black/30" role="button" tabIndex={0} onClick={onClose} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); } }} />
+      <button type="button" className="absolute inset-0 bg-black/30 cursor-default" aria-label="Close" onClick={onClose} />
       <div className="relative bg-card w-full max-w-md h-full shadow-2xl flex flex-col overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
@@ -406,7 +406,7 @@ function EditEmployeeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" role="button" tabIndex={0} onClick={onClose} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); } }} />
+      <button type="button" className="absolute inset-0 bg-black/50 cursor-default" aria-label="Close" onClick={onClose} />
       <div className="relative bg-background rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-in fade-in zoom-in-95 duration-200">
         <div className="flex items-center justify-between px-6 py-5 border-b border-border">
           <div>
@@ -537,7 +537,7 @@ function DeptManageSheet({
 
   return (
     <div className="fixed inset-0 z-50 flex">
-      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" role="button" tabIndex={0} onClick={onClose} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); } }} />
+      <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-sm cursor-default" aria-label="Close" onClick={onClose} />
       <div className="relative ml-auto h-full w-full max-w-md bg-background shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
 
         {/* Header */}
@@ -627,9 +627,10 @@ function DeptManageSheet({
 
             {otherEmployees.length === 0 ? (
               <p className="text-xs text-muted-foreground italic">All employees are already in this department.</p>
-            ) : filteredOther.length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">No employees match your search.</p>
             ) : (
+              filteredOther.length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No employees match your search.</p>
+              ) : (
               <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
                 {filteredOther.map(emp => {
                   const checked = pendingAssign.has(emp.user_id);
@@ -665,6 +666,7 @@ function DeptManageSheet({
                   );
                 })}
               </div>
+              )
             )}
           </div>
         </div>
@@ -748,7 +750,6 @@ export default function AdminUsersPage() {
   const [newDeptName, setNewDeptName]     = useState("");
   const [deptLoading, setDeptLoading]     = useState(false);
   const [manageDept, setManageDept]       = useState<Department | null>(null);
-  const [showDeptPanel, setShowDeptPanel] = useState(false);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -944,9 +945,7 @@ export default function AdminUsersPage() {
     }
   };
 
-  const tableRows = loading ? (
-    <tr><td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">Loading employees...</td></tr>
-  ) : paged.length === 0 ? (
+  const loadedRows = paged.length === 0 ? (
     <tr><td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">No employees found.</td></tr>
   ) : (
     <>
@@ -987,6 +986,10 @@ export default function AdminUsersPage() {
       ))}
     </>
   );
+
+  const tableRows = loading ? (
+    <tr><td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">Loading employees...</td></tr>
+  ) : loadedRows;
 
   return (
     <div className="space-y-6">

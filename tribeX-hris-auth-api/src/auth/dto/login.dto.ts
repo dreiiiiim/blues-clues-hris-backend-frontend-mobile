@@ -23,7 +23,7 @@ import {
 export class LoginDto {
   @IsString()
   @IsNotEmpty()
-  @Matches(/^[a-zA-Z0-9._@\-]+$/, { message: 'Invalid identifier format' })
+  @Matches(/^[a-zA-Z0-9._@-]+$/, { message: 'Invalid identifier format' })
   identifier: string; // email OR username OR employee_id
 
   @IsString()

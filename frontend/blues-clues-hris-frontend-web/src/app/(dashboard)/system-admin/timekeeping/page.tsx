@@ -1,5 +1,6 @@
 "use client";
 
+import type React from "react";
 import { useState, useMemo, useEffect } from "react";
 import {
   Clock, Search, ChevronLeft, ChevronRight,
@@ -156,7 +157,7 @@ const STATUS_CONFIG: Record<RosterEntry["status"], { label: string; className: s
   "absent":     { label: "Absent",     className: "bg-red-100 text-red-700 border border-red-200" },
 };
 
-function StatusBadge({ status }: { status: RosterEntry["status"] }) {
+function StatusBadge({ status }: { readonly status: RosterEntry["status"] }) {
   const cfg = STATUS_CONFIG[status];
   return (
     <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${cfg.className}`}>
@@ -170,7 +171,7 @@ function StatusBadge({ status }: { status: RosterEntry["status"] }) {
 function StatCard({
   icon: Icon, label, value, sub, colorClass,
 }: {
-  icon: any; label: string; value: string; sub: string; colorClass: string;
+  readonly icon: React.ElementType; readonly label: string; readonly value: string; readonly sub: string; readonly colorClass: string;
 }) {
   return (
     <Card className="p-5 border-border">
@@ -220,9 +221,9 @@ export default function SystemAdminTimekeepingPage() {
 
     Promise.all([
       authFetch(`${API_BASE_URL}/timekeeping/employees`)
-        .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<UserRow[]>; }),
+        .then(r => { if (!r.ok) { throw new Error("Failed to fetch employees"); } return r.json() as Promise<UserRow[]>; }),
       authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${dateStr}&to=${dateStr}`)
-        .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<PunchRow[]>; }),
+        .then(r => { if (!r.ok) { throw new Error("Failed to fetch timesheets"); } return r.json() as Promise<PunchRow[]>; }),
     ])
       .then(([users, punches]) => setRoster(buildFullRoster(users, punches)))
       .catch(() => setFetchError(true))
@@ -339,11 +340,12 @@ export default function SystemAdminTimekeepingPage() {
                 <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">Loading timekeeping data...</td></tr>
               ) : fetchError ? (
                 <tr><td colSpan={6} className="px-6 py-10 text-center text-destructive text-sm">Failed to load data. Please refresh or contact support.</td></tr>
-              ) : paged.length === 0 ? (
-                <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">
-                  {search || statusFilter !== "all" ? "No records match your search." : "No entries found for this date."}
-                </td></tr>
-              ) : paged.map(log => (
+              ) : (
+                paged.length === 0 ? (
+                  <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">
+                    {search || statusFilter !== "all" ? "No records match your search." : "No entries found for this date."}
+                  </td></tr>
+                ) : paged.map(log => (
                 <tr key={log.employee_id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
@@ -363,20 +365,23 @@ export default function SystemAdminTimekeepingPage() {
                   <td className="px-6 py-4">
                     {log.status === "absent" ? (
                       <span className="text-muted-foreground text-xs">—</span>
-                    ) : log.gps_verified ? (
-                      <div className="flex items-center gap-1.5 text-green-600">
-                        <MapPin className="h-3.5 w-3.5" />
-                        <span className="text-[10px] font-bold uppercase tracking-wide">Verified</span>
-                      </div>
                     ) : (
-                      <div className="flex items-center gap-1.5 text-muted-foreground">
-                        <MapPinOff className="h-3.5 w-3.5" />
-                        <span className="text-[10px] font-bold uppercase tracking-wide">No GPS</span>
-                      </div>
+                      log.gps_verified ? (
+                        <div className="flex items-center gap-1.5 text-green-600">
+                          <MapPin className="h-3.5 w-3.5" />
+                          <span className="text-[10px] font-bold uppercase tracking-wide">Verified</span>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-1.5 text-muted-foreground">
+                          <MapPinOff className="h-3.5 w-3.5" />
+                          <span className="text-[10px] font-bold uppercase tracking-wide">No GPS</span>
+                        </div>
+                      )
                     )}
                   </td>
                 </tr>
-              ))}
+              ))
+              )}
             </tbody>
           </table>
         </div>

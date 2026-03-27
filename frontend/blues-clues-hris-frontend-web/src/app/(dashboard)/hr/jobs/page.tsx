@@ -217,12 +217,11 @@ function QuestionBuilder({
               <div className="flex gap-2 items-center">
                 <select
                   value={q.question_type}
-                  onChange={(e) =>
-                    updateQ(q.id, {
-                      question_type: e.target.value as Question["question_type"],
-                      options: e.target.value === "text" ? [] : q.options.length ? q.options : [""],
-                    })
-                  }
+                  onChange={(e) => {
+                    const newType = e.target.value as Question["question_type"];
+                    const newOptions = newType === "text" ? [] : (q.options.length ? q.options : [""]);
+                    updateQ(q.id, { question_type: newType, options: newOptions });
+                  }}
                   className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="text">Text Answer</option>
@@ -235,14 +234,14 @@ function QuestionBuilder({
                     checked={q.is_required}
                     onChange={(e) => updateQ(q.id, { is_required: e.target.checked })}
                     className="h-3.5 w-3.5"
-                  />
+                  />{" "}
                   Required
                 </label>
               </div>
               {(q.question_type === "multiple_choice" || q.question_type === "checkbox") && (
                 <div className="space-y-2 pl-1">
                   {q.options.map((opt, oi) => (
-                    <div key={oi} className="flex items-center gap-2">
+                    <div key={`${q.id}-opt-${oi}`} className="flex items-center gap-2">
                       <div className={`h-3.5 w-3.5 shrink-0 border border-border ${q.question_type === "multiple_choice" ? "rounded-full" : "rounded"}`} />
                       <Input
                         value={opt}
@@ -768,7 +767,7 @@ function ApplicationDetailModal({
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : !detail ? null : (
+          ) : detail ? (
             <>
               <div className="space-y-2">
                 <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Stage</p>
@@ -871,23 +870,22 @@ function ApplicantsModal({
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : applications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
-                <Users className="h-10 w-10 opacity-30" />
-                <p className="text-sm font-medium">No applications yet</p>
-              </div>
             ) : (
+              applications.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+                  <Users className="h-10 w-10 opacity-30" />
+                  <p className="text-sm font-medium">No applications yet</p>
+                </div>
+              ) : (
               <div className="divide-y divide-border">
                 {applications.map((app) => {
                   const stageLabel = APP_STATUSES.find((s) => s.value === app.status)?.label ?? app.status;
                   return (
-                    <div
+                    <button
                       key={app.application_id}
-                      role="button"
-                      tabIndex={0}
-                      className="flex items-center justify-between py-4 px-1 gap-4 hover:bg-muted/20 rounded-lg transition-colors cursor-pointer"
+                      type="button"
+                      className="flex items-center justify-between py-4 px-1 gap-4 w-full text-left hover:bg-muted/20 rounded-lg transition-colors cursor-pointer"
                       onClick={() => setSelectedAppId(app.application_id)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedAppId(app.application_id); } }}
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
@@ -908,10 +906,11 @@ function ApplicantsModal({
                         </span>
                         <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+              )
             )}
           </div>
         </div>
@@ -988,9 +987,12 @@ function JobRowMenu({
       {open && createPortal(
         <div
           ref={menuRef}
+          role="menu"
+          tabIndex={-1}
           style={{ position: "fixed", top: pos.top, bottom: pos.bottom, right: pos.right }}
           className="z-200 w-48 bg-card border border-border rounded-lg shadow-lg py-1 text-sm"
           onClick={() => setOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); } }}
         >
           <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={onViewApplicants}>
             <Users className="h-3.5 w-3.5" /> View Applicants
@@ -1045,15 +1047,17 @@ function PipelineDetailModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
+      role="presentation"
       className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4"
       onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); } }}
+      onKeyDown={(e) => { if (e.key === 'Escape') { onClose(); } }}
     >
       <div
+        role="dialog"
+        aria-modal="true"
         className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-border bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)]">
@@ -1243,7 +1247,7 @@ export default function HRJobsPage() {
   useEffect(() => {
     getMyCompany()
       .then((company) => {
-        const origin = typeof globalThis.window !== "undefined" ? globalThis.location.origin : "";
+        const origin = globalThis.window !== undefined ? globalThis.location.origin : "";
         setCareersUrl(`${origin}/careers/${company.slug}`);
       })
       .catch(() => {});
@@ -1294,6 +1298,12 @@ export default function HRJobsPage() {
   const openCount   = jobs.filter((j) => j.status === "open").length;
   const closedCount = jobs.filter((j) => j.status === "closed").length;
 
+  const emptyTableMessage = (() => {
+    if (jobs.length === 0) return "No job postings yet. Create your first one!";
+    if (statusFilter !== "all") return `No ${statusFilter} postings found.`;
+    return "No postings match your search.";
+  })();
+
   const jobTableRows = loading ? (
     <tr><td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">Loading job postings...</td></tr>
   ) : paged.length === 0 ? (
@@ -1302,11 +1312,7 @@ export default function HRJobsPage() {
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <Briefcase className="h-10 w-10 opacity-20" />
           <p className="text-sm font-medium">
-            {jobs.length === 0
-              ? "No job postings yet. Create your first one!"
-              : statusFilter !== "all"
-              ? `No ${statusFilter} postings found.`
-              : "No postings match your search."}
+            {emptyTableMessage}
           </p>
           {jobs.length === 0 && (
             <Button size="sm" className="mt-1 gap-1" onClick={() => setShowCreate(true)}>
@@ -1543,7 +1549,8 @@ export default function HRJobsPage() {
                 <div className="flex items-center justify-center py-20">
                   <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
                 </div>
-              ) : visibleApps.length === 0 ? (
+              ) : (
+              visibleApps.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
                   <activeStage.icon className="h-10 w-10 mb-3 opacity-20" />
                   <p className="text-sm font-medium">No candidates in this stage</p>
@@ -1603,6 +1610,7 @@ export default function HRJobsPage() {
                   })}
                 </div>
               )
+            )
             )}
           </div>
         );

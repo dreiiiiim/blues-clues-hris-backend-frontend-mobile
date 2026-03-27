@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
 interface PasswordInputProps extends React.ComponentProps<"input"> {
-  className?: string;
+  readonly className?: string;
 }
 
 export function PasswordInput({ className, disabled, ...props }: PasswordInputProps) {

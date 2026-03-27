@@ -21,7 +21,7 @@ function SetPasswordForm() {
   const token = searchParams.get("token");
 
   const [password, setPassword]         = useState("");
-  const [confirmPassword, setConfirm]   = useState("");
+  const [confirmPassword, setConfirmPassword]   = useState("");
   const [error, setError]               = useState("");
   const [success, setSuccess]           = useState(false);
   const [isLoading, setIsLoading]       = useState(false);
@@ -127,7 +127,7 @@ function SetPasswordForm() {
                   id="confirm-password"
                   placeholder="Re-enter your password"
                   value={confirmPassword}
-                  onChange={(e) => setConfirm(e.target.value)}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
                   disabled={isLoading || !token}
                   required
                 />

@@ -127,10 +127,10 @@ export async function login(identifier: string, password: string, rememberMe: bo
     const payload = parseJwt(access_token);
     if (!payload) return { ok: false as const, error: "Invalid token received." };
 
-    const role = roleNameToKey(payload.role_name);
-    if (!role) return { ok: false as const, error: `Unknown role: ${payload.role_name}` };
+    const role = roleNameToKey(String(payload.role_name ?? ""));
+    if (!role) return { ok: false as const, error: `Unknown role: ${String(payload.role_name ?? "")}` };
 
-    const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ") || identifier;
+    const name = [payload.first_name, payload.last_name].filter(Boolean).map(String).join(" ") || identifier;
 
     if (rememberMe) {
       await AsyncStorage.setItem(ACCESS_KEY, access_token);
@@ -192,7 +192,7 @@ export async function applicantLogin(
     if (!payload) return { ok: false as const, error: "Invalid token received." };
 
     const name =
-      [payload.first_name, payload.last_name].filter(Boolean).join(" ") || email;
+      [payload.first_name, payload.last_name].filter(Boolean).map(String).join(" ") || email;
 
     if (rememberMe) {
       await AsyncStorage.setItem(ACCESS_KEY, access_token);
@@ -218,17 +218,27 @@ export async function applicantLogin(
 }
 
 // Kept for API compatibility with AppNavigator.
-export function saveSession(_session: UserSession, _persist: boolean): void {}
+export function saveSession(_session: UserSession, _persist: boolean): void {
+  // no-op: session persistence is handled within login() and applicantLogin()
+}
 
 // ─── Session Restore ──────────────────────────────────────────────────────────
 
+async function storeTokensPersistent(accessToken: string, refreshToken?: string): Promise<void> {
+  await AsyncStorage.setItem(ACCESS_KEY, accessToken);
+  if (refreshToken) await AsyncStorage.setItem(REFRESH_KEY, refreshToken);
+}
+
+function storeTokensInMemory(accessToken: string, refreshToken?: string): void {
+  memoryStore.accessToken = accessToken;
+  if (refreshToken) memoryStore.refreshToken = refreshToken;
+}
+
 async function storeTokens(isPersistent: boolean, accessToken: string, refreshToken?: string): Promise<void> {
   if (isPersistent) {
-    await AsyncStorage.setItem(ACCESS_KEY, accessToken);
-    if (refreshToken) await AsyncStorage.setItem(REFRESH_KEY, refreshToken);
+    await storeTokensPersistent(accessToken, refreshToken);
   } else {
-    memoryStore.accessToken = accessToken;
-    if (refreshToken) memoryStore.refreshToken = refreshToken;
+    storeTokensInMemory(accessToken, refreshToken);
   }
 }
 
@@ -262,7 +272,7 @@ async function refreshExpiredSession(payload: Record<string, unknown>): Promise<
     : (roleNameToKey(String(newPayload.role_name ?? "")) ?? null);
   if (!role) return null;
 
-  const name = [newPayload.first_name, newPayload.last_name].filter(Boolean).join(" ");
+  const name = [newPayload.first_name, newPayload.last_name].filter(Boolean).map(String).join(" ");
   return { role, name, email: String(newPayload.email ?? "") };
 }
 
@@ -289,7 +299,7 @@ export async function getSession(): Promise<UserSession | null> {
       : (roleNameToKey(String(payload.role_name ?? "")) ?? null);
     if (!role) return null;
 
-    const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ");
+    const name = [payload.first_name, payload.last_name].filter(Boolean).map(String).join(" ");
     return { role, name, email: String(payload.email ?? "") };
   } catch {
     return null;

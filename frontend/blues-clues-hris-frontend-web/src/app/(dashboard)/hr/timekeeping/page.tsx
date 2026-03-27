@@ -252,14 +252,13 @@ export default function HRTimekeepingPage() {
   function goToNext()  { setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; }); }
   function goToToday() { setSelectedDate(new Date()); }
 
+  const emptyMessage = (search || statusFilter !== "all") ? "No records match your search." : "No entries found for this date.";
   const tableBodyPlaceholder = loading ? (
     <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">Loading timekeeping data...</td></tr>
   ) : fetchError ? (
     <tr><td colSpan={6} className="px-6 py-10 text-center text-destructive text-sm">Failed to load data. Please refresh or contact support.</td></tr>
   ) : (
-    <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">
-      {search || statusFilter !== "all" ? "No records match your search." : "No entries found for this date."}
-    </td></tr>
+    <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">{emptyMessage}</td></tr>
   );
   const tableBody = loading || fetchError || paged.length === 0 ? tableBodyPlaceholder : paged.map(log => (
     <tr key={log.employee_id} className="hover:bg-muted/30 transition-colors">
@@ -281,16 +280,18 @@ export default function HRTimekeepingPage() {
       <td className="px-6 py-4">
         {log.status === "absent" ? (
           <span className="text-muted-foreground text-xs">—</span>
-        ) : log.gps_verified ? (
-          <div className="flex items-center gap-1.5 text-green-600">
-            <MapPin className="h-3.5 w-3.5" />
-            <span className="text-[10px] font-bold uppercase tracking-wide">Verified</span>
-          </div>
         ) : (
-          <div className="flex items-center gap-1.5 text-muted-foreground">
-            <MapPinOff className="h-3.5 w-3.5" />
-            <span className="text-[10px] font-bold uppercase tracking-wide">No GPS</span>
-          </div>
+          log.gps_verified ? (
+            <div className="flex items-center gap-1.5 text-green-600">
+              <MapPin className="h-3.5 w-3.5" />
+              <span className="text-[10px] font-bold uppercase tracking-wide">Verified</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 text-muted-foreground">
+              <MapPinOff className="h-3.5 w-3.5" />
+              <span className="text-[10px] font-bold uppercase tracking-wide">No GPS</span>
+            </div>
+          )
         )}
       </td>
     </tr>

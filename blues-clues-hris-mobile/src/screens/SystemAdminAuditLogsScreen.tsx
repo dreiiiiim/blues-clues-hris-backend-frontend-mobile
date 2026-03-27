@@ -189,29 +189,21 @@ export function SystemAdminAuditLogsScreen() {
               {ACTION_FILTERS.map((f) => {
                 const active = actionFilter === f;
                 const s = f === "ALL" ? null : getActionStyle(f);
+                const chipStyleFallback = active ? styles.filterChipActiveDefault : undefined;
+                const chipStyle = (active && s)
+                  ? { backgroundColor: s.bg, borderColor: s.border }
+                  : chipStyleFallback;
+                const textStyleFallback = active ? styles.filterChipTextActiveDefault : undefined;
+                const textStyle = (active && s)
+                  ? { color: s.text }
+                  : textStyleFallback;
                 return (
                   <Pressable
                     key={f}
                     onPress={() => { setActionFilter(f); setPage(1); }}
-                    style={[
-                      styles.filterChip,
-                      active && s
-                        ? { backgroundColor: s.bg, borderColor: s.border }
-                        : active
-                        ? styles.filterChipActiveDefault
-                        : undefined,
-                    ]}
+                    style={[styles.filterChip, chipStyle]}
                   >
-                    <Text
-                      style={[
-                        styles.filterChipText,
-                        active && s
-                          ? { color: s.text }
-                          : active
-                          ? styles.filterChipTextActiveDefault
-                          : undefined,
-                      ]}
-                    >
+                    <Text style={[styles.filterChipText, textStyle]}>
                       {f}
                     </Text>
                   </Pressable>

@@ -70,6 +70,28 @@ function stageIndex(stage: string): number {
   return 0;
 }
 
+function renderProgressStep(i: number, currentStageIdx: number) {
+  if (i < currentStageIdx) {
+    return (
+      <View style={styles.progressStepDone}>
+        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+      </View>
+    );
+  }
+  if (i === currentStageIdx) {
+    return (
+      <View style={styles.progressStepCurrent}>
+        <Text style={styles.progressStepCurrentText}>{i + 1}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.progressStepMuted}>
+      <Text style={styles.progressStepMutedText}>{i + 1}</Text>
+    </View>
+  );
+}
+
 export function ApplicantDashboardScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -365,23 +387,7 @@ export function ApplicantDashboardScreen() {
                           }
                         />
                       )}
-                      {i < currentStageIdx ? (
-                        <View style={styles.progressStepDone}>
-                          <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                        </View>
-                      ) : i === currentStageIdx ? (
-                        <View style={styles.progressStepCurrent}>
-                          <Text style={styles.progressStepCurrentText}>
-                            {i + 1}
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={styles.progressStepMuted}>
-                          <Text style={styles.progressStepMutedText}>
-                            {i + 1}
-                          </Text>
-                        </View>
-                      )}
+                      {renderProgressStep(i, currentStageIdx)}
                     </React.Fragment>
                   ))}
                 </View>
