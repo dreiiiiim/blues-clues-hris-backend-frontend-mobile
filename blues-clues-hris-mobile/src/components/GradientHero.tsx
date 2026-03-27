@@ -8,10 +8,10 @@ const GRADIENT_START = { x: 0, y: 0 };
 const GRADIENT_END   = { x: 1, y: 1 };
 
 type Props = {
-  children: React.ReactNode;
-  style?: ViewStyle;
-  borderRadius?: number;
-  padding?: number;
+  readonly children: React.ReactNode;
+  readonly style?: ViewStyle;
+  readonly borderRadius?: number;
+  readonly padding?: number;
 };
 
 export function GradientHero({ children, style, borderRadius = 20, padding = 20 }: Props) {

@@ -106,6 +106,26 @@ export function SystemAdminUsersScreen() {
     );
   }, [search, allUsers]);
 
+  async function executeLockToggle(user: UserItem, isLocked: boolean) {
+    setActionLoading(user.id);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/users/${user.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ account_status: isLocked ? "active" : "locked" }),
+      });
+      if (res.ok) {
+        const newStatus = isLocked ? "Active" : "Locked";
+        setAllUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, status: newStatus } : u));
+      } else {
+        Alert.alert("Error", "Failed to update account status.");
+      }
+    } catch {
+      Alert.alert("Error", "Network error. Try again.");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
   async function handleLockToggle(user: UserItem) {
     const isLocked = user.status === "Locked";
     const action = isLocked ? "unlock" : "lock";
@@ -117,33 +137,28 @@ export function SystemAdminUsersScreen() {
         {
           text: isLocked ? "Unlock" : "Lock",
           style: isLocked ? "default" : "destructive",
-          onPress: async () => {
-            setActionLoading(user.id);
-            try {
-              const res = await authFetch(`${API_BASE_URL}/users/${user.id}`, {
-                method: "PATCH",
-                body: JSON.stringify({ account_status: isLocked ? "active" : "locked" }),
-              });
-              if (res.ok) {
-                setAllUsers((prev) =>
-                  prev.map((u) =>
-                    u.id === user.id
-                      ? { ...u, status: isLocked ? "Active" : "Locked" }
-                      : u,
-                  ),
-                );
-              } else {
-                Alert.alert("Error", "Failed to update account status.");
-              }
-            } catch {
-              Alert.alert("Error", "Network error. Try again.");
-            } finally {
-              setActionLoading(null);
-            }
-          },
+          onPress: () => executeLockToggle(user, isLocked),
         },
       ],
     );
+  }
+
+  async function executeReactivate(user: UserItem) {
+    setActionLoading(user.id);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/users/${user.id}/reactivate`, {
+        method: "PATCH",
+      });
+      if (res.ok) {
+        setAllUsers((prev) => prev.map((u) => u.id === user.id ? { ...u, status: "Active" } : u));
+      } else {
+        Alert.alert("Error", "Failed to reactivate account.");
+      }
+    } catch {
+      Alert.alert("Error", "Network error. Try again.");
+    } finally {
+      setActionLoading(null);
+    }
   }
 
   async function handleReactivate(user: UserItem) {
@@ -154,27 +169,7 @@ export function SystemAdminUsersScreen() {
         { text: "Cancel", style: "cancel" },
         {
           text: "Reactivate",
-          onPress: async () => {
-            setActionLoading(user.id);
-            try {
-              const res = await authFetch(`${API_BASE_URL}/users/${user.id}/reactivate`, {
-                method: "PATCH",
-              });
-              if (res.ok) {
-                setAllUsers((prev) =>
-                  prev.map((u) =>
-                    u.id === user.id ? { ...u, status: "Active" } : u,
-                  ),
-                );
-              } else {
-                Alert.alert("Error", "Failed to reactivate account.");
-              }
-            } catch {
-              Alert.alert("Error", "Network error. Try again.");
-            } finally {
-              setActionLoading(null);
-            }
-          },
+          onPress: () => executeReactivate(user),
         },
       ],
     );
@@ -256,18 +251,19 @@ export function SystemAdminUsersScreen() {
                 />
               </View>
 
-              {loading ? (
+              {loading && (
                 <View style={{ alignItems: "center", paddingVertical: 32 }}>
                   <ActivityIndicator color="#2563EB" />
                   <Text style={{ color: "#94A3B8", marginTop: 10, fontSize: 13 }}>Loading users...</Text>
                 </View>
-              ) : users.length === 0 ? (
+              )}
+              {!loading && users.length === 0 && (
                 <View style={{ alignItems: "center", paddingVertical: 32 }}>
                   <Text style={{ color: "#94A3B8", fontSize: 14 }}>
                     {allUsers.length === 0 ? "No users found." : "No results for your search."}
                   </Text>
                 </View>
-              ) : null}
+              )}
 
               {!loading &&
                 users.map((user) => {

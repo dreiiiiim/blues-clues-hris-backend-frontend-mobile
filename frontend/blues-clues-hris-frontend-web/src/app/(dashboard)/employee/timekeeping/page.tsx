@@ -162,13 +162,13 @@ export default function EmployeeTimekeepingPage() {
   // Fetch status + timesheet on mount
   useEffect(() => {
     authFetch(`${API_BASE_URL}/timekeeping/my-status`)
-      .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<MyStatus>; })
+      .then(r => { if (!r.ok) throw new Error("Failed to fetch status"); return r.json() as Promise<MyStatus>; })
       .then(setStatus)
       .catch(() => setFetchError(true))
       .finally(() => setStatusLoading(false));
 
     authFetch(`${API_BASE_URL}/timekeeping/my-timesheet`)
-      .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<TimesheetEntry[]>; })
+      .then(r => { if (!r.ok) throw new Error("Failed to fetch timesheet"); return r.json() as Promise<TimesheetEntry[]>; })
       .then(setTimesheet)
       .catch(() => setFetchError(true))
       .finally(() => setSheetLoading(false));
@@ -183,6 +183,18 @@ export default function EmployeeTimekeepingPage() {
     setTimesheet(t);
   }
 
+  async function executePunch(type: "time-in" | "time-out", coords: { latitude: number; longitude: number }) {
+    const res = await authFetch(`${API_BASE_URL}/timekeeping/${type}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(coords),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error((err as { message?: string })?.message || `Failed to clock ${type === "time-in" ? "in" : "out"}.`);
+    }
+  }
+
   async function handlePunch(type: "time-in" | "time-out") {
     if (!location) {
       setActionError(locationError || "Location not available. Please allow location access.");
@@ -191,18 +203,10 @@ export default function EmployeeTimekeepingPage() {
     setActionLoading(true);
     setActionError(null);
     try {
-      const res = await authFetch(`${API_BASE_URL}/timekeeping/${type}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(location),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as any)?.message || `Failed to clock ${type === "time-in" ? "in" : "out"}.`);
-      }
+      await executePunch(type, location);
       await refreshData();
-    } catch (err: any) {
-      setActionError(err.message || "Something went wrong.");
+    } catch (err: unknown) {
+      setActionError((err as { message?: string })?.message || "Something went wrong.");
     } finally {
       setActionLoading(false);
     }

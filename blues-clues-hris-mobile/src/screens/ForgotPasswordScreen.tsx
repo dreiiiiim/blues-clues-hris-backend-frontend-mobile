@@ -21,7 +21,26 @@ export const ForgotPasswordScreen = ({ navigation }: any) => {
   return (
     <View style={{ backgroundColor: Colors.bgApp }} className="flex-1 px-6 justify-center">
       <View className="rounded-2xl bg-white p-6 shadow-sm">
-        {!submitted ? (
+        {submitted ? (
+          <View className="items-center py-4">
+            <View style={{ backgroundColor: Colors.successLight }} className="h-16 w-16 rounded-full items-center justify-center mb-4">
+              <Text className="text-3xl">✅</Text>
+            </View>
+            <Text style={{ color: Colors.textPrimary }} className="text-xl font-bold">Check your email</Text>
+            <Text style={{ color: Colors.textMuted }} className="mt-2 text-sm text-center">
+              If an account exists for{" "}
+              <Text style={{ color: Colors.textPrimary }} className="font-semibold">{email}</Text>,
+              a reset link has been sent.
+            </Text>
+            <Pressable
+              style={{ backgroundColor: Colors.primary }}
+              className="mt-6 rounded-xl px-6 py-3"
+              onPress={() => navigation.replace("Login")}
+            >
+              <Text className="font-semibold text-white">Return to Login</Text>
+            </Pressable>
+          </View>
+        ) : (
           <>
             <Pressable className="mb-4" onPress={() => navigation.goBack()}>
               <Text style={{ color: Colors.primary }} className="text-sm font-semibold">← Back to Login</Text>
@@ -55,25 +74,6 @@ export const ForgotPasswordScreen = ({ navigation }: any) => {
               </Text>
             </Pressable>
           </>
-        ) : (
-          <View className="items-center py-4">
-            <View style={{ backgroundColor: Colors.successLight }} className="h-16 w-16 rounded-full items-center justify-center mb-4">
-              <Text className="text-3xl">✅</Text>
-            </View>
-            <Text style={{ color: Colors.textPrimary }} className="text-xl font-bold">Check your email</Text>
-            <Text style={{ color: Colors.textMuted }} className="mt-2 text-sm text-center">
-              If an account exists for{" "}
-              <Text style={{ color: Colors.textPrimary }} className="font-semibold">{email}</Text>,
-              a reset link has been sent.
-            </Text>
-            <Pressable
-              style={{ backgroundColor: Colors.primary }}
-              className="mt-6 rounded-xl px-6 py-3"
-              onPress={() => navigation.replace("Login")}
-            >
-              <Text className="font-semibold text-white">Return to Login</Text>
-            </Pressable>
-          </View>
         )}
       </View>
     </View>

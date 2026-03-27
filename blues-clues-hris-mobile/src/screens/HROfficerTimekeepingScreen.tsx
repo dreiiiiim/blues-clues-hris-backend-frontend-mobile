@@ -294,25 +294,26 @@ export function HROfficerTimekeepingScreen() {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Attendance Roster</Text>
               <Text style={styles.sectionSubtitle}>
-                {total} employee{total !== 1 ? "s" : ""}
+                {total} employee{total === 1 ? "" : "s"}
               </Text>
             </View>
 
-            {loading ? (
+            {loading && (
               <ActivityIndicator
                 size="large"
                 color="#1e3a8a"
                 style={{ marginTop: 24 }}
               />
-            ) : roster.length === 0 ? (
+            )}
+            {!loading && roster.length === 0 && (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No employees found</Text>
                 <Text style={styles.emptyText}>
                   No active employees in the system.
                 </Text>
               </View>
-            ) : (
-              roster.map((row) => {
+            )}
+            {!loading && roster.length > 0 && roster.map((row) => {
                 const s = STATUS_STYLES[row.status];
                 return (
                   <View key={row.employee_id} style={styles.rosterCard}>
@@ -354,8 +355,7 @@ export function HROfficerTimekeepingScreen() {
                     </View>
                   </View>
                 );
-              })
-            )}
+              })}
           </ScrollView>
         </View>
       </View>

@@ -70,7 +70,7 @@ function appStatusStyle(status: string) {
 const AVATAR_COLORS = ["#1E3A8A", "#0F766E", "#6D28D9", "#B45309", "#991B1B"];
 function avatarColor(str: string) {
   let h = 0;
-  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  for (let i = 0; i < str.length; i++) h = (str.codePointAt(i) ?? 0) + ((h << 5) - h);
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
@@ -124,14 +124,9 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
   const closedCount = jobs.filter((j) => j.status === "closed").length;
   const draftCount  = jobs.filter((j) => j.status === "draft").length;
 
-  const openJobDetail = async (job: JobPosting) => {
-    setSelectedJob(job);
-    setActiveTab("details");
-    setApplications([]);
-    setDetailVisible(true);
-    setLoadingApplications(true);
+  async function fetchApplications(jobId: string) {
     try {
-      const res = await authFetch(`${API_BASE_URL}/jobs/${job.job_posting_id}/applications`);
+      const res = await authFetch(`${API_BASE_URL}/jobs/${jobId}/applications`);
       const data = await res.json().catch(() => []);
       setApplications(Array.isArray(data) ? data : []);
     } catch {
@@ -139,6 +134,15 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
     } finally {
       setLoadingApplications(false);
     }
+  }
+
+  const openJobDetail = async (job: JobPosting) => {
+    setSelectedJob(job);
+    setActiveTab("details");
+    setApplications([]);
+    setDetailVisible(true);
+    setLoadingApplications(true);
+    await fetchApplications(job.job_posting_id);
   };
 
   return (
@@ -222,16 +226,17 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
             </View>
 
             {/* Job list */}
-            {loading ? (
+            {loading && (
               <ActivityIndicator size="large" color="#1E3A8A" style={{ marginTop: 32 }} />
-            ) : filteredJobs.length === 0 ? (
+            )}
+            {!loading && filteredJobs.length === 0 && (
               <View style={styles.emptyCard}>
                 <Feather name="briefcase" size={32} color="#CBD5E1" />
                 <Text style={styles.emptyTitle}>{jobs.length === 0 ? "No job postings yet" : "No matching jobs"}</Text>
                 <Text style={styles.emptySub}>Try another keyword or create a new posting from web.</Text>
               </View>
-            ) : (
-              filteredJobs.map((job) => {
+            )}
+            {!loading && filteredJobs.length > 0 && filteredJobs.map((job) => {
                 const sp = statusPillStyle(job.status);
                 const ac = avatarColor(job.title);
                 return (
@@ -293,8 +298,7 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                     </View>
                   </Pressable>
                 );
-              })
-            )}
+              })}
           </ScrollView>
         </View>
       </View>
@@ -370,7 +374,7 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
             </View>
 
             <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }} showsVerticalScrollIndicator={false}>
-              {activeTab === "details" && selectedJob ? (
+              {activeTab === "details" && !!selectedJob && (
                 <View style={{ gap: 14 }}>
                   <View style={styles.metaGrid}>
                     {[
@@ -397,44 +401,45 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                     )}
                   </View>
                 </View>
-              ) : activeTab === "applicants" ? (
-                loadingApplications ? (
-                  <ActivityIndicator color="#1E3A8A" style={{ marginTop: 24 }} />
-                ) : applications.length === 0 ? (
-                  <View style={styles.emptyCard}>
-                    <Feather name="inbox" size={28} color="#CBD5E1" />
-                    <Text style={styles.emptyTitle}>No applications yet</Text>
-                    <Text style={styles.emptySub}>Applications will appear here when candidates apply.</Text>
-                  </View>
-                ) : (
-                  <View style={{ gap: 10 }}>
-                    {applications.map((app) => {
-                      const s = appStatusStyle(app.status);
-                      const fullName = [app.applicant_profile?.first_name, app.applicant_profile?.last_name]
-                        .filter(Boolean).join(" ") || "Unnamed Applicant";
-                      const initial = fullName[0]?.toUpperCase() ?? "?";
-                      return (
-                        <View key={app.application_id} style={styles.applicantCard}>
-                          <View style={[styles.applicantAvatar, { backgroundColor: avatarColor(fullName) }]}>
-                            <Text style={styles.applicantAvatarText}>{initial}</Text>
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={styles.applicantName}>{fullName}</Text>
-                            <Text style={styles.applicantEmail}>{app.applicant_profile?.email ?? "No email"}</Text>
-                            <Text style={styles.applicantCode}>{app.applicant_profile?.applicant_code ?? "—"}</Text>
-                          </View>
-                          <View style={{ alignItems: "flex-end", gap: 5 }}>
-                            <View style={[styles.statusPill, { backgroundColor: s.bg, borderColor: s.border }]}>
-                              <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
-                            </View>
-                            <Text style={styles.applicantDate}>{formatDate(app.applied_at)}</Text>
-                          </View>
+              )}
+              {activeTab === "applicants" && loadingApplications && (
+                <ActivityIndicator color="#1E3A8A" style={{ marginTop: 24 }} />
+              )}
+              {activeTab === "applicants" && !loadingApplications && applications.length === 0 && (
+                <View style={styles.emptyCard}>
+                  <Feather name="inbox" size={28} color="#CBD5E1" />
+                  <Text style={styles.emptyTitle}>No applications yet</Text>
+                  <Text style={styles.emptySub}>Applications will appear here when candidates apply.</Text>
+                </View>
+              )}
+              {activeTab === "applicants" && !loadingApplications && applications.length > 0 && (
+                <View style={{ gap: 10 }}>
+                  {applications.map((app) => {
+                    const s = appStatusStyle(app.status);
+                    const fullName = [app.applicant_profile?.first_name, app.applicant_profile?.last_name]
+                      .filter(Boolean).join(" ") || "Unnamed Applicant";
+                    const initial = fullName[0]?.toUpperCase() ?? "?";
+                    return (
+                      <View key={app.application_id} style={styles.applicantCard}>
+                        <View style={[styles.applicantAvatar, { backgroundColor: avatarColor(fullName) }]}>
+                          <Text style={styles.applicantAvatarText}>{initial}</Text>
                         </View>
-                      );
-                    })}
-                  </View>
-                )
-              ) : null}
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.applicantName}>{fullName}</Text>
+                          <Text style={styles.applicantEmail}>{app.applicant_profile?.email ?? "No email"}</Text>
+                          <Text style={styles.applicantCode}>{app.applicant_profile?.applicant_code ?? "—"}</Text>
+                        </View>
+                        <View style={{ alignItems: "flex-end", gap: 5 }}>
+                          <View style={[styles.statusPill, { backgroundColor: s.bg, borderColor: s.border }]}>
+                            <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
+                          </View>
+                          <Text style={styles.applicantDate}>{formatDate(app.applied_at)}</Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
             </ScrollView>
           </View>
         </View>
