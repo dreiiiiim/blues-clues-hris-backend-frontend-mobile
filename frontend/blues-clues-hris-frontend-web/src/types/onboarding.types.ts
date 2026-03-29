@@ -81,6 +81,10 @@ export interface ProfileData {
   placeOfBirth?: string;
   nationality?: string;
   civilStatus?: string;
+  emergencyContactName?: string;
+  emergencyContactRelationship?: string;
+  emergencyContactPhone?: string;
+  emergencyContactEmail?: string;
   status: ItemStatus;
   remarksHistory?: Remark[];
 }

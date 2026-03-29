@@ -61,6 +61,7 @@ export default function EmployeeOnboardingPage() {
           assignment={currentAssignment}
           onUpdateAssignment={handleUpdateAssignment}
           onComplete={handleComplete}
+          userRole="employee"
         />
       )}
 

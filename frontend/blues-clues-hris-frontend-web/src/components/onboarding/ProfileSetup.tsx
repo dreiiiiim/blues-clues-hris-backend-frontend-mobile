@@ -26,6 +26,10 @@ export function ProfileSetup({ profile, onUpdate }: Readonly<ProfileSetupProps>)
     placeOfBirth: profile.placeOfBirth || "",
     nationality: profile.nationality || "",
     civilStatus: profile.civilStatus || "",
+    emergencyContactName: profile.emergencyContactName || "",
+    emergencyContactRelationship: profile.emergencyContactRelationship || "",
+    emergencyContactPhone: profile.emergencyContactPhone || "",
+    emergencyContactEmail: profile.emergencyContactEmail || "",
   });
 
   const handleInputChange = (field: string, value: string) => {
@@ -36,6 +40,10 @@ export function ProfileSetup({ profile, onUpdate }: Readonly<ProfileSetupProps>)
     // Validate required fields
     if (!formData.firstName || !formData.lastName || !formData.email || !formData.phoneNumber) {
       alert("Please fill in all required fields");
+      return;
+    }
+    if (!formData.emergencyContactName || !formData.emergencyContactRelationship || !formData.emergencyContactPhone) {
+      alert("Please fill in all required emergency contact fields");
       return;
     }
 
@@ -51,6 +59,10 @@ export function ProfileSetup({ profile, onUpdate }: Readonly<ProfileSetupProps>)
       placeOfBirth: formData.placeOfBirth,
       nationality: formData.nationality,
       civilStatus: formData.civilStatus,
+      emergencyContactName: formData.emergencyContactName,
+      emergencyContactRelationship: formData.emergencyContactRelationship,
+      emergencyContactPhone: formData.emergencyContactPhone,
+      emergencyContactEmail: formData.emergencyContactEmail,
       status: "submitted",
     });
 
@@ -203,6 +215,59 @@ export function ProfileSetup({ profile, onUpdate }: Readonly<ProfileSetupProps>)
                     <option value="Separated">Separated</option>
                   </select>
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Emergency Contact Information */}
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-lg">Emergency Contact Information</CardTitle>
+              <CardDescription>Enter your emergency contact details</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="emergencyContactName">Name *</Label>
+                  <Input
+                    id="emergencyContactName"
+                    value={formData.emergencyContactName}
+                    onChange={(e) => handleInputChange("emergencyContactName", e.target.value)}
+                    disabled={isSubmitted}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="emergencyContactRelationship">Relationship *</Label>
+                  <Input
+                    id="emergencyContactRelationship"
+                    value={formData.emergencyContactRelationship}
+                    onChange={(e) => handleInputChange("emergencyContactRelationship", e.target.value)}
+                    disabled={isSubmitted}
+                    required
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="emergencyContactPhone">Phone Number *</Label>
+                  <Input
+                    id="emergencyContactPhone"
+                    type="tel"
+                    value={formData.emergencyContactPhone}
+                    onChange={(e) => handleInputChange("emergencyContactPhone", e.target.value)}
+                    disabled={isSubmitted}
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="emergencyContactEmail">Email Address</Label>
+                <Input
+                  id="emergencyContactEmail"
+                  type="email"
+                  value={formData.emergencyContactEmail}
+                  onChange={(e) => handleInputChange("emergencyContactEmail", e.target.value)}
+                  disabled={isSubmitted}
+                />
               </div>
             </CardContent>
           </Card>

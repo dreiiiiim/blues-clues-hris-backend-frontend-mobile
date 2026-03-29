@@ -148,7 +148,7 @@ export function TaskChecklist({ tasks, onUpdateTasks }: Readonly<TaskChecklistPr
       <RemarksSection items={tasks} />
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl max-h-[85vh] flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {selectedTask?.title}
@@ -160,33 +160,40 @@ export function TaskChecklist({ tasks, onUpdateTasks }: Readonly<TaskChecklistPr
           </DialogHeader>
 
           {selectedTask && (
-            <div className="space-y-6">
+            <div className="space-y-4 overflow-y-auto flex-1 pr-1">
               {/* Render content based on task type */}
               {selectedTask.contentType === "document" && selectedTask.content && (
                 <div className="space-y-4">
                   {selectedTask.content.url && (
-                    <div className="w-full bg-slate-100 rounded-lg overflow-hidden">
-                      <img src={selectedTask.content.url} alt="Document preview" className="w-full h-auto" />
+                    <div className="w-full bg-slate-100 rounded-lg overflow-hidden h-40">
+                      <img src={selectedTask.content.url} alt="Document preview" className="w-full h-full object-cover" />
                     </div>
                   )}
                   {selectedTask.content.text && (
                     <div className="space-y-2">
-                      <ScrollArea 
-                        className="h-100 w-full border rounded-lg p-4 bg-white"
+                      <ScrollArea
+                        className="h-52 w-full border rounded-lg bg-white"
                         onScrollCapture={handleScroll}
                       >
-                        <pre className="text-sm whitespace-pre-wrap font-sans">{selectedTask.content.text}</pre>
+                        <div className="p-4">
+                          <pre className="text-sm whitespace-pre-wrap font-sans">{selectedTask.content.text}</pre>
+                          {!hasScrolledToBottom && (
+                            <p className="text-center text-sm text-slate-400 mt-6 animate-bounce select-none">
+                              ↓ Scroll down to continue ↓
+                            </p>
+                          )}
+                        </div>
                       </ScrollArea>
                       {!hasScrolledToBottom && selectedTask.status === "pending" && (
                         <div className="flex items-center gap-2 text-xs text-amber-700 bg-amber-50 p-2 rounded">
                           <AlertCircle className="size-3" />
-                          <span>Please scroll to the bottom to complete this task</span>
+                          <span>Please scroll to the bottom of the document to complete this task</span>
                         </div>
                       )}
                       {hasScrolledToBottom && selectedTask.status === "pending" && (
                         <div className="flex items-center gap-2 text-xs text-green-700 bg-green-50 p-2 rounded">
                           <CheckCircle className="size-3" />
-                          <span>Document fully reviewed. Click "Complete & Submit" below.</span>
+                          <span>Document fully reviewed. Click "Confirm &amp; Submit" below.</span>
                         </div>
                       )}
                     </div>
@@ -272,8 +279,8 @@ export function TaskChecklist({ tasks, onUpdateTasks }: Readonly<TaskChecklistPr
               {selectedTask.contentType === "acknowledgment" && selectedTask.content && (
                 <div className="space-y-4">
                   {selectedTask.content.url && (
-                    <div className="w-full bg-slate-100 rounded-lg overflow-hidden">
-                      <img src={selectedTask.content.url} alt="Code of Conduct" className="w-full h-auto" />
+                    <div className="w-full bg-slate-100 rounded-lg overflow-hidden h-40">
+                      <img src={selectedTask.content.url} alt="Code of Conduct" className="w-full h-full object-cover" />
                     </div>
                   )}
                   {selectedTask.content.text && (
@@ -329,10 +336,14 @@ export function TaskChecklist({ tasks, onUpdateTasks }: Readonly<TaskChecklistPr
             
             {selectedTask && (selectedTask.status === "pending" || selectedTask.status === "submitted") && (
               <>
-                {/* Document: Complete & Submit when scrolled to bottom */}
-                {selectedTask.contentType === "document" && hasScrolledToBottom && (
-                  <Button onClick={handleCompleteAndSubmit} size="sm">
-                    Complete & Submit
+                {/* Document: always visible, disabled until scrolled to bottom */}
+                {selectedTask.contentType === "document" && (
+                  <Button
+                    onClick={handleCompleteAndSubmit}
+                    size="sm"
+                    disabled={!hasScrolledToBottom}
+                  >
+                    Confirm &amp; Submit
                   </Button>
                 )}
 

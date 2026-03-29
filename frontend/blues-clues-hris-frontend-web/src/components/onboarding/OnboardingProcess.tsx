@@ -17,14 +17,21 @@ interface OnboardingProcessProps {
   assignment: EmployeeAssignment;
   onUpdateAssignment: (assignment: EmployeeAssignment) => void;
   onComplete: () => void;
+  userRole?: "employee" | "hr" | "admin";
 }
 
 export function OnboardingProcess({
   assignment,
   onUpdateAssignment,
   onComplete,
+  userRole = "employee",
 }: Readonly<OnboardingProcessProps>) {
   const [daysRemaining, setDaysRemaining] = useState(0);
+
+  const isEmployee = userRole === "employee";
+  const displayTasks = isEmployee
+    ? assignment.tasks.filter(t => t.contentType !== "video")
+    : assignment.tasks;
 
   useEffect(() => {
     const today = new Date();
@@ -50,9 +57,9 @@ export function OnboardingProcess({
       d.status === "submitted" || d.status === "for-review" || d.status === "approved"
     ).length;
 
-    // All tasks
-    totalItems += assignment.tasks.length;
-    completedItems += assignment.tasks.filter(t =>
+    // Tasks (video excluded for employee)
+    totalItems += displayTasks.length;
+    completedItems += displayTasks.filter(t =>
       t.status === "submitted" || t.status === "for-review" || t.status === "approved"
     ).length;
 
@@ -60,11 +67,13 @@ export function OnboardingProcess({
     totalItems += assignment.equipment.length;
     completedItems += assignment.equipment.filter(e => e.status === "approved").length;
 
-    // HR Forms
-    totalItems += assignment.hrForms.length;
-    completedItems += assignment.hrForms.filter(f =>
-      f.status === "submitted" || f.status === "for-review" || f.status === "approved"
-    ).length;
+    // HR Forms (employee view excludes these)
+    if (!isEmployee) {
+      totalItems += assignment.hrForms.length;
+      completedItems += assignment.hrForms.filter(f =>
+        f.status === "submitted" || f.status === "for-review" || f.status === "approved"
+      ).length;
+    }
 
     return totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
   };
@@ -145,13 +154,20 @@ export function OnboardingProcess({
       <div className="max-w-6xl mx-auto space-y-6">
         {/* Header */}
         <div>
-          <h1 className="text-3xl mb-2">Employee Onboarding</h1>
-          <p className="text-slate-600">
-            {assignment.position} • {assignment.department}
-          </p>
-          <p className="text-sm text-slate-500 mt-1">
-            Deadline: {assignment.deadline.toLocaleDateString()}
-          </p>
+          <h1 className="text-3xl mb-4">Employee Onboarding</h1>
+          <div className="flex gap-4">
+            <div className="border rounded-lg p-4 flex-1">
+              <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Role</p>
+              <p className="font-semibold text-slate-800 whitespace-nowrap">{assignment.position} • {assignment.department}</p>
+            </div>
+            <div className="border rounded-lg p-4 flex-1">
+              <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Deadline</p>
+              <div className="flex items-center gap-1.5">
+                <Clock className="size-4 text-slate-500" />
+                <p className="font-semibold text-slate-800">{assignment.deadline.toLocaleDateString('en-US')}</p>
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Deadline Alert */}
@@ -186,9 +202,9 @@ export function OnboardingProcess({
                 <span>
                   {[
                     ...assignment.documents.filter(d => d.status === "for-review"),
-                    ...assignment.tasks.filter(t => t.status === "for-review"),
+                    ...displayTasks.filter(t => t.status === "for-review"),
                     ...assignment.equipment.filter(e => e.status === "for-review"),
-                    ...assignment.hrForms.filter(f => f.status === "for-review"),
+                    ...(!isEmployee ? assignment.hrForms.filter(f => f.status === "for-review") : []),
                   ].length} under review
                 </span>
               </div>
@@ -199,9 +215,9 @@ export function OnboardingProcess({
                   {[
                     assignment.profile.status === "pending" || assignment.profile.status === "rejected" ? 1 : 0,
                     ...assignment.documents.filter(d => d.status === "pending" || d.status === "rejected"),
-                    ...assignment.tasks.filter(t => t.status === "pending" || t.status === "rejected"),
+                    ...displayTasks.filter(t => t.status === "pending" || t.status === "rejected"),
                     ...assignment.equipment.filter(e => e.status === "pending" || e.status === "rejected"),
-                    ...assignment.hrForms.filter(f => f.status === "pending" || f.status === "rejected"),
+                    ...(!isEmployee ? assignment.hrForms.filter(f => f.status === "pending" || f.status === "rejected") : []),
                   ].filter(Boolean).length} remaining
                 </span>
               </div>
@@ -217,7 +233,7 @@ export function OnboardingProcess({
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="profile" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
+              <TabsList className={`grid w-full ${isEmployee ? "grid-cols-4" : "grid-cols-5"}`}>
                 <TabsTrigger value="profile" className="flex items-center gap-2">
                   <UserIcon className="size-4" />
                   Profile
@@ -226,10 +242,12 @@ export function OnboardingProcess({
                   <FileText className="size-4" />
                   Documents
                 </TabsTrigger>
-                <TabsTrigger value="forms" className="flex items-center gap-2">
-                  <ClipboardList className="size-4" />
-                  HR Forms
-                </TabsTrigger>
+                {!isEmployee && (
+                  <TabsTrigger value="forms" className="flex items-center gap-2">
+                    <ClipboardList className="size-4" />
+                    HR Forms
+                  </TabsTrigger>
+                )}
                 <TabsTrigger value="tasks" className="flex items-center gap-2">
                   <CheckCircle className="size-4" />
                   Tasks
@@ -254,16 +272,18 @@ export function OnboardingProcess({
                 />
               </TabsContent>
 
-              <TabsContent value="forms">
-                <HRForms
-                  forms={assignment.hrForms}
-                  onUpdate={handleUpdateHRForms}
-                />
-              </TabsContent>
+              {!isEmployee && (
+                <TabsContent value="forms">
+                  <HRForms
+                    forms={assignment.hrForms}
+                    onUpdate={handleUpdateHRForms}
+                  />
+                </TabsContent>
+              )}
 
               <TabsContent value="tasks">
                 <TaskChecklist
-                  tasks={assignment.tasks}
+                  tasks={displayTasks}
                   onUpdateTasks={handleUpdateTasks}
                 />
               </TabsContent>
