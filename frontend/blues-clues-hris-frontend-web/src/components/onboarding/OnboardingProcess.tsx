@@ -204,7 +204,7 @@ export function OnboardingProcess({
                     ...assignment.documents.filter(d => d.status === "for-review"),
                     ...displayTasks.filter(t => t.status === "for-review"),
                     ...assignment.equipment.filter(e => e.status === "for-review"),
-                    ...(!isEmployee ? assignment.hrForms.filter(f => f.status === "for-review") : []),
+                    ...(isEmployee ? [] : assignment.hrForms.filter(f => f.status === "for-review")),
                   ].length} under review
                 </span>
               </div>
@@ -217,7 +217,7 @@ export function OnboardingProcess({
                     ...assignment.documents.filter(d => d.status === "pending" || d.status === "rejected"),
                     ...displayTasks.filter(t => t.status === "pending" || t.status === "rejected"),
                     ...assignment.equipment.filter(e => e.status === "pending" || e.status === "rejected"),
-                    ...(!isEmployee ? assignment.hrForms.filter(f => f.status === "pending" || f.status === "rejected") : []),
+                    ...(isEmployee ? [] : assignment.hrForms.filter(f => f.status === "pending" || f.status === "rejected")),
                   ].filter(Boolean).length} remaining
                 </span>
               </div>
