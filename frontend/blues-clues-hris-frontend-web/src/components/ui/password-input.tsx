@@ -9,7 +9,7 @@ interface PasswordInputProps extends React.ComponentProps<"input"> {
   className?: string;
 }
 
-export function PasswordInput({ className, disabled, ...props }: PasswordInputProps) {
+export function PasswordInput({ className, disabled, ...props }: Readonly<PasswordInputProps>) {
   const [show, setShow] = useState(false);
 
   return (
