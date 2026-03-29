@@ -68,6 +68,15 @@ interface Position {
   department: string;
 }
 
+// Shared base documents reused across templates
+const BASE_DOCUMENTS: TemplateDocument[] = [
+  { id: "doc-1", name: "Birth Certificate (PSA)", required: true },
+  { id: "doc-2", name: "NBI Clearance", required: true },
+  { id: "doc-3", name: "SSS E-1 Form", required: true },
+  { id: "doc-4", name: "PhilHealth MDR", required: true },
+  { id: "doc-5", name: "Pag-IBIG MDF", required: true },
+];
+
 // Mock data
 const initialTemplates: AdminTemplate[] = [
   {
@@ -77,11 +86,7 @@ const initialTemplates: AdminTemplate[] = [
     position: "Software Engineer",
     deadlineDays: 7,
     documents: [
-      { id: "doc-1", name: "Birth Certificate (PSA)", required: true },
-      { id: "doc-2", name: "NBI Clearance", required: true },
-      { id: "doc-3", name: "SSS E-1 Form", required: true },
-      { id: "doc-4", name: "PhilHealth MDR", required: true },
-      { id: "doc-5", name: "Pag-IBIG MDF", required: true },
+      ...BASE_DOCUMENTS,
       { id: "doc-6", name: "BIR Form 2316", required: false },
     ],
     tasks: [
@@ -104,13 +109,7 @@ const initialTemplates: AdminTemplate[] = [
     department: "Product",
     position: "Product Manager",
     deadlineDays: 7,
-    documents: [
-      { id: "doc-1", name: "Birth Certificate (PSA)", required: true },
-      { id: "doc-2", name: "NBI Clearance", required: true },
-      { id: "doc-3", name: "SSS E-1 Form", required: true },
-      { id: "doc-4", name: "PhilHealth MDR", required: true },
-      { id: "doc-5", name: "Pag-IBIG MDF", required: true },
-    ],
+    documents: [...BASE_DOCUMENTS],
     tasks: [
       { id: "task-1", name: "Complete Company Orientation", description: "Watch orientation video and complete quiz", required: true },
       { id: "task-2", name: "Product Tools Training", description: "Learn product management tools", required: true },

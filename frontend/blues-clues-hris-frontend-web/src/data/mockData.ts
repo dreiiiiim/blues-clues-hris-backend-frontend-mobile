@@ -4,6 +4,34 @@ import {
   Notification
 } from "../types/onboarding.types";
 
+// Shared base documents reused across templates
+const sharedBaseDocuments = [
+  {
+    id: "doc-1",
+    title: "BIR 1902 / 2316",
+    status: "pending" as const,
+    required: true,
+    files: [] as [],
+    uploadHistory: [] as [],
+  },
+  {
+    id: "doc-2",
+    title: "Birth Certificate",
+    status: "pending" as const,
+    required: true,
+    files: [] as [],
+    uploadHistory: [] as [],
+  },
+  {
+    id: "doc-3",
+    title: "1 Government Valid ID",
+    status: "pending" as const,
+    required: true,
+    files: [] as [],
+    uploadHistory: [] as [],
+  },
+];
+
 // Mock Templates
 export const mockTemplates: OnboardingTemplate[] = [
   {
@@ -18,33 +46,9 @@ export const mockTemplates: OnboardingTemplate[] = [
     createdDate: new Date("2026-03-01"),
     lastModified: new Date("2026-03-15"),
     documents: [
-      {
-        id: "doc-1",
-        title: "BIR 1902 / 2316",
-        status: "pending",
-        required: true,
-        files: [],
-        uploadHistory: [],
-        sampleUrl: "https://images.unsplash.com/photo-1636038197596-28e7dce070e2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxnb3Zlcm5tZW50JTIwdGF4JTIwZm9ybSUyMGRvY3VtZW50fGVufDF8fHx8MTc3NDExNDY5MHww&ixlib=rb-4.1.0&q=80&w=1080",
-      },
-      {
-        id: "doc-2",
-        title: "Birth Certificate",
-        status: "pending",
-        required: true,
-        files: [],
-        uploadHistory: [],
-        sampleUrl: "https://images.unsplash.com/photo-1584445584400-1a7cc5de77ae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxiaXJ0aCUyMGNlcnRpZmljYXRlJTIwb2ZmaWNpYWwlMjBkb2N1bWVudHxlbnwxfHx8fDE3NzQwMDM1MjJ8MA&ixlib=rb-4.1.0&q=80&w=1080",
-      },
-      {
-        id: "doc-3",
-        title: "1 Government Valid ID",
-        status: "pending",
-        required: true,
-        files: [],
-        uploadHistory: [],
-        sampleUrl: "https://images.unsplash.com/photo-1613826488523-b537c0cab318?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxnb3Zlcm5tZW50JTIwSUQlMjBjYXJkJTIwaWRlbnRpZmljYXRpb258ZW58MXx8fHwxNzc0MTE0NjkxfDA&ixlib=rb-4.1.0&q=80&w=1080",
-      },
+      { ...sharedBaseDocuments[0], sampleUrl: "https://images.unsplash.com/photo-1636038197596-28e7dce070e2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxnb3Zlcm5tZW50JTIwdGF4JTIwZm9ybSUyMGRvY3VtZW50fGVufDF8fHx8MTc3NDExNDY5MHww&ixlib=rb-4.1.0&q=80&w=1080" },
+      { ...sharedBaseDocuments[1], sampleUrl: "https://images.unsplash.com/photo-1584445584400-1a7cc5de77ae?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxiaXJ0aCUyMGNlcnRpZmljYXRlJTIwb2ZmaWNpYWwlMjBkb2N1bWVudHxlbnwxfHx8fDE3NzQwMDM1MjJ8MA&ixlib=rb-4.1.0&q=80&w=1080" },
+      { ...sharedBaseDocuments[2], sampleUrl: "https://images.unsplash.com/photo-1613826488523-b537c0cab318?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxnb3Zlcm5tZW50JTIwSUQlMjBjYXJkJTIwaWRlbnRpZmljYXRpb258ZW58MXx8fHwxNzc0MTE0NjkxfDA&ixlib=rb-4.1.0&q=80&w=1080" },
       {
         id: "doc-4",
         title: "NBI Clearance",
@@ -202,32 +206,7 @@ export const mockTemplates: OnboardingTemplate[] = [
     createdBy: "System Admin",
     createdDate: new Date("2026-03-05"),
     lastModified: new Date("2026-03-10"),
-    documents: [
-      {
-        id: "doc-1",
-        title: "BIR 1902 / 2316",
-        status: "pending",
-        required: true,
-        files: [],
-        uploadHistory: [],
-      },
-      {
-        id: "doc-2",
-        title: "Birth Certificate",
-        status: "pending",
-        required: true,
-        files: [],
-        uploadHistory: [],
-      },
-      {
-        id: "doc-3",
-        title: "1 Government Valid ID",
-        status: "pending",
-        required: true,
-        files: [],
-        uploadHistory: [],
-      },
-    ],
+    documents: [...sharedBaseDocuments],
     tasks: [
       {
         id: "task-1",
