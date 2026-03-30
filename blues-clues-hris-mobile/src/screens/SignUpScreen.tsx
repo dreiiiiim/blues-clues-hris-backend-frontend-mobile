@@ -55,7 +55,7 @@ export const SignUpScreen = ({ navigation }: any) => {
     const res = await applicantLogin(email.trim(), password, rememberMe);
     setLoading(false);
     if (!res.ok) { Alert.alert("Sign In Failed", res.error); return; }
-    await saveSession(res.user, rememberMe);
+    saveSession(res.user, rememberMe);
     navigation.replace("ApplicantDashboard", { session: res.user });
   }
 
@@ -73,7 +73,7 @@ export const SignUpScreen = ({ navigation }: any) => {
       );
       return;
     }
-    await saveSession(loginRes.user, rememberMe);
+    saveSession(loginRes.user, rememberMe);
     navigation.replace("ApplicantDashboard", { session: loginRes.user });
   }
 

@@ -4,11 +4,12 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { TimePunchDto } from './dto/time-punch.dto';
+import { ReportAbsenceDto } from './dto/report-absence.dto';
 
-type AttendanceLogType = 'time-in' | 'time-out' | 'break-start' | 'break-end';
+type AttendanceLogType = 'time-in' | 'time-out' | 'break-start' | 'break-end' | 'absence';
 type ClockType = 'ON-TIME' | 'LATE' | 'EARLY' | 'OVERTIME';
 
 type TimeLogRow = {
@@ -24,6 +25,8 @@ type TimeLogRow = {
   clock_type?: ClockType | null;
   status?: string | null;
   log_status: string | null;
+  absence_reason?: string | null;
+  absence_notes?: string | null;
 };
 
 type ScheduleRow = {
@@ -117,11 +120,11 @@ export class TimekeepingService {
     const timeStr = String(rawTime).trim();
 
     const fullDate = new Date(timeStr);
-    if (!isNaN(fullDate.getTime()) && timeStr.includes('T')) {
+    if (!Number.isNaN(fullDate.getTime()) && timeStr.includes('T')) {
       return fullDate;
     }
 
-    const militaryMatch = timeStr.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    const militaryMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeStr);
     if (militaryMatch) {
       const [, hh, mm, ss] = militaryMatch;
       const d = new Date(baseDate);
@@ -129,17 +132,15 @@ export class TimekeepingService {
       return d;
     }
 
-    const ampmMatch = timeStr.match(
-      /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i,
-    );
+    const ampmMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i.exec(timeStr);
     if (ampmMatch) {
       let [, hh, mm, ss, ampm] = ampmMatch;
       let hour = Number(hh);
 
       if (ampm.toUpperCase() === 'AM') {
         if (hour === 12) hour = 0;
-      } else {
-        if (hour !== 12) hour += 12;
+      } else if (hour !== 12) {
+        hour += 12;
       }
 
       const d = new Date(baseDate);
@@ -260,6 +261,12 @@ export class TimekeepingService {
       this.getLatestLogForToday(employeeId),
     ]);
 
+    if (existing?.log_type === 'absence') {
+      throw new BadRequestException(
+        'You have reported an absence for today. Clock-in is not allowed.',
+      );
+    }
+
     if (existing?.log_type === 'time-in') {
       throw new BadRequestException(
         'You have already timed in today. Please time out before timing in again.',
@@ -338,6 +345,12 @@ export class TimekeepingService {
     if (!lastPunch) {
       throw new BadRequestException(
         'You have not timed in today. Please time in first.',
+      );
+    }
+
+    if (lastPunch.log_type === 'absence') {
+      throw new BadRequestException(
+        'You have reported an absence for today. Clock-out is not allowed.',
       );
     }
 
@@ -454,7 +467,7 @@ export class TimekeepingService {
     let query = supabase
       .from('attendance_time_logs')
       .select(
-        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status',
+        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status, absence_reason, absence_notes',
       )
       .eq('employee_id', employeeId)
       .order('timestamp', { ascending: false });
@@ -513,7 +526,9 @@ export class TimekeepingService {
         is_mock_location,
         clock_type,
         status,
-        log_status
+        log_status,
+        absence_reason,
+        absence_notes
       `)
       .in('employee_id', employeeIds)
       .order('timestamp', { ascending: false });
@@ -595,13 +610,60 @@ export class TimekeepingService {
     };
   }
 
+  async reportAbsence(userId: string, dto: ReportAbsenceDto) {
+    const supabase = this.supabaseService.getClient();
+    const { date: today, start, end } = todayRange();
+
+    const employeeId = await this.getEmployeeId(userId);
+    if (!employeeId) {
+      throw new BadRequestException('Employee profile not found. Cannot report absence.');
+    }
+
+    const { data: existing } = await supabase
+      .from('attendance_time_logs')
+      .select('log_id, log_type')
+      .eq('employee_id', employeeId)
+      .gte('timestamp', start)
+      .lte('timestamp', end)
+      .limit(1)
+      .maybeSingle();
+
+    if (existing?.log_type === 'time-in' || existing?.log_type === 'time-out') {
+      throw new BadRequestException('Cannot report absence after clocking in.');
+    }
+    if (existing?.log_type === 'absence') {
+      throw new BadRequestException('Absence already reported for today.');
+    }
+
+    const log_id = crypto.randomUUID();
+    const now = new Date().toISOString();
+
+    const { error } = await supabase.from('attendance_time_logs').insert({
+      log_id,
+      employee_id: employeeId,
+      log_type: 'absence',
+      timestamp: now,
+      absence_reason: dto.reason,
+      absence_notes: dto.notes ?? null,
+      status: 'ABSENT',
+      log_status: 'PENDING',
+      is_mock_location: false,
+    });
+
+    if (error) throw new Error(error.message);
+
+    this.logger.log(`Absence reported — employee: ${employeeId}, reason: ${dto.reason}`);
+    return { log_id, date: today, reason: dto.reason, notes: dto.notes ?? null };
+  }
+
   private groupByDate(logs: any[]) {
     const grouped: Record<
       string,
       {
         date: string;
-        time_in: any | null;
-        time_out: any | null;
+        time_in: any;
+        time_out: any;
+        absence: any;
         all_logs: any[];
       }
     > = {};
@@ -614,6 +676,7 @@ export class TimekeepingService {
           date: logDate,
           time_in: null,
           time_out: null,
+          absence: null,
           all_logs: [],
         };
       }
@@ -623,9 +686,11 @@ export class TimekeepingService {
       if (log.log_type === 'time-in' && !grouped[logDate].time_in) {
         grouped[logDate].time_in = log;
       }
-
       if (log.log_type === 'time-out') {
         grouped[logDate].time_out = log;
+      }
+      if (log.log_type === 'absence') {
+        grouped[logDate].absence = log;
       }
     }
 

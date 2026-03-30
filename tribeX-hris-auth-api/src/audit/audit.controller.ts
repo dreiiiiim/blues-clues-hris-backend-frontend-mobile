@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
@@ -16,12 +16,14 @@ export class AuditController {
   @Roles('Admin', 'System Admin')
   @ApiOperation({ summary: 'System Admin: Get paginated audit logs' })
   getLogs(
+    @Req() req: any,
     @Query('limit') limit?: string,
     @Query('offset') offset?: string,
   ) {
     return this.auditService.getLogs(
-      limit ? parseInt(limit, 10) : 50,
-      offset ? parseInt(offset, 10) : 0,
+      req.user.company_id,
+      limit ? Number.parseInt(limit, 10) : 50,
+      offset ? Number.parseInt(offset, 10) : 0,
     );
   }
 
@@ -29,7 +31,7 @@ export class AuditController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('Admin', 'System Admin')
   @ApiOperation({ summary: 'System Admin: Get total audit log count' })
-  getLogsCount() {
-    return this.auditService.getLogsCount();
+  getLogsCount(@Req() req: any) {
+    return this.auditService.getLogsCount(req.user.company_id);
   }
 }

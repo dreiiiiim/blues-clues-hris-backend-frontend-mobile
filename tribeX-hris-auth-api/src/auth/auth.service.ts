@@ -2,7 +2,7 @@ import { Injectable, UnauthorizedException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { LoginDto } from '../auth/dto/login.dto';
 import { MailService } from '../mail/mail.service';
@@ -48,6 +48,26 @@ export class AuthService {
     private readonly config: ConfigService,
     private readonly mailService: MailService,
   ) {}
+
+  // Fire-and-forget incident log — written directly to avoid circular dep with AuditModule
+  private async writeIncidentLog(
+    action: string,
+    severity: 'WARNING' | 'ERROR' | 'CRITICAL',
+    options?: { userId?: string; companyId?: string; ipAddress?: string },
+  ) {
+    try {
+      await this.supabaseService.getClient().from('admin_audit_logs').insert({
+        action,
+        performed_by: options?.userId ?? null,
+        company_id: options?.companyId ?? null,
+        target_user_id: null,
+        severity,
+        ip_address: options?.ipAddress ?? null,
+      });
+    } catch {
+      // never breaks main flow
+    }
+  }
 
   private logDevLink(label: string, recipient: string, link: string) {
     if (this.config.get<string>('NODE_ENV') === 'production') return;
@@ -99,6 +119,11 @@ export class AuthService {
         `Failed to resend activation email to ${user.email}`,
         error,
       );
+      void this.writeIncidentLog(
+        `EMAIL: Failed to send activation invite to ${user.email}`,
+        'ERROR',
+        { userId: user.user_id },
+      );
       throw error;
     }
   }
@@ -139,6 +164,11 @@ export class AuthService {
         `Failed to process forgot-password for ${email}`,
         resetError,
       );
+      void this.writeIncidentLog(
+        `EMAIL: Failed to send password reset email to ${email}`,
+        'ERROR',
+        { userId: user.user_id },
+      );
     }
 
     return {
@@ -152,7 +182,7 @@ export class AuthService {
     const { identifier, password } = loginDto;
     const rememberMe = !!loginDto.rememberMe;
 
-    if (!/^[a-zA-Z0-9._@\-]+$/.test(identifier)) {
+    if (!/^[a-zA-Z0-9._@-]+$/.test(identifier)) {
       throw new UnauthorizedException('Invalid identifier format');
     }
 
@@ -169,7 +199,16 @@ export class AuthService {
       throw new UnauthorizedException('Login failed');
     }
     if (!user) throw new UnauthorizedException('No account found with that email or username.');
-    if (user.account_status === 'Inactive') throw new UnauthorizedException('Your account has been deactivated. Please contact your administrator.');
+
+    if (user.account_status === 'Inactive') {
+      void this.writeIncidentLog(
+        `SECURITY: Login blocked for ${user.email} — account deactivated`,
+        'WARNING',
+        { userId: user.user_id, companyId: user.company_id, ipAddress: getIp(req) ?? undefined },
+      );
+      throw new UnauthorizedException('Your account has been deactivated. Please contact your administrator.');
+    }
+
     if (!user.password_hash) throw new UnauthorizedException('No password set');
 
     // Block login if today is before the employee's start date
@@ -179,6 +218,11 @@ export class AuthService {
       const startDate = new Date(user.start_date);
       startDate.setHours(0, 0, 0, 0);
       if (today < startDate) {
+        void this.writeIncidentLog(
+          `SECURITY: Login blocked for ${user.email} — account not yet active (start date: ${startDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })})`,
+          'WARNING',
+          { userId: user.user_id, companyId: user.company_id, ipAddress: getIp(req) ?? undefined },
+        );
         throw new UnauthorizedException(
           `Your account is not active yet. Your start date is ${startDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}.`,
         );
@@ -188,14 +232,21 @@ export class AuthService {
     const isMatch = await bcrypt.compare(password, user.password_hash);
 
     if (!isMatch) {
-      await supabase.from('login_history').insert({
-        login_id: crypto.randomUUID(),
-        role_id: String(user.role_id),
-        user_id: user.user_id,
-        ip_address: getIp(req),
-        browser_info: getBrowser(req),
-        status: 'FAILED',
-      });
+      await Promise.all([
+        supabase.from('login_history').insert({
+          login_id: crypto.randomUUID(),
+          role_id: String(user.role_id),
+          user_id: user.user_id,
+          ip_address: getIp(req),
+          browser_info: getBrowser(req),
+          status: 'FAILED',
+        }),
+        this.writeIncidentLog(
+          `SECURITY: Failed login attempt for ${user.email} — incorrect password`,
+          'WARNING',
+          { userId: user.user_id, companyId: user.company_id, ipAddress: getIp(req) ?? undefined },
+        ),
+      ]);
       throw new UnauthorizedException('Incorrect password. Please try again.');
     }
 
@@ -296,7 +347,7 @@ export class AuthService {
     await supabase.from('logout_history').insert({
       logout_id: crypto.randomUUID(),
       login_id: decoded.login_id ?? null,
-      role_id: decoded.role_id != null ? String(decoded.role_id) : null,
+      role_id: decoded.role_id == null ? null : String(decoded.role_id),
       user_id: decoded.sub_userid ?? null,
       session_id: decoded.session_id ?? token_hash,
       ip_address: getIp(req),

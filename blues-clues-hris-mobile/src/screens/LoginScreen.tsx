@@ -43,7 +43,7 @@ export const LoginScreen = ({ navigation }: any) => {
       return;
     }
 
-    await saveSession(res.user, rememberMe);
+    saveSession(res.user, rememberMe);
 
     switch (res.user.role) {
       case "employee":     navigation.replace("EmployeeDashboard",    { session: res.user }); break;

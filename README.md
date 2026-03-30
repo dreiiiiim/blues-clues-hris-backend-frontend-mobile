@@ -63,6 +63,7 @@ APP_URL=http://localhost:3000
 #### Frontend — create `frontend/blues-clues-hris-frontend-web/.env.local`
 
 For local development (pointing to localhost backend):
+
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:5000/api/tribeX/auth/v1
 ```
@@ -70,6 +71,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:5000/api/tribeX/auth/v1
 #### Mobile — edit `blues-clues-hris-mobile/.env`
 
 For local development (replace IP with your machine's Wi-Fi IPv4 from `ipconfig`):
+
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:5000/api/tribeX/auth/v1
 ```
@@ -81,6 +83,7 @@ EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:5000/api/tribeX/auth/v1
 Open **three separate terminals**:
 
 **Terminal 1 — Backend:**
+
 ```bash
 cd tribeX-hris-auth-api
 npm install
@@ -90,6 +93,7 @@ npm run start:dev
 ```
 
 **Terminal 2 — Frontend:**
+
 ```bash
 cd frontend/blues-clues-hris-frontend-web
 npm install
@@ -98,6 +102,7 @@ npm run dev
 ```
 
 **Terminal 3 — Mobile:**
+
 ```bash
 cd blues-clues-hris-mobile
 npm install
@@ -114,12 +119,12 @@ The project has two environments: **localhost** (local dev) and **Railway** (dep
 
 ### When to use which
 
-| Scenario | Use |
-|---|---|
-| Testing UI changes only | Railway — no need to run backend locally |
-| Adding/changing backend endpoints | Localhost — run the backend yourself |
-| Demoing or reviewing a PR | Railway |
-| Testing timekeeping, auth, or any API feature | Localhost |
+| Scenario                                      | Use                                      |
+| --------------------------------------------- | ---------------------------------------- |
+| Testing UI changes only                       | Railway — no need to run backend locally |
+| Adding/changing backend endpoints             | Localhost — run the backend yourself     |
+| Demoing or reviewing a PR                     | Railway                                  |
+| Testing timekeeping, auth, or any API feature | Localhost                                |
 
 ---
 
@@ -128,11 +133,13 @@ The project has two environments: **localhost** (local dev) and **Railway** (dep
 Edit `frontend/blues-clues-hris-frontend-web/.env.local`:
 
 **→ Localhost:**
+
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:5000/api/tribeX/auth/v1
 ```
 
 **→ Railway:**
+
 ```env
 NEXT_PUBLIC_API_BASE_URL=https://blues-clues-hris-backend-frontend-mobile-production.up.railway.app/api/tribeX/auth/v1
 ```
@@ -148,16 +155,19 @@ Then restart the dev server: `npm run dev`
 Edit `blues-clues-hris-mobile/.env`:
 
 **→ Localhost** (find your Wi-Fi IPv4 with `ipconfig` → look for IPv4 Address under Wi-Fi):
+
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:5000/api/tribeX/auth/v1
 ```
 
 **→ Railway:**
+
 ```env
 EXPO_PUBLIC_API_BASE_URL=https://blues-clues-hris-backend-frontend-mobile-production.up.railway.app/api/tribeX/auth/v1
 ```
 
 After editing `.env`, always restart with cache cleared:
+
 ```bash
 npx expo start -c
 ```
@@ -172,16 +182,16 @@ npx expo start -c
 
 ### Backend — `tribeX-hris-auth-api/.env`
 
-| Variable | Description | Required |
-|---|---|---|
-| `PORT` | Port for the API server (default: `5000`) | No |
-| `SUPABASE_URL` | Your Supabase project URL | Yes |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (admin access) | Yes |
-| `SUPABASE_ANON_KEY` | Supabase anon/public key | Yes |
-| `JWT_SECRET` | Secret used to sign JWT tokens | Yes |
-| `MAIL_USER` | Gmail address used to send system emails | Yes |
-| `MAIL_PASS` | Gmail App Password (not your real password) | Yes |
-| `APP_URL` | Frontend URL (used in email links) | Yes |
+| Variable                    | Description                                 | Required |
+| --------------------------- | ------------------------------------------- | -------- |
+| `PORT`                      | Port for the API server (default: `5000`)   | No       |
+| `SUPABASE_URL`              | Your Supabase project URL                   | Yes      |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (admin access)    | Yes      |
+| `SUPABASE_ANON_KEY`         | Supabase anon/public key                    | Yes      |
+| `JWT_SECRET`                | Secret used to sign JWT tokens              | Yes      |
+| `MAIL_USER`                 | Gmail address used to send system emails    | Yes      |
+| `MAIL_PASS`                 | Gmail App Password (not your real password) | Yes      |
+| `APP_URL`                   | Frontend URL (used in email links)          | Yes      |
 
 > **Never commit `.env` files.** They are in `.gitignore`. Full values are in Step 2 above.
 

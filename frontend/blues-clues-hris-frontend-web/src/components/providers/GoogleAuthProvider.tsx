@@ -9,7 +9,7 @@ import { GoogleOAuthProvider } from "@react-oauth/google";
 // Authorized redirect URIs: not needed for token-based flow
 const GOOGLE_CLIENT_ID = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID ?? "YOUR_GOOGLE_CLIENT_ID";
 
-export function GoogleAuthProvider({ children }: { children: React.ReactNode }) {
+export function GoogleAuthProvider({ children }: { readonly children: React.ReactNode }) {
   return (
     <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       {children}

@@ -17,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { TimekeepingService } from './timekeeping.service';
 import { TimePunchDto } from './dto/time-punch.dto';
+import { ReportAbsenceDto } from './dto/report-absence.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -59,6 +60,17 @@ export class TimekeepingController {
   })
   timeOut(@Body() dto: TimePunchDto, @Req() req: any) {
     return this.timekeepingService.timeOut(req.user.sub_userid, dto, req);
+  }
+
+  @Post('report-absence')
+  @ApiOperation({
+    summary: 'Employee: Report an absence with reason',
+    description:
+      'Records an absence for today with a specified reason. ' +
+      'Rejected if the employee has already clocked in or already reported absence today.',
+  })
+  reportAbsence(@Body() dto: ReportAbsenceDto, @Req() req: any) {
+    return this.timekeepingService.reportAbsence(req.user.sub_userid, dto);
   }
 
   @Get('my-status')

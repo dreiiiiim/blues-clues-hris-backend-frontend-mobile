@@ -14,12 +14,12 @@ let _accessToken: string | null = null;
 
 // Restored from localStorage so it survives page reloads.
 let _rememberMe =
-  typeof globalThis.window !== "undefined" && localStorage.getItem(REMEMBER_KEY) === "1";
+  globalThis.window !== undefined && localStorage.getItem(REMEMBER_KEY) === "1";
 
 export function setTokens(params: { access_token: string; rememberMe: boolean }) {
   _accessToken = params.access_token;
   _rememberMe = params.rememberMe;
-  if (typeof globalThis.window !== "undefined") {
+  if (globalThis.window !== undefined) {
     if (params.rememberMe) {
       localStorage.setItem(REMEMBER_KEY, "1");
     } else {
@@ -78,7 +78,7 @@ export function getUserInfo(): StoredUser | null {
 export function parseJwt(token: string) {
   try {
     const base64Url = token.split(".")[1];
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const base64 = base64Url.replaceAll("-", "+").replaceAll("_", "/");
     const jsonPayload = decodeURIComponent(
       atob(base64)
         .split("")

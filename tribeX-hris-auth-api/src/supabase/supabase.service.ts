@@ -4,7 +4,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 @Injectable()
 export class SupabaseService {
-  private client: SupabaseClient;
+  private readonly client: SupabaseClient;
 
   constructor(private readonly config: ConfigService) {
     const url = this.config.get<string>('SUPABASE_URL');

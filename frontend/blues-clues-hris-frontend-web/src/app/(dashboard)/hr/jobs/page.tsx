@@ -217,12 +217,12 @@ function QuestionBuilder({
               <div className="flex gap-2 items-center">
                 <select
                   value={q.question_type}
-                  onChange={(e) =>
-                    updateQ(q.id, {
-                      question_type: e.target.value as Question["question_type"],
-                      options: e.target.value === "text" ? [] : q.options.length ? q.options : [""],
-                    })
-                  }
+                  onChange={(e) => {
+                    const newType = e.target.value as Question["question_type"];
+                    const fallbackOptions = q.options.length ? q.options : [""];
+                    const newOptions = newType === "text" ? [] : fallbackOptions;
+                    updateQ(q.id, { question_type: newType, options: newOptions });
+                  }}
                   className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="text">Text Answer</option>
@@ -235,14 +235,14 @@ function QuestionBuilder({
                     checked={q.is_required}
                     onChange={(e) => updateQ(q.id, { is_required: e.target.checked })}
                     className="h-3.5 w-3.5"
-                  />
+                  />{" "}
                   Required
                 </label>
               </div>
               {(q.question_type === "multiple_choice" || q.question_type === "checkbox") && (
                 <div className="space-y-2 pl-1">
                   {q.options.map((opt, oi) => (
-                    <div key={oi} className="flex items-center gap-2">
+                    <div key={`${q.id}-opt-${oi}`} className="flex items-center gap-2">
                       <div className={`h-3.5 w-3.5 shrink-0 border border-border ${q.question_type === "multiple_choice" ? "rounded-full" : "rounded"}`} />
                       <Input
                         value={opt}
@@ -313,7 +313,7 @@ function CreateJobModal({
     employment_type: "", salary_range: "", closes_at: "",
   });
 
-  const handleCreatePosting = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCreatePosting = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -492,7 +492,7 @@ function EditJobModal({
     closes_at: job.closes_at ? job.closes_at.slice(0, 10) : "",
   });
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -746,6 +746,63 @@ function ApplicationDetailModal({
     return <span>{val}</span>;
   };
 
+  const detailContent = detail ? (
+    <>
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Stage</p>
+        <div className="flex gap-2">
+          <select
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            className={`flex-1 h-9 rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${APP_STATUS_STYLES[status] ?? "border-border bg-background text-foreground"}`}
+          >
+            {APP_STATUSES.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+          <Button onClick={handleStatusSave} disabled={updating || status === detail.status} size="sm" className="h-9">
+            {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Info</p>
+        <div className="grid grid-cols-2 gap-2 text-sm">
+          <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+            <p className="text-[10px] text-muted-foreground font-semibold">Code</p>
+            <p className="font-mono font-bold">{detail.applicant_profile.applicant_code}</p>
+          </div>
+          <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+            <p className="text-[10px] text-muted-foreground font-semibold">Applied</p>
+            <p className="font-semibold">{formatDate(detail.applied_at)}</p>
+          </div>
+          {detail.applicant_profile.phone_number && (
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 col-span-2">
+              <p className="text-[10px] text-muted-foreground font-semibold">Phone</p>
+              <p className="font-semibold">{detail.applicant_profile.phone_number}</p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {detail.answers.length > 0 && (
+        <div className="space-y-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
+          {detail.answers
+            .slice()
+            .sort((a, b) => (a.application_questions.sort_order ?? 0) - (b.application_questions.sort_order ?? 0))
+            .map((ans) => (
+              <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
+                <p className="text-xs font-semibold text-foreground">{ans.application_questions.question_text}</p>
+                <p className="text-sm text-foreground">{formatAnswer(ans)}</p>
+              </div>
+            ))}
+        </div>
+      )}
+    </>
+  ) : null;
+
   return (
     <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50">
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xl mx-4 max-h-[85vh] flex flex-col">
@@ -768,62 +825,7 @@ function ApplicationDetailModal({
             <div className="flex items-center justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
-          ) : !detail ? null : (
-            <>
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Stage</p>
-                <div className="flex gap-2">
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className={`flex-1 h-9 rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${APP_STATUS_STYLES[status] ?? "border-border bg-background text-foreground"}`}
-                  >
-                    {APP_STATUSES.map((s) => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-                  <Button onClick={handleStatusSave} disabled={updating || status === detail.status} size="sm" className="h-9">
-                    {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Info</p>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
-                    <p className="text-[10px] text-muted-foreground font-semibold">Code</p>
-                    <p className="font-mono font-bold">{detail.applicant_profile.applicant_code}</p>
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
-                    <p className="text-[10px] text-muted-foreground font-semibold">Applied</p>
-                    <p className="font-semibold">{formatDate(detail.applied_at)}</p>
-                  </div>
-                  {detail.applicant_profile.phone_number && (
-                    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 col-span-2">
-                      <p className="text-[10px] text-muted-foreground font-semibold">Phone</p>
-                      <p className="font-semibold">{detail.applicant_profile.phone_number}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {detail.answers.length > 0 && (
-                <div className="space-y-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
-                  {detail.answers
-                    .slice()
-                    .sort((a, b) => (a.application_questions.sort_order ?? 0) - (b.application_questions.sort_order ?? 0))
-                    .map((ans) => (
-                      <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
-                        <p className="text-xs font-semibold text-foreground">{ans.application_questions.question_text}</p>
-                        <p className="text-sm text-foreground">{formatAnswer(ans)}</p>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </>
-          )}
+          ) : detailContent}
         </div>
       </div>
     </div>
@@ -850,6 +852,50 @@ function ApplicantsModal({
       .finally(() => setLoading(false));
   }, [job.job_posting_id]);
 
+  const applicantCount = applications.length;
+  const plural = applicantCount === 1 ? "" : "s";
+  const applicantLabel = loading ? "Loading..." : `${applicantCount} applicant${plural}`;
+  const applicantsContent = applications.length === 0 ? (
+    <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+      <Users className="h-10 w-10 opacity-30" />
+      <p className="text-sm font-medium">No applications yet</p>
+    </div>
+  ) : (
+    <div className="divide-y divide-border">
+      {applications.map((app) => {
+        const stageLabel = APP_STATUSES.find((s) => s.value === app.status)?.label ?? app.status;
+        return (
+          <button
+            key={app.application_id}
+            type="button"
+            className="flex items-center justify-between py-4 px-1 gap-4 w-full text-left hover:bg-muted/20 rounded-lg transition-colors cursor-pointer"
+            onClick={() => setSelectedAppId(app.application_id)}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
+                {app.applicant_profile?.first_name?.charAt(0) ?? "?"}
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold text-foreground text-sm leading-none truncate">
+                  {app.applicant_profile?.first_name} {app.applicant_profile?.last_name}
+                </p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{app.applicant_profile?.email}</p>
+                <p className="text-[10px] font-mono text-muted-foreground/70">{app.applicant_profile?.applicant_code}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[10px] text-muted-foreground">{formatDate(app.applied_at)}</span>
+              <span className={`text-[10px] font-bold uppercase border rounded-full px-2.5 py-1 ${APP_STATUS_STYLES[app.status] ?? "bg-gray-100 text-gray-700 border-gray-200"}`}>
+                {stageLabel}
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
       <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40">
@@ -858,7 +904,7 @@ function ApplicantsModal({
             <div>
               <h3 className="font-bold text-foreground text-lg">{job.title}</h3>
               <p className="text-xs text-muted-foreground">
-                {loading ? "Loading..." : `${applications.length} applicant${applications.length === 1 ? "" : "s"}`}
+                {applicantLabel}
               </p>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
@@ -871,48 +917,7 @@ function ApplicantsModal({
               <div className="flex items-center justify-center py-16">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-            ) : applications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
-                <Users className="h-10 w-10 opacity-30" />
-                <p className="text-sm font-medium">No applications yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {applications.map((app) => {
-                  const stageLabel = APP_STATUSES.find((s) => s.value === app.status)?.label ?? app.status;
-                  return (
-                    <div
-                      key={app.application_id}
-                      role="button"
-                      tabIndex={0}
-                      className="flex items-center justify-between py-4 px-1 gap-4 hover:bg-muted/20 rounded-lg transition-colors cursor-pointer"
-                      onClick={() => setSelectedAppId(app.application_id)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedAppId(app.application_id); } }}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
-                          {app.applicant_profile?.first_name?.charAt(0) ?? "?"}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-foreground text-sm leading-none truncate">
-                            {app.applicant_profile?.first_name} {app.applicant_profile?.last_name}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{app.applicant_profile?.email}</p>
-                          <p className="text-[10px] font-mono text-muted-foreground/70">{app.applicant_profile?.applicant_code}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] text-muted-foreground">{formatDate(app.applied_at)}</span>
-                        <span className={`text-[10px] font-bold uppercase border rounded-full px-2.5 py-1 ${APP_STATUS_STYLES[app.status] ?? "bg-gray-100 text-gray-700 border-gray-200"}`}>
-                          {stageLabel}
-                        </span>
-                        <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            ) : applicantsContent}
           </div>
         </div>
       </div>
@@ -988,9 +993,12 @@ function JobRowMenu({
       {open && createPortal(
         <div
           ref={menuRef}
+          role="menu"
+          tabIndex={-1}
           style={{ position: "fixed", top: pos.top, bottom: pos.bottom, right: pos.right }}
           className="z-200 w-48 bg-card border border-border rounded-lg shadow-lg py-1 text-sm"
           onClick={() => setOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Escape') { setOpen(false); } }}
         >
           <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={onViewApplicants}>
             <Users className="h-3.5 w-3.5" /> View Applicants
@@ -1045,15 +1053,17 @@ function PipelineDetailModal({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
+      aria-hidden="true"
       className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4"
       onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); } }}
+      onKeyDown={(e) => { if (e.key === 'Escape') { onClose(); } }}
     >
-      <div
-        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
+      <dialog
+        open
+        aria-modal="true"
+        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 m-0 p-0"
         onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-border bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)]">
@@ -1127,7 +1137,7 @@ function PipelineDetailModal({
             </div>
           )}
         </div>
-      </div>
+      </dialog>
     </div>
   );
 }
@@ -1243,7 +1253,7 @@ export default function HRJobsPage() {
   useEffect(() => {
     getMyCompany()
       .then((company) => {
-        const origin = typeof globalThis.window !== "undefined" ? globalThis.location.origin : "";
+        const origin = globalThis.window === undefined ? "" : globalThis.location.origin;
         setCareersUrl(`${origin}/careers/${company.slug}`);
       })
       .catch(() => {});
@@ -1294,19 +1304,19 @@ export default function HRJobsPage() {
   const openCount   = jobs.filter((j) => j.status === "open").length;
   const closedCount = jobs.filter((j) => j.status === "closed").length;
 
-  const jobTableRows = loading ? (
-    <tr><td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">Loading job postings...</td></tr>
-  ) : paged.length === 0 ? (
+  const emptyTableMessage = (() => {
+    if (jobs.length === 0) return "No job postings yet. Create your first one!";
+    if (statusFilter !== "all") return `No ${statusFilter} postings found.`;
+    return "No postings match your search.";
+  })();
+
+  const pagedRows = paged.length === 0 ? (
     <tr>
       <td colSpan={7} className="px-5 py-10 text-center">
         <div className="flex flex-col items-center gap-2 text-muted-foreground">
           <Briefcase className="h-10 w-10 opacity-20" />
           <p className="text-sm font-medium">
-            {jobs.length === 0
-              ? "No job postings yet. Create your first one!"
-              : statusFilter !== "all"
-              ? `No ${statusFilter} postings found.`
-              : "No postings match your search."}
+            {emptyTableMessage}
           </p>
           {jobs.length === 0 && (
             <Button size="sm" className="mt-1 gap-1" onClick={() => setShowCreate(true)}>
@@ -1358,6 +1368,9 @@ export default function HRJobsPage() {
       ))}
     </>
   );
+  const jobTableRows = loading ? (
+    <tr><td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">Loading job postings...</td></tr>
+  ) : pagedRows;
 
   return (
     <div className="space-y-6">
@@ -1413,6 +1426,72 @@ export default function HRJobsPage() {
         const stageCounts = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.value, pipelineApps.filter((a) => a.status === s.value).length]));
         const visibleApps = stageFiltered.filter((a) => a.status === pipelineStage);
         const activeStage = PIPELINE_STAGES.find((s) => s.value === pipelineStage)!;
+
+        const listBody = visibleApps.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+            <activeStage.icon className="h-10 w-10 mb-3 opacity-20" />
+            <p className="text-sm font-medium">No candidates in this stage</p>
+            {pipelineSearch && <p className="text-xs mt-1 opacity-60">Try clearing the search filter</p>}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {visibleApps.map((app) => {
+              const { first_name, last_name, email, applicant_code } = app.applicant_profile;
+              const ini = `${first_name.charAt(0)}${last_name.charAt(0)}`.toUpperCase();
+              return (
+                <div
+                  key={app.application_id}
+                  className="bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 hover:-translate-y-0.5 flex flex-col gap-4"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-full bg-[linear-gradient(135deg,#1e3a8a,#2563eb)] flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm">
+                      {ini}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-bold text-foreground truncate leading-tight">{first_name} {last_name}</p>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mt-0.5">{applicant_code}</p>
+                    </div>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border shrink-0 ${activeStage.badge}`}>
+                      {activeStage.label}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="text-xs text-muted-foreground truncate">{email}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Calendar className="h-3 w-3 text-muted-foreground shrink-0" />
+                      <span className="text-xs text-muted-foreground">
+                        Applied {new Date(app.applied_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-border mt-auto">
+                    <select
+                      value={app.status}
+                      disabled={pipelineUpdating}
+                      onChange={(e) => handlePipelineStatusChange(app.application_id, e.target.value)}
+                      className="flex-1 h-7 rounded-md border border-border bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+                    >
+                      {APP_STATUSES.map((s) => (
+                        <option key={s.value} value={s.value}>{s.label}</option>
+                      ))}
+                    </select>
+                    <Button size="sm" variant="outline" className="h-7 px-3 text-xs shrink-0" onClick={() => handleOpenPipelineDetail(app.application_id)}>
+                      View
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
+        const listContent = pipelineLoading ? (
+          <div className="flex items-center justify-center py-20">
+            <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
+          </div>
+        ) : listBody;
 
         return (
           <div className="space-y-5 animate-in fade-in duration-300">
@@ -1538,72 +1617,7 @@ export default function HRJobsPage() {
             )}
 
             {/* ── List view (original design) ── */}
-            {pipelineView === "list" && (
-              pipelineLoading ? (
-                <div className="flex items-center justify-center py-20">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
-                </div>
-              ) : visibleApps.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                  <activeStage.icon className="h-10 w-10 mb-3 opacity-20" />
-                  <p className="text-sm font-medium">No candidates in this stage</p>
-                  {pipelineSearch && <p className="text-xs mt-1 opacity-60">Try clearing the search filter</p>}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {visibleApps.map((app) => {
-                    const { first_name, last_name, email, applicant_code } = app.applicant_profile;
-                    const ini = `${first_name.charAt(0)}${last_name.charAt(0)}`.toUpperCase();
-                    return (
-                      <div
-                        key={app.application_id}
-                        className="bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 hover:-translate-y-0.5 flex flex-col gap-4"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="h-10 w-10 rounded-full bg-[linear-gradient(135deg,#1e3a8a,#2563eb)] flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm">
-                            {ini}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-bold text-foreground truncate leading-tight">{first_name} {last_name}</p>
-                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mt-0.5">{applicant_code}</p>
-                          </div>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border shrink-0 ${activeStage.badge}`}>
-                            {activeStage.label}
-                          </span>
-                        </div>
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
-                            <span className="text-xs text-muted-foreground truncate">{email}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-3 w-3 text-muted-foreground shrink-0" />
-                            <span className="text-xs text-muted-foreground">
-                              Applied {new Date(app.applied_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 pt-1 border-t border-border mt-auto">
-                          <select
-                            value={app.status}
-                            disabled={pipelineUpdating}
-                            onChange={(e) => handlePipelineStatusChange(app.application_id, e.target.value)}
-                            className="flex-1 h-7 rounded-md border border-border bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
-                          >
-                            {APP_STATUSES.map((s) => (
-                              <option key={s.value} value={s.value}>{s.label}</option>
-                            ))}
-                          </select>
-                          <Button size="sm" variant="outline" className="h-7 px-3 text-xs shrink-0" onClick={() => handleOpenPipelineDetail(app.application_id)}>
-                            View
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
-            )}
+            {pipelineView === "list" && listContent}
           </div>
         );
       })()}

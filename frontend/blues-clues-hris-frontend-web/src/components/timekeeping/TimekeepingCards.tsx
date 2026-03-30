@@ -7,11 +7,11 @@ import type { TimekeepingStats } from "@/lib/timekeepingUtils";
 // Used in the top row of HR and Manager timekeeping pages
 
 export function StatCard({ icon: Icon, label, value, sub, colorClass }: {
-  icon: any;
-  label: string;
-  value: string;
-  sub: string;
-  colorClass: string;
+  readonly icon: any;
+  readonly label: string;
+  readonly value: string;
+  readonly sub: string;
+  readonly colorClass: string;
 }) {
   return (
     <Card className="border-border bg-card shadow-sm hover:shadow-md transition-shadow">
@@ -30,7 +30,7 @@ export function StatCard({ icon: Icon, label, value, sub, colorClass }: {
 // ─── SummaryCards ─────────────────────────────────────────────────────────────
 // Bottom row summary used in both HR and Manager timekeeping pages
 
-export function TimekeepingSummaryCards({ stats }: { stats: TimekeepingStats }) {
+export function TimekeepingSummaryCards({ stats }: { readonly stats: TimekeepingStats }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
 

@@ -76,13 +76,7 @@ export default function ManagerDashboardPage() {
 
   const teamSizeDisplay = totalCount === null ? "—" : String(totalCount);
 
-  const teamTableRowsPlaceholder = loading ? (
-    <tr>
-      <td colSpan={4} className="px-5 py-10 text-center text-sm text-muted-foreground">
-        Loading team...
-      </td>
-    </tr>
-  ) : fetchError ? (
+  const teamTableRowsEmpty = fetchError ? (
     <tr>
       <td colSpan={4} className="px-5 py-10 text-center text-sm text-destructive">
         Failed to load team data. Please refresh or contact support.
@@ -95,6 +89,13 @@ export default function ManagerDashboardPage() {
       </td>
     </tr>
   );
+  const teamTableRowsPlaceholder = loading ? (
+    <tr>
+      <td colSpan={4} className="px-5 py-10 text-center text-sm text-muted-foreground">
+        Loading team...
+      </td>
+    </tr>
+  ) : teamTableRowsEmpty;
   const teamTableRows = loading || fetchError || currentTableData.length === 0 ? teamTableRowsPlaceholder : (
     currentTableData.map((row) => {
       const name = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.email;

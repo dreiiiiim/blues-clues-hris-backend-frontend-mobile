@@ -3,8 +3,8 @@
 import { Button } from "@/components/ui/button";
 
 interface GoogleSignInButtonProps {
-  disabled?: boolean;
-  onClick?: () => void;
+  readonly disabled?: boolean;
+  readonly onClick?: () => void;
 }
 
 // Official Google logo SVG — inline, no CDN or external dependency needed
@@ -24,7 +24,7 @@ function GoogleLogo() {
   );
 }
 
-export function GoogleSignInButton({ disabled, onClick }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({ disabled, onClick }: Readonly<GoogleSignInButtonProps>) {
   return (
     <Button
       type="button"

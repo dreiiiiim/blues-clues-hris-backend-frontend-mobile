@@ -131,6 +131,8 @@ export async function createUser(payload: CreateUserPayload): Promise<CreateUser
 
 // PATCH /admin/users/:id/status — body: { status: "active" | "locked" }
 export async function setUserStatus(userId: string, status: "active" | "locked"): Promise<void> {
+  // TODO: implement PATCH /admin/users/:id/status
+  void userId; void status;
 }
 
 // PATCH /admin/users/:id — editable fields: role, department, start_date
@@ -138,6 +140,8 @@ export async function updateUser(
   userId: string,
   payload: Partial<Pick<InternalUser, "role" | "department" | "start_date">>
 ): Promise<void> {
+  // TODO: implement PATCH /admin/users/:id
+  void userId; void payload;
 }
 
 // POST /admin/users/:id/resend-link — body: { link_expiry_hours }
@@ -224,6 +228,8 @@ export async function updateSubscription(
   subscriptionId: string,
   payload: Partial<Pick<Subscription, "plan" | "status">>
 ): Promise<void> {
+  // TODO: implement PATCH /admin/subscriptions/:id
+  void subscriptionId; void payload;
 }
 
 // ─── HR Lifecycle RBAC ────────────────────────────────────────────────────────

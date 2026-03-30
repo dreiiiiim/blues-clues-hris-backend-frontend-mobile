@@ -7,8 +7,8 @@ import { refreshApi } from "@/lib/authApi";
 import { roleToPath } from "@/lib/roleMap";
 
 type Props = {
-  children: React.ReactNode;
-  allowedRoles?: string[]; // role_name list (ex: ["Active Employee"])
+  readonly children: React.ReactNode;
+  readonly allowedRoles?: string[]; // role_name list (ex: ["Active Employee"])
 };
 
 export default function AuthGuard({ children, allowedRoles }: Props) {

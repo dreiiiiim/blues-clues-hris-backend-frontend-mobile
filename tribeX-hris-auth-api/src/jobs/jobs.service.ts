@@ -1,20 +1,103 @@
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import * as crypto from 'crypto';
+import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
 import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { ApplicationQuestionDto } from './dto/create-questions.dto';
+import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
+import { ManualRankingItemDto } from './dto/save-manual-ranking.dto';
+
+type RankingMode = 'sfia' | 'manual';
+
+type SfiaDemandSkill = {
+  skill_id: string;
+  skill_name: string;
+  required_level: number;
+  weight: number;
+};
+
+type SfiaSupplySkill = {
+  owner_key: string;
+  skill_id: string;
+  skill_name: string;
+  candidate_level: number;
+  match_score: number | null;
+};
+
+type SkillBreakdown = {
+  sfia_skill_id: string;
+  skill_name: string;
+  demand_level: number;
+  supply_level: number;
+  points: number;
+  matched: boolean;
+};
+
+type RankedCandidate = {
+  application_id: string;
+  applicant_id: string;
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone_number: string | null;
+  applicant_code: string | null;
+  status: string;
+  applied_at: string;
+  sfia_match_percentage: number;
+  sfia_rank: number;
+  manual_rank_position: number | null;
+  effective_rank: number;
+  skill_breakdown: SkillBreakdown[];
+};
+
+type RankedApplicationRow = {
+  application_id: string;
+  job_posting_id: string;
+  applicant_id: string;
+  status: string;
+  application_timestamp: string;
+  pre_screening_score: number | null;
+  sfia_matching_percentage: number | null;
+  manual_rank_position: number | null;
+  ranking_mode: string;
+};
+
+type ApplicantProfileRow = {
+  applicant_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone_number: string | null;
+  applicant_code: string | null;
+};
+
+function normalizeNumber(value: unknown): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+}
+
+function roundToTwo(value: number) {
+  return Math.round(value * 100) / 100;
+}
 
 @Injectable()
 export class JobsService {
+  private readonly logger = new Logger(JobsService.name);
+
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly auditService: AuditService,
@@ -49,8 +132,9 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
 
     await this.auditService.log(
-      `Job posting created: "${dto.title}" (ID: ${job_posting_id})`,
+      `Job posting created: "${dto.title}"`,
       performedBy,
+      companyId,
     );
 
     return data;
@@ -125,8 +209,9 @@ export class JobsService {
       ? ` (status: ${existing.status} → ${dto.status})`
       : '';
     await this.auditService.log(
-      `Job posting updated: "${existing.title}" (ID: ${jobPostingId}) - fields: ${changedFields.join(', ')}${statusChange}`,
+      `Job posting updated: "${existing.title}" - fields: ${changedFields.join(', ')}${statusChange}`,
       performedBy,
+      companyId,
     );
 
     return data;
@@ -146,8 +231,9 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
 
     await this.auditService.log(
-      `Job posting closed: "${existing.title}" (ID: ${jobPostingId})`,
+      `Job posting closed: "${existing.title}"`,
       performedBy,
+      companyId,
     );
 
     return { message: 'Job posting closed successfully' };
@@ -168,8 +254,9 @@ export class JobsService {
 
     if (questions.length === 0) {
       await this.auditService.log(
-        `Application form cleared: job "${existing.title}" (ID: ${jobPostingId})`,
+        `Application form cleared: job "${existing.title}"`,
         performedBy,
+        companyId,
       );
       return [];
     }
@@ -192,8 +279,9 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
 
     await this.auditService.log(
-      `Application form updated: job "${existing.title}" (ID: ${jobPostingId}) - ${questions.length} question(s) set`,
+      `Application form updated: job "${existing.title}" - ${questions.length} question(s) set`,
       performedBy,
+      companyId,
     );
 
     return data ?? [];
@@ -221,7 +309,7 @@ export class JobsService {
 
     await this.findOnePosting(jobPostingId, companyId);
 
-    const { data, error } = await supabase
+    const { data: regularApps, error: regularError } = await supabase
       .from('job_applications')
       .select(`
         application_id,
@@ -239,8 +327,182 @@ export class JobsService {
       .eq('job_posting_id', jobPostingId)
       .order('applied_at', { ascending: false });
 
-    if (error) throw new InternalServerErrorException(error.message);
-    return data ?? [];
+    if (regularError) throw new InternalServerErrorException(regularError.message);
+
+    const { data: sfiaApps, error: sfiaError } = await supabase
+      .from('job_application_sfia')
+      .select('application_id, status, application_timestamp, applicant_id')
+      .eq('job_posting_id', jobPostingId)
+      .order('application_timestamp', { ascending: false });
+
+    if (sfiaError) {
+      this.logger.warn(`Unable to fetch SFIA applications for job ${jobPostingId}: ${sfiaError.message}`);
+    }
+
+    const regularIds = new Set((regularApps ?? []).map((a: { application_id: string }) => a.application_id));
+
+    const uniqueSfiaApps = (sfiaApps ?? []).filter(
+      (a: { application_id: string }) => !regularIds.has(a.application_id),
+    );
+
+    let sfiaProfiles: ApplicantProfileRow[] = [];
+    if (uniqueSfiaApps.length > 0) {
+      const applicantIds = uniqueSfiaApps.map((a: { applicant_id: string }) => a.applicant_id);
+      const { data: profiles } = await supabase
+        .from('applicant_profile')
+        .select('applicant_id, first_name, last_name, email, phone_number, applicant_code')
+        .in('applicant_id', applicantIds);
+      sfiaProfiles = (profiles ?? []) as ApplicantProfileRow[];
+    }
+
+    const profileMap = new Map(sfiaProfiles.map((p) => [p.applicant_id, p]));
+
+    const normalizedSfiaApps = uniqueSfiaApps.map(
+      (a: { application_id: string; status: string; application_timestamp: string; applicant_id: string }) => ({
+        application_id: a.application_id,
+        status: a.status?.toLowerCase() ?? 'submitted',
+        applied_at: a.application_timestamp,
+        applicant_id: a.applicant_id,
+        applicant_profile: profileMap.get(a.applicant_id) ?? null,
+      }),
+    );
+
+    return [...(regularApps ?? []), ...normalizedSfiaApps].sort(
+      (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime(),
+    );
+  }
+
+  async getRankedCandidates(
+    jobPostingId: string,
+    companyId: string,
+    query: GetRankedCandidatesDto,
+  ) {
+    const mode: RankingMode = query.mode ?? 'sfia';
+    const limit = query.limit ?? 20;
+
+    const job = await this.findOnePosting(jobPostingId, companyId);
+    const applications = await this.getRankedApplicationRows(jobPostingId, companyId);
+    const demandSkills = await this.getJobDemandSkills(jobPostingId);
+
+    const ranked = await this.buildRankedCandidates(
+      jobPostingId,
+      applications,
+      demandSkills,
+    );
+
+    const sfiaRanked = ranked.map((candidate, index) => ({
+      ...candidate,
+      sfia_rank: index + 1,
+    }));
+
+    const manuallyRanked = this.sortCandidatesByMode(sfiaRanked, mode).map(
+      (candidate, index) => ({
+        ...candidate,
+        effective_rank: index + 1,
+      }),
+    );
+
+    return {
+      job_posting_id: jobPostingId,
+      title: job.title,
+      ranking_mode: mode,
+      total_candidates: manuallyRanked.length,
+      top_count: Math.min(limit, manuallyRanked.length),
+      required_skill_count: demandSkills.length,
+      candidates: manuallyRanked.slice(0, limit),
+    };
+  }
+
+  async saveManualRanking(
+    jobPostingId: string,
+    companyId: string,
+    performedBy: string,
+    rankings: ManualRankingItemDto[],
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    const jobPosting = await this.findOnePosting(jobPostingId, companyId);
+
+    const { data: applications, error: applicationsError } = await supabase
+      .from('job_application_sfia')
+      .select('application_id, manual_rank_position')
+      .eq('job_posting_id', jobPostingId);
+
+    if (applicationsError) {
+      throw new InternalServerErrorException(applicationsError.message);
+    }
+
+    const validApplicationIds = new Set(
+      (applications ?? []).map((row: { application_id: string }) => row.application_id),
+    );
+
+    const uniqueIds = new Set<string>();
+    const uniqueRanks = new Set<number>();
+    for (const item of rankings) {
+      if (!validApplicationIds.has(item.application_id)) {
+        throw new BadRequestException(
+          `Application ${item.application_id} does not belong to this job posting`,
+        );
+      }
+      if (uniqueIds.has(item.application_id)) {
+        throw new BadRequestException('Duplicate application_id in manual ranking payload');
+      }
+      if (uniqueRanks.has(item.rank)) {
+        throw new BadRequestException('Duplicate rank values are not allowed');
+      }
+      uniqueIds.add(item.application_id);
+      uniqueRanks.add(item.rank);
+    }
+
+    const updates = rankings.map((item) =>
+      supabase
+        .from('job_application_sfia')
+        .update({ manual_rank_position: item.rank, ranking_mode: 'MANUAL' })
+        .eq('job_posting_id', jobPostingId)
+        .eq('application_id', item.application_id),
+    );
+
+    const results = await Promise.all(updates);
+    const failed = results.find((result) => result.error);
+    if (failed?.error) {
+      throw new InternalServerErrorException(failed.error.message);
+    }
+
+    const previousRankMap = new Map(
+      (applications ?? []).map((row: { application_id: string; manual_rank_position: number | null }) => [
+        row.application_id,
+        row.manual_rank_position,
+      ]),
+    );
+
+    const historyRows = rankings.map((item) => ({
+      history_id: crypto.randomUUID(),
+      application_id: item.application_id,
+      performed_by: performedBy,
+      previous_rank: previousRankMap.get(item.application_id) ?? null,
+      new_rank: item.rank,
+      changed_at: new Date().toISOString(),
+    }));
+
+    const { error: historyError } = await supabase
+      .from('manual_ranking_history')
+      .insert(historyRows);
+
+    if (historyError) {
+      throw new InternalServerErrorException(historyError.message);
+    }
+
+    await this.auditService.log(
+      `Manual candidate ranking saved for "${jobPosting.title}" (${rankings.length} candidate(s))`,
+      performedBy,
+      companyId,
+    );
+
+    return {
+      message: 'Manual ranking saved successfully',
+      job_posting_id: jobPostingId,
+      updated_count: rankings.length,
+    };
   }
 
   async getApplicationDetail(applicationId: string, companyId: string) {
@@ -284,16 +546,37 @@ export class JobsService {
       .maybeSingle();
 
     if (appError) throw new InternalServerErrorException(appError.message);
-    if (!app) throw new NotFoundException('Application not found');
 
-    await this.findOnePosting(app.job_posting_id, companyId);
+    if (app) {
+      await this.findOnePosting(app.job_posting_id, companyId);
 
-    const { error } = await supabase
-      .from('job_applications')
-      .update({ status })
+      const { error } = await supabase
+        .from('job_applications')
+        .update({ status })
+        .eq('application_id', applicationId);
+
+      if (error) throw new InternalServerErrorException(error.message);
+      return { message: 'Application status updated' };
+    }
+
+    // Fall back to SFIA applications table
+    const { data: sfiaApp, error: sfiaAppError } = await supabase
+      .from('job_application_sfia')
+      .select('application_id, job_posting_id')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (sfiaAppError) throw new InternalServerErrorException(sfiaAppError.message);
+    if (!sfiaApp) throw new NotFoundException('Application not found');
+
+    await this.findOnePosting(sfiaApp.job_posting_id, companyId);
+
+    const { error: sfiaUpdateError } = await supabase
+      .from('job_application_sfia')
+      .update({ status: status.toUpperCase() })
       .eq('application_id', applicationId);
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (sfiaUpdateError) throw new InternalServerErrorException(sfiaUpdateError.message);
     return { message: 'Application status updated' };
   }
 
@@ -464,5 +747,337 @@ export class JobsService {
 
     if (error) throw new InternalServerErrorException(error.message);
     return data ?? [];
+  }
+
+  private async buildRankedCandidates(
+    jobPostingId: string,
+    applications: RankedApplicationRow[],
+    demandSkills: SfiaDemandSkill[],
+  ): Promise<RankedCandidate[]> {
+    const supplyRows = await this.getCandidateSupplySkills(applications);
+    const applicantProfiles = await this.getApplicantProfiles(applications);
+    const groupedSupply = supplyRows.reduce<Record<string, SfiaSupplySkill[]>>(
+      (acc, row) => {
+        acc[row.owner_key] ??= [];
+        acc[row.owner_key].push(row);
+        return acc;
+      },
+      {},
+    );
+    const profileByApplicantId = new Map(
+      applicantProfiles.map((profile) => [profile.applicant_id, profile]),
+    );
+
+    const ranked = applications.map((application) => {
+      const profile = profileByApplicantId.get(application.applicant_id);
+      const supplySkills =
+        groupedSupply[application.application_id] ?? [];
+
+      const score = this.computeSfiaScore(demandSkills, supplySkills);
+      void this.cacheSfiaScore(jobPostingId, application.application_id, score.relevancePercentage);
+
+      return {
+        application_id: application.application_id,
+        applicant_id: application.applicant_id,
+        first_name: profile?.first_name ?? '',
+        last_name: profile?.last_name ?? '',
+        email: profile?.email ?? '',
+        phone_number: profile?.phone_number ?? null,
+        applicant_code: profile?.applicant_code ?? null,
+        status: application.status,
+        applied_at: application.application_timestamp,
+        sfia_match_percentage: score.relevancePercentage,
+        sfia_rank: 0,
+        manual_rank_position: normalizeNumber(application.manual_rank_position) || null,
+        effective_rank: 0,
+        skill_breakdown: score.breakdown,
+      } satisfies RankedCandidate;
+    });
+
+    return ranked.sort((a, b) => {
+      if (b.sfia_match_percentage !== a.sfia_match_percentage) {
+        return b.sfia_match_percentage - a.sfia_match_percentage;
+      }
+      return new Date(a.applied_at).getTime() - new Date(b.applied_at).getTime();
+    });
+  }
+
+  private sortCandidatesByMode(
+    candidates: RankedCandidate[],
+    mode: RankingMode,
+  ): RankedCandidate[] {
+    if (mode === 'sfia') return [...candidates];
+
+    return [...candidates].sort((a, b) => {
+      const leftRank = a.manual_rank_position ?? Number.MAX_SAFE_INTEGER;
+      const rightRank = b.manual_rank_position ?? Number.MAX_SAFE_INTEGER;
+      if (leftRank !== rightRank) return leftRank - rightRank;
+      return a.sfia_rank - b.sfia_rank;
+    });
+  }
+
+  private computeSfiaScore(
+    demandSkills: SfiaDemandSkill[],
+    supplySkills: SfiaSupplySkill[],
+  ) {
+    const skillById = new Map(
+      supplySkills.map((skill) => [skill.skill_id, skill]),
+    );
+
+    const relevantDemand = demandSkills;
+
+    const breakdown = relevantDemand.map((demandSkill) => {
+      const supplySkill = skillById.get(demandSkill.skill_id);
+      const supplyLevel = supplySkill?.candidate_level ?? 0;
+
+      let points = 0;
+      if (supplyLevel === demandSkill.required_level) points = 3;
+      else if (supplyLevel > demandSkill.required_level) points = 1.5;
+
+      return {
+        sfia_skill_id: demandSkill.skill_id,
+        skill_name: demandSkill.skill_name,
+        demand_level: demandSkill.required_level,
+        supply_level: supplyLevel,
+        points,
+        matched: points > 0,
+      } satisfies SkillBreakdown;
+    });
+
+    const totalPoints = breakdown.reduce((sum, item) => sum + item.points, 0);
+    const maxPossiblePoints = relevantDemand.length * 3;
+    const relevancePercentage =
+      maxPossiblePoints > 0
+        ? roundToTwo((totalPoints / maxPossiblePoints) * 100)
+        : 0;
+
+    return {
+      totalPoints,
+      maxPossiblePoints,
+      relevancePercentage,
+      breakdown,
+    };
+  }
+
+  private async getJobDemandSkills(jobPostingId: string): Promise<SfiaDemandSkill[]> {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('job_posting_sfia_skill')
+      .select('job_posting_skills_id, job_posting_id, skill_id, required_level, weight')
+      .eq('job_posting_id', jobPostingId);
+
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'job_posting_sfia_skill');
+      throw new InternalServerErrorException(error.message);
+    }
+
+    const demandRows = (data ?? [])
+      .map((row: Record<string, unknown>) => {
+        const skillId = this.readFirstString(row, [
+          'sfia_skill_id',
+          'skill_id',
+          'sfia_id',
+        ]);
+        if (!skillId) return null;
+
+        return {
+          skill_id: skillId,
+          skill_name: skillId,
+          required_level: normalizeNumber(
+            this.readFirstValue(row, ['required_level', 'level']),
+          ),
+          weight: normalizeNumber(this.readFirstValue(row, ['weight'])),
+        } satisfies SfiaDemandSkill;
+      })
+      .filter((row): row is SfiaDemandSkill => row !== null);
+
+    return this.attachSkillNames(demandRows);
+  }
+
+  private async getCandidateSupplySkills(
+    applications: RankedApplicationRow[],
+  ): Promise<SfiaSupplySkill[]> {
+    if (applications.length === 0) return [];
+
+    const applicationIds = applications
+      .map((row) => row.application_id)
+      .filter((value): value is string => Boolean(value));
+
+    if (applicationIds.length === 0) return [];
+
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('candidate_skill_score_sfia')
+      .select('application_id, skill_id, candidate_level, match_score')
+      .in('application_id', applicationIds);
+
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'candidate_skill_score_sfia');
+      throw new InternalServerErrorException(error.message);
+    }
+
+    const supplyRows = (data ?? [])
+      .map((row: Record<string, unknown>) => {
+        const ownerKey =
+          this.readFirstString(row, ['applicant_id', 'application_id']) ?? '';
+        const skillId = this.readFirstString(row, [
+          'sfia_skill_id',
+          'skill_id',
+          'sfia_id',
+        ]);
+        if (!ownerKey || !skillId) return null;
+
+        return {
+          owner_key: ownerKey,
+          skill_id: skillId,
+          skill_name: skillId,
+          candidate_level: normalizeNumber(
+            this.readFirstValue(row, ['candidate_level', 'level']),
+          ),
+          match_score: this.readNullableNumber(row, ['match_score']),
+        } satisfies SfiaSupplySkill;
+      })
+      .filter((row): row is SfiaSupplySkill => row !== null);
+
+    return this.attachSkillNames(supplyRows);
+  }
+
+  private async cacheSfiaScore(
+    jobPostingId: string,
+    applicationId: string,
+    sfiaMatchPercentage: number,
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    const { error } = await supabase
+      .from('job_application_sfia')
+      .update({ sfia_matching_percentage: sfiaMatchPercentage })
+      .eq('job_posting_id', jobPostingId)
+      .eq('application_id', applicationId);
+
+    if (error) {
+      this.logger.warn(
+        `Unable to cache sfia_match_percentage for application ${applicationId}: ${error.message}`,
+      );
+    }
+  }
+
+  private readFirstValue(
+    row: Record<string, unknown>,
+    keys: string[],
+  ): unknown {
+    for (const key of keys) {
+      if (row[key] !== undefined && row[key] !== null) return row[key];
+    }
+    return undefined;
+  }
+
+  private readFirstString(
+    row: Record<string, unknown>,
+    keys: string[],
+  ): string | null {
+    const value = this.readFirstValue(row, keys);
+    return typeof value === 'string' && value.trim() !== '' ? value : null;
+  }
+
+  private readNullableNumber(
+    row: Record<string, unknown>,
+    keys: string[],
+  ): number | null {
+    const value = this.readFirstValue(row, keys);
+    if (value === undefined || value === null || value === '') return null;
+    const parsed = normalizeNumber(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  private async getRankedApplicationRows(
+    jobPostingId: string,
+    companyId: string,
+  ): Promise<RankedApplicationRow[]> {
+    const supabase = this.supabaseService.getClient();
+
+    await this.findOnePosting(jobPostingId, companyId);
+
+    const { data, error } = await supabase
+      .from('job_application_sfia')
+      .select(
+        'application_id, job_posting_id, applicant_id, status, application_timestamp, pre_screening_score, sfia_matching_percentage, manual_rank_position, ranking_mode',
+      )
+      .eq('job_posting_id', jobPostingId);
+
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'job_application_sfia');
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return (data ?? []) as RankedApplicationRow[];
+  }
+
+  private async getApplicantProfiles(
+    applications: RankedApplicationRow[],
+  ): Promise<ApplicantProfileRow[]> {
+    const applicantIds = applications
+      .map((row) => row.applicant_id)
+      .filter((value): value is string => Boolean(value));
+
+    if (applicantIds.length === 0) return [];
+
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('applicant_profile')
+      .select('applicant_id, first_name, last_name, email, phone_number, applicant_code')
+      .in('applicant_id', applicantIds);
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    return (data ?? []) as ApplicantProfileRow[];
+  }
+
+  private async attachSkillNames<T extends { skill_id: string; skill_name: string }>(
+    rows: T[],
+  ): Promise<T[]> {
+    const skillIds = [...new Set(rows.map((row) => row.skill_id).filter(Boolean))];
+    if (skillIds.length === 0) return rows;
+
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('sfia_skills')
+      .select('*')
+      .in(this.getSkillPrimaryKeyColumn(), skillIds);
+
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'sfia_skills');
+      return rows;
+    }
+
+    const nameById = new Map<string, string>();
+    for (const row of (data ?? []) as Record<string, unknown>[]) {
+      const id = this.readFirstString(row, ['skill_id', 'sfia_skill_id', 'id']);
+      if (!id) continue;
+      const name =
+        this.readFirstString(row, ['skill_name', 'name']) ??
+        this.readFirstString(row, ['skill']) ??
+        id;
+      nameById.set(id, name);
+    }
+
+    return rows.map((row) => ({
+      ...row,
+      skill_name: nameById.get(row.skill_id) ?? row.skill_name,
+    }));
+  }
+
+  private getSkillPrimaryKeyColumn() {
+    return 'skill_id';
+  }
+
+  private handleMissingSfiaSchema(message: string, tableName: string) {
+    if (message.includes('schema cache')) {
+      this.logger.error(
+        `SFIA ranking requires the ${tableName} table, but it is not available in the configured Supabase project.`,
+      );
+    }
   }
 }

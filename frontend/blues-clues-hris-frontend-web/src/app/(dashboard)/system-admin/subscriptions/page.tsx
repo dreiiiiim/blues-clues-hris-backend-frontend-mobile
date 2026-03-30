@@ -61,10 +61,10 @@ function PlanCard({
   onSelect,
   loading,
 }: {
-  plan: PlanConfig;
-  current: boolean;
-  onSelect: () => void;
-  loading: boolean;
+  readonly plan: PlanConfig;
+  readonly current: boolean;
+  readonly onSelect: () => void;
+  readonly loading: boolean;
 }) {
   return (
     <div
