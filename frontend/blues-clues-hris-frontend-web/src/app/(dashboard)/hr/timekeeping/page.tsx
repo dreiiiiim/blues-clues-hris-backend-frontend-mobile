@@ -79,12 +79,18 @@ type EmployeeDetail = {
   last_name: string;
   employee_id: string;
   date: string;
-  schedule: { start_time: string; end_time: string; workdays: string[] | string; is_nightshift: boolean } | null;
+  schedule: { 
+    start_time: string; 
+    end_time: string; 
+    workdays: string[] | string; 
+    is_nightshift: boolean;
+  } | null;
   punches: DetailPunch[];
 };
 
 type ViewMode = "day" | "week" | "month" | "custom";
 type StatusFilter = RosterEntry["status"] | "all";
+type TabMode = "today" | "schedule" | "attendance";
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
@@ -394,28 +400,7 @@ function TopPerformersBar({ entries }: Readonly<{ entries: PeriodEntry[] }>) {
   );
 }
 
-// ─── Employee Slide-Over — types & helpers ────────────────────────────────────
-
-type DrillPeriod = "today" | "week" | "month";
-
-function getDrillRange(period: DrillPeriod, selectedDate: Date): { from: string; to: string } {
-  const now = new Date();
-  if (period === "today") {
-    const d = toDateString(selectedDate);
-    return { from: d, to: d };
-  }
-  if (period === "week") {
-    const dow = now.getDay();
-    const mon = new Date(now); mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
-    const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
-    return { from: toDateString(mon), to: toDateString(sun > now ? now : sun) };
-  }
-  const y = now.getFullYear(), m = now.getMonth();
-  return {
-    from: `${y}-${String(m + 1).padStart(2, "0")}-01`,
-    to: toDateString(now),
-  };
-}
+// ─── Employee Slide-Over — Updated with new tabs ──────────────────────────────
 
 type SliderDay = {
   date: string;
@@ -429,19 +414,26 @@ type SliderDay = {
   isLate: boolean;
 };
 
-function buildSliderDays(punches: PunchRow[], employeeId: string, from: string, to: string): SliderDay[] {
-  const emp = punches.filter(p => p.employee_id === employeeId);
+function buildSliderDays(
+  punches: PunchRow[],
+  employeeId: string,
+  from: string,
+  to: string
+): SliderDay[] {
+  const emp = punches.filter((p) => p.employee_id === employeeId);
   const today = toDateString(new Date());
   const result: SliderDay[] = [];
   const cur = new Date(from + "T12:00:00");
   const end = new Date(to + "T12:00:00");
+
   while (cur <= end) {
     const date = toDateString(cur);
-    const dp = emp.filter(p => p.timestamp.split("T")[0] === date);
-    const ci = dp.find(p => p.log_type === "time-in") ?? null;
-    const co = dp.find(p => p.log_type === "time-out") ?? null;
-    const ab = dp.find(p => p.log_type === "absence") ?? null;
+    const dp = emp.filter((p) => p.timestamp.split("T")[0] === date);
+    const ci = dp.find((p) => p.log_type === "time-in") ?? null;
+    const co = dp.find((p) => p.log_type === "time-out") ?? null;
+    const ab = dp.find((p) => p.log_type === "absence") ?? null;
     const dow = cur.getDay();
+
     result.push({
       date,
       ci: ci?.timestamp ?? null,
@@ -459,57 +451,90 @@ function buildSliderDays(punches: PunchRow[], employeeId: string, from: string, 
 }
 
 type WeekGroup = {
+  weekNumber: number;
   key: string;
-  label: string;
   days: SliderDay[];
   totalHours: number;
   workdayCount: number;
 };
 
-function groupIntoWeeks(days: SliderDay[]): WeekGroup[] {
+function groupIntoWeeks(days: SliderDay[], monthStart: Date): WeekGroup[] {
   const map = new Map<string, WeekGroup>();
+  const weekNumbers = new Map<string, number>();
+
+  // Find first Monday of the month
+  const firstMonday = new Date(monthStart);
+  while (firstMonday.getDay() !== 1) {
+    firstMonday.setDate(firstMonday.getDate() + 1);
+  }
+
   for (const day of days) {
     const d = new Date(day.date + "T12:00:00");
     const dow = d.getDay();
-    const mon = new Date(d); mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - (dow === 0 ? 6 : dow - 1));
     const key = toDateString(mon);
+
+    // Calculate week number
+    if (!weekNumbers.has(key)) {
+      const weeksDiff = Math.floor(
+        (mon.getTime() - firstMonday.getTime()) / (7 * 24 * 60 * 60 * 1000)
+      );
+      weekNumbers.set(key, weeksDiff + 1);
+    }
+
+    const weekNumber = weekNumbers.get(key)!;
+
     if (!map.has(key)) {
       map.set(key, {
+        weekNumber,
         key,
-        label: mon.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
         days: [],
         totalHours: 0,
         workdayCount: 0,
       });
     }
+
     const g = map.get(key)!;
     g.days.push(day);
     g.totalHours += day.hours ?? 0;
     if (!day.isWeekend && !day.isFuture) g.workdayCount++;
   }
+
   return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
 }
 
-// ─── Compact day row ──────────────────────────────────────────────────────────
+// ─── Compact Day Row ──────────────────────────────────────────────────────────
 
 function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
   const d = new Date(day.date + "T12:00:00");
-  const dayLabel  = d.toLocaleDateString("en-US", { weekday: "short" });
+  const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
   const dateLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const isWeekendEmpty = day.isWeekend && !day.ci && !day.absent && !day.isFuture;
 
-  const dotCls = day.isFuture        ? "bg-slate-200"
-    : day.absent                     ? "bg-purple-400"
-    : day.ci && day.isLate           ? "bg-amber-400"
-    : day.ci                         ? "bg-green-500"
-    : isWeekendEmpty                 ? "bg-slate-100"
+  const dotCls = day.isFuture
+    ? "bg-slate-200"
+    : day.absent
+    ? "bg-purple-400"
+    : day.ci && day.isLate
+    ? "bg-amber-400"
+    : day.ci
+    ? "bg-green-500"
+    : isWeekendEmpty
+    ? "bg-slate-100"
     : "bg-red-300";
 
   return (
-    <div className={`flex items-center gap-3 px-4 py-2.5 border-b border-border/40 last:border-0 ${isWeekendEmpty ? "opacity-40" : ""}`}>
+    <div
+      className={`flex items-center gap-3 px-4 py-2.5 border-b border-border/40 last:border-0 ${
+        isWeekendEmpty ? "opacity-40" : ""
+      }`}
+    >
       <div className={`h-2 w-2 rounded-full shrink-0 ${dotCls}`} />
       <div className="w-[68px] shrink-0">
-        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest leading-none">{dayLabel}</p>
+        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest leading-none">
+          {dayLabel}
+        </p>
         <p className="text-xs font-bold leading-snug mt-0.5">{dateLabel}</p>
       </div>
 
@@ -518,7 +543,9 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
       ) : isWeekendEmpty ? (
         <p className="text-xs text-muted-foreground/50">Weekend</p>
       ) : day.absent ? (
-        <p className="text-xs text-purple-600 font-medium">{day.absenceReason ?? "Excused absence"}</p>
+        <p className="text-xs text-purple-600 font-medium">
+          {day.absenceReason ?? "Excused absence"}
+        </p>
       ) : day.ci ? (
         <div className="flex items-center gap-1.5 flex-1 min-w-0 text-xs">
           <span className="font-semibold tabular-nums">{formatTime(day.ci)}</span>
@@ -527,11 +554,21 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
             {day.co ? formatTime(day.co) : "…"}
           </span>
           {day.hours && (
-            <span className="ml-auto shrink-0 text-[10px] font-bold text-muted-foreground tabular-nums">{day.hours.toFixed(1)}h</span>
+            <span className="ml-auto shrink-0 text-[10px] font-bold text-muted-foreground tabular-nums">
+              {day.hours.toFixed(1)}h
+            </span>
           )}
           <div className="flex gap-1 shrink-0">
-            {day.isLate && <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded font-bold">Late</span>}
-            {(day.hours ?? 0) > 8 && <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded font-bold">OT</span>}
+            {day.isLate && (
+              <span className="text-[9px] bg-amber-100 text-amber-700 px-1 py-0.5 rounded font-bold">
+                Late
+              </span>
+            )}
+            {(day.hours ?? 0) > 8 && (
+              <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded font-bold">
+                OT
+              </span>
+            )}
           </div>
         </div>
       ) : (
@@ -541,38 +578,36 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
   );
 }
 
-// ─── Summary bar (week / month) ───────────────────────────────────────────────
+// ─── Attendance Summary Bar ───────────────────────────────────────────────────
 
-function SliderSummary({ days }: Readonly<{ days: SliderDay[] }>) {
-  const workdays    = days.filter(d => !d.isWeekend && !d.isFuture);
-  const present     = workdays.filter(d => d.ci && !d.absent).length;
-  const lateCount   = workdays.filter(d => d.ci && d.isLate).length;
-  const absentCount = workdays.filter(d => !d.ci && !d.absent).length;
-  const excused     = workdays.filter(d => d.absent).length;
-  const totalHrs    = days.reduce((s, d) => s + (d.hours ?? 0), 0);
-  const compliance  = workdays.length > 0 ? Math.round((present / workdays.length) * 100) : 0;
-  const compCls     = compliance >= 90 ? "text-green-600" : compliance >= 70 ? "text-amber-600" : "text-red-500";
+function AttendanceSummary({ days }: Readonly<{ days: SliderDay[] }>) {
+  const workdays = days.filter((d) => !d.isWeekend && !d.isFuture);
+  const present = workdays.filter((d) => d.ci && !d.absent).length;
+  const lateCount = workdays.filter((d) => d.ci && d.isLate).length;
+  const absentCount = workdays.filter((d) => !d.ci && !d.absent).length;
+  const excused = workdays.filter((d) => d.absent).length;
+  const compliance =
+    workdays.length > 0 ? Math.round((present / workdays.length) * 100) : 0;
+  const compCls =
+    compliance >= 90 ? "text-green-600" : compliance >= 70 ? "text-amber-600" : "text-red-500";
 
   return (
     <div className="shrink-0 border-b border-border bg-muted/10">
       <div className="grid grid-cols-5 divide-x divide-border/60">
         {[
-          { label: "Present",    value: String(present),       cls: "text-green-600" },
-          { label: "Late",       value: String(lateCount),     cls: "text-amber-600" },
-          { label: "Absent",     value: String(absentCount),   cls: "text-red-500" },
-          { label: "Excused",    value: String(excused),       cls: "text-purple-600" },
-          { label: "Compliance", value: `${compliance}%`,      cls: compCls },
+          { label: "Present", value: String(present), cls: "text-green-600" },
+          { label: "Late", value: String(lateCount), cls: "text-amber-600" },
+          { label: "Absent", value: String(absentCount), cls: "text-red-500" },
+          { label: "Excused", value: String(excused), cls: "text-purple-600" },
+          { label: "Compliance", value: `${compliance}%`, cls: compCls },
         ].map(({ label, value, cls }) => (
           <div key={label} className="flex flex-col items-center py-3 px-1">
             <p className={`text-sm font-bold ${cls}`}>{value}</p>
-            <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider mt-0.5 text-center leading-tight">{label}</p>
+            <p className="text-[9px] text-muted-foreground font-bold uppercase tracking-wider mt-0.5 text-center leading-tight">
+              {label}
+            </p>
           </div>
         ))}
-      </div>
-      <div className="px-4 pb-2.5">
-        <p className="text-[9px] text-muted-foreground font-medium">
-          {totalHrs.toFixed(1)}h total · {workdays.length} scheduled workdays
-        </p>
       </div>
     </div>
   );
@@ -581,69 +616,152 @@ function SliderSummary({ days }: Readonly<{ days: SliderDay[] }>) {
 // ─── Employee Slide-Over ──────────────────────────────────────────────────────
 
 function EmployeeSlideOver({
-  name, employeeId, userId, selectedDate, initialPeriod, onClose,
+  name,
+  employeeId,
+  userId,
+  dashboardFilter,
+  dashboardFrom,
+  dashboardTo,
+  onClose,
 }: Readonly<{
   name: string;
   employeeId: string;
   userId: string;
-  selectedDate: Date;
-  initialPeriod: DrillPeriod;
+  dashboardFilter: ViewMode;
+  dashboardFrom: string;
+  dashboardTo: string;
   onClose: () => void;
 }>) {
-  const [mounted,       setMounted]       = useState(false);
-  const [drillPeriod,   setDrillPeriod]   = useState<DrillPeriod>(initialPeriod);
-  const [ownPunches,    setOwnPunches]    = useState<PunchRow[]>([]);
-  const [ownDetail,     setOwnDetail]     = useState<EmployeeDetail | null>(null);
-  const [fetching,      setFetching]      = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabMode>("today");
+  const [todayDetail, setTodayDetail] = useState<EmployeeDetail | null>(null);
+  const [allPunches, setAllPunches] = useState<PunchRow[]>([]);
+  const [fetching, setFetching] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
+
+  const today = toDateString(new Date());
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(raf);
   }, []);
 
+  // Fetch today's detail for Today & Schedule tabs
   useEffect(() => {
     setFetching(true);
-    const { from, to } = getDrillRange(drillPeriod, selectedDate);
-    if (drillPeriod === "today") {
-      authFetch(`${API_BASE_URL}/timekeeping/timesheets/${userId}/${from}`)
-        .then(r => (r.ok ? r.json() : null))
-        .then(data => setOwnDetail(data as EmployeeDetail | null))
-        .catch(() => setOwnDetail(null))
-        .finally(() => setFetching(false));
-    } else {
-      authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${from}&to=${to}`)
-        .then(r => (r.ok ? (r.json() as Promise<PunchRow[]>) : Promise.resolve([])))
-        .then(data => setOwnPunches(data))
-        .catch(() => setOwnPunches([]))
-        .finally(() => setFetching(false));
-    }
-  }, [drillPeriod, userId, selectedDate]);
+    authFetch(`${API_BASE_URL}/timekeeping/timesheets/${userId}/${today}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setTodayDetail(data as EmployeeDetail | null))
+      .catch(() => setTodayDetail(null))
+      .finally(() => setFetching(false));
+  }, [userId, today]);
 
-  const handleClose = () => { setMounted(false); setTimeout(onClose, 260); };
+  // Fetch range data for Schedule & Attendance Details tabs
+  useEffect(() => {
+    if (dashboardFilter === "day") return; // No need for range data in day view
 
-  const { from, to } = getDrillRange(drillPeriod, selectedDate);
-  const sliderDays   = drillPeriod !== "today" ? buildSliderDays(ownPunches, employeeId, from, to) : [];
-  const weekGroups   = drillPeriod === "month"  ? groupIntoWeeks(sliderDays) : [];
+    setFetching(true);
+    authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${dashboardFrom}&to=${dashboardTo}`)
+      .then((r) => (r.ok ? (r.json() as Promise<PunchRow[]>) : Promise.resolve([])))
+      .then((data) => setAllPunches(data))
+      .catch(() => setAllPunches([]))
+      .finally(() => setFetching(false));
+  }, [dashboardFrom, dashboardTo, dashboardFilter]);
 
-  // Today view
-  const todayPunches = ownDetail?.punches ?? [];
-  const timeIn       = todayPunches.find(p => p.log_type === "time-in")  ?? null;
-  const timeOut      = todayPunches.find(p => p.log_type === "time-out") ?? null;
-  const schedule     = ownDetail?.schedule ?? null;
+  const handleClose = () => {
+    setMounted(false);
+    setTimeout(onClose, 260);
+  };
 
-  const initials = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+  const initials = name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
 
-  const PERIOD_TABS: { key: DrillPeriod; label: string }[] = [
+  const TABS: { key: TabMode; label: string }[] = [
     { key: "today", label: "Today" },
-    { key: "week",  label: "This Week" },
-    { key: "month", label: "This Month" },
+    { key: "schedule", label: "Schedule" },
+    { key: "attendance", label: "Attendance Details" },
   ];
 
+  // Data for attendance tab
+  const sliderDays =
+    dashboardFilter !== "day" ? buildSliderDays(allPunches, employeeId, dashboardFrom, dashboardTo) : [];
+  
+  const monthStart = dashboardFilter === "month" ? new Date(dashboardFrom + "T12:00:00") : new Date();
+  const weekGroups = dashboardFilter === "month" ? groupIntoWeeks(sliderDays, monthStart) : [];
+
+  // Today data
+  const todayPunches = todayDetail?.punches ?? [];
+  const timeIn = todayPunches.find((p) => p.log_type === "time-in") ?? null;
+  const timeOut = todayPunches.find((p) => p.log_type === "time-out") ?? null;
+  const schedule = todayDetail?.schedule ?? null;
+
+  // Calculate worked hours for Schedule tab
+  const calculateWorkedHours = (): { totalHours: number; scheduledDays: number } => {
+    if (dashboardFilter === "day" || !schedule) {
+      return { totalHours: 0, scheduledDays: 0 };
+    }
+
+    const workdaysStr =
+      typeof schedule.workdays === "string" ? schedule.workdays : schedule.workdays.join(",");
+    const workdayNames = workdaysStr.toUpperCase().split(",");
+    const dayMap: Record<string, number> = {
+      SUN: 0,
+      MON: 1,
+      TUES: 2,
+      TUE: 2,
+      WED: 3,
+      THURS: 4,
+      THU: 4,
+      FRI: 5,
+      SAT: 6,
+    };
+    const workdayIndices = workdayNames.map((d) => dayMap[d.trim()]).filter((i) => i !== undefined);
+
+    // Count scheduled days in range
+    let scheduledDays = 0;
+    const cur = new Date(dashboardFrom + "T12:00:00");
+    const end = new Date(dashboardTo + "T12:00:00");
+    while (cur <= end) {
+      if (workdayIndices.includes(cur.getDay())) scheduledDays++;
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    // Calculate actual worked hours
+    const empPunches = allPunches.filter((p) => p.employee_id === employeeId);
+    const dailyLogs = new Map<string, { ci: string | null; co: string | null }>();
+
+    for (const p of empPunches) {
+      const date = p.timestamp.split("T")[0];
+      if (!dailyLogs.has(date)) dailyLogs.set(date, { ci: null, co: null });
+      const log = dailyLogs.get(date)!;
+      if (p.log_type === "time-in" && !log.ci) log.ci = p.timestamp;
+      if (p.log_type === "time-out") log.co = p.timestamp;
+    }
+
+    let totalHours = 0;
+
+    for (const [_, log] of dailyLogs) {
+      if (log.ci && log.co) {
+        const worked = computeHoursDecimal(log.ci, log.co) ?? 0;
+        // Deduct 1 hour for break
+        totalHours += Math.max(0, worked - 1);
+      }
+    }
+
+    return { totalHours, scheduledDays };
+  };
+
+  const { totalHours, scheduledDays } = calculateWorkedHours();
+
   const toggleWeek = (key: string) => {
-    setExpandedWeeks(prev => {
+    setExpandedWeeks((prev) => {
       const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   };
@@ -652,12 +770,18 @@ function EmployeeSlideOver({
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 bg-black/40 z-40 backdrop-blur-sm transition-opacity duration-200 ${mounted ? "opacity-100" : "opacity-0"}`}
+        className={`fixed inset-0 bg-black/40 z-40 backdrop-blur-sm transition-opacity duration-200 ${
+          mounted ? "opacity-100" : "opacity-0"
+        }`}
         onClick={handleClose}
       />
-      {/* Panel */}
-      <div className={`fixed right-0 top-0 h-full w-full max-w-md z-50 bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out ${mounted ? "translate-x-0" : "translate-x-full"}`}>
 
+      {/* Panel */}
+      <div
+        className={`fixed right-0 top-0 h-full w-full max-w-md z-50 bg-background border-l border-border shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+          mounted ? "translate-x-0" : "translate-x-full"
+        }`}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/20 shrink-0">
           <div className="flex items-center gap-3">
@@ -669,19 +793,22 @@ function EmployeeSlideOver({
               <p className="text-[10px] text-muted-foreground font-mono">{employeeId}</p>
             </div>
           </div>
-          <button onClick={handleClose} className="p-2 rounded-lg hover:bg-muted transition-colors cursor-pointer shrink-0">
+          <button
+            onClick={handleClose}
+            className="p-2 rounded-lg hover:bg-muted transition-colors cursor-pointer shrink-0"
+          >
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
 
-        {/* Period tabs */}
+        {/* Tabs */}
         <div className="flex border-b border-border shrink-0 bg-background">
-          {PERIOD_TABS.map(tab => (
+          {TABS.map((tab) => (
             <button
               key={tab.key}
-              onClick={() => setDrillPeriod(tab.key)}
+              onClick={() => setActiveTab(tab.key)}
               className={`flex-1 py-2.5 text-xs font-bold transition-colors cursor-pointer ${
-                drillPeriod === tab.key
+                activeTab === tab.key
                   ? "text-primary border-b-2 border-primary bg-primary/5"
                   : "text-muted-foreground hover:text-foreground hover:bg-muted/30"
               }`}
@@ -701,33 +828,38 @@ function EmployeeSlideOver({
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
-
-            {/* ── Today ──────────────────────────────────────────────────── */}
-            {drillPeriod === "today" && (
+            {/* ── TODAY TAB ──────────────────────────────────────────────── */}
+            {activeTab === "today" && (
               <div className="p-5 space-y-4">
-                {schedule && (
-                  <div className="p-3.5 rounded-xl bg-muted/30 border border-border">
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">Schedule</p>
-                    <div className="flex items-center gap-3 text-sm">
-                      <span className="font-semibold">{schedule.start_time}</span>
-                      <span className="text-muted-foreground text-xs">→</span>
-                      <span className="font-semibold">{schedule.end_time}</span>
-                      {schedule.is_nightshift && (
-                        <span className="text-[9px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">Night Shift</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
                 <div className="grid grid-cols-3 gap-2.5">
                   {[
-                    { label: "Time In",  value: formatTime(timeIn?.timestamp  ?? null), icon: LogIn,  cls: "text-green-600" },
-                    { label: "Time Out", value: formatTime(timeOut?.timestamp ?? null), icon: LogOut, cls: "text-red-500" },
-                    { label: "Hours",    value: formatHoursLabel(timeIn?.timestamp ?? null, timeOut?.timestamp ?? null), icon: Timer, cls: "text-blue-600" },
+                    {
+                      label: "Time In",
+                      value: formatTime(timeIn?.timestamp ?? null),
+                      icon: LogIn,
+                      cls: "text-green-600",
+                    },
+                    {
+                      label: "Time Out",
+                      value: formatTime(timeOut?.timestamp ?? null),
+                      icon: LogOut,
+                      cls: "text-red-500",
+                    },
+                    {
+                      label: "Hours",
+                      value: formatHoursLabel(timeIn?.timestamp ?? null, timeOut?.timestamp ?? null),
+                      icon: Timer,
+                      cls: "text-blue-600",
+                    },
                   ].map(({ label, value, icon: Icon, cls }) => (
-                    <div key={label} className="p-3 rounded-xl border border-border bg-background text-center">
+                    <div
+                      key={label}
+                      className="p-3 rounded-xl border border-border bg-background text-center"
+                    >
                       <Icon className={`h-4 w-4 mx-auto mb-1 ${cls}`} />
-                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide mb-0.5">{label}</p>
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide mb-0.5">
+                        {label}
+                      </p>
                       <p className="font-bold text-sm">{value}</p>
                     </div>
                   ))}
@@ -735,30 +867,48 @@ function EmployeeSlideOver({
 
                 {todayPunches.length > 0 ? (
                   <div>
-                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-2.5">Timeline</p>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-2.5">
+                      Timeline
+                    </p>
                     <div className="rounded-xl border border-border overflow-hidden">
-                      {todayPunches.map(p => {
-                        const isIn  = p.log_type === "time-in";
+                      {todayPunches.map((p) => {
+                        const isIn = p.log_type === "time-in";
                         const isOut = p.log_type === "time-out";
                         return (
-                          <div key={p.log_id} className="flex items-start gap-3 px-4 py-3 border-b border-border/40 last:border-0">
-                            <div className={`mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0 border ${
-                              isIn  ? "bg-green-100 border-green-200"
-                            : isOut ? "bg-red-50 border-red-200"
-                            :         "bg-purple-50 border-purple-200"
-                            }`}>
-                              {isIn  ? <LogIn  className="h-3 w-3 text-green-600" />
-                             : isOut ? <LogOut className="h-3 w-3 text-red-500"  />
-                             :         <FileX  className="h-3 w-3 text-purple-600" />}
+                          <div
+                            key={p.log_id}
+                            className="flex items-start gap-3 px-4 py-3 border-b border-border/40 last:border-0"
+                          >
+                            <div
+                              className={`mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0 border ${
+                                isIn
+                                  ? "bg-green-100 border-green-200"
+                                  : isOut
+                                  ? "bg-red-50 border-red-200"
+                                  : "bg-purple-50 border-purple-200"
+                              }`}
+                            >
+                              {isIn ? (
+                                <LogIn className="h-3 w-3 text-green-600" />
+                              ) : isOut ? (
+                                <LogOut className="h-3 w-3 text-red-500" />
+                              ) : (
+                                <FileX className="h-3 w-3 text-purple-600" />
+                              )}
                             </div>
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center justify-between">
-                                <p className="text-xs font-semibold capitalize">{p.log_type.replace("-", " ")}</p>
-                                <p className="text-xs font-mono text-muted-foreground">{formatTime(p.timestamp)}</p>
+                                <p className="text-xs font-semibold capitalize">
+                                  {p.log_type.replace("-", " ")}
+                                </p>
+                                <p className="text-xs font-mono text-muted-foreground">
+                                  {formatTime(p.timestamp)}
+                                </p>
                               </div>
-                              {(p.latitude && p.longitude) ? (
+                              {p.latitude && p.longitude ? (
                                 <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                                  <MapPin className="h-3 w-3 text-green-600" />{p.latitude.toFixed(4)}, {p.longitude.toFixed(4)}
+                                  <MapPin className="h-3 w-3 text-green-600" />
+                                  {p.latitude.toFixed(4)}, {p.longitude.toFixed(4)}
                                 </p>
                               ) : (
                                 <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -766,7 +916,13 @@ function EmployeeSlideOver({
                                 </p>
                               )}
                               {p.clock_type && (
-                                <span className={`mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${p.clock_type === "LATE" ? "bg-amber-100 text-amber-700" : "bg-green-100 text-green-700"}`}>
+                                <span
+                                  className={`mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                    p.clock_type === "LATE"
+                                      ? "bg-amber-100 text-amber-700"
+                                      : "bg-green-100 text-green-700"
+                                  }`}
+                                >
                                   {p.clock_type}
                                 </span>
                               )}
@@ -779,74 +935,269 @@ function EmployeeSlideOver({
                 ) : (
                   <div className="text-center py-10">
                     <CalendarDays className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
-                    <p className="text-sm text-muted-foreground">No punch records for this date.</p>
+                    <p className="text-sm text-muted-foreground">No punch records for today.</p>
                   </div>
                 )}
               </div>
             )}
 
-            {/* ── This Week ──────────────────────────────────────────────── */}
-            {drillPeriod === "week" && (
-              <>
-                <SliderSummary days={sliderDays} />
-                <div>
-                  {sliderDays.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-10">No records this week.</p>
-                  ) : (
-                    sliderDays.map(day => <DayCompactRow key={day.date} day={day} />)
-                  )}
-                </div>
-              </>
-            )}
-
-            {/* ── This Month ─────────────────────────────────────────────── */}
-            {drillPeriod === "month" && (
-              <>
-                <SliderSummary days={sliderDays} />
-                <div className="p-3 space-y-2">
-                  {weekGroups.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-8">No records this month.</p>
-                  ) : weekGroups.map(group => {
-                    const isExpanded  = expandedWeeks.has(group.key);
-                    const presentDays = group.days.filter(d => d.ci && !d.absent && !d.isFuture).length;
-                    return (
-                      <div key={group.key} className="rounded-xl border border-border overflow-hidden">
-                        <button
-                          onClick={() => toggleWeek(group.key)}
-                          className="w-full flex items-center justify-between px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer"
-                        >
-                          <div className="flex items-center gap-2.5 text-left">
-                            <ChevronRight className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ${isExpanded ? "rotate-90" : ""}`} />
-                            <div>
-                              <p className="text-xs font-bold">Week of {group.label}</p>
-                              <p className="text-[9px] text-muted-foreground mt-0.5">{presentDays} present · {group.totalHours.toFixed(1)}h</p>
-                            </div>
-                          </div>
-                          {/* Dot strip preview */}
-                          <div className="flex items-center gap-1 shrink-0">
-                            {group.days.filter(d => !d.isWeekend).map(d => (
-                              <div key={d.date} className={`h-2 w-2 rounded-full ${
-                                d.isFuture ? "bg-slate-200"
-                              : d.absent   ? "bg-purple-400"
-                              : d.ci && d.isLate ? "bg-amber-400"
-                              : d.ci       ? "bg-green-500"
-                              : "bg-red-300"
-                              }`} />
-                            ))}
-                          </div>
-                        </button>
-                        {isExpanded && (
-                          <div className="bg-background">
-                            {group.days.map(day => <DayCompactRow key={day.date} day={day} />)}
-                          </div>
+            {/* ── SCHEDULE TAB ───────────────────────────────────────────── */}
+            {activeTab === "schedule" && (
+              <div className="p-5 space-y-4">
+                {schedule ? (
+                  <>
+                    <div className="p-3.5 rounded-xl bg-muted/30 border border-border">
+                      <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">
+                        Scheduled Time
+                      </p>
+                      <div className="flex items-center gap-3 text-sm">
+                        <span className="font-semibold">{schedule.start_time}</span>
+                        <span className="text-muted-foreground text-xs">→</span>
+                        <span className="font-semibold">{schedule.end_time}</span>
+                        {schedule.is_nightshift && (
+                          <span className="text-[9px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">
+                            Night Shift
+                          </span>
                         )}
                       </div>
-                    );
-                  })}
-                </div>
-              </>
+                    </div>
+
+                    {dashboardFilter !== "day" && (
+                      <div className="p-4 rounded-xl bg-primary/5 border border-primary/10">
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-2">
+                          {dashboardFilter === "week"
+                            ? "This Week"
+                            : dashboardFilter === "month"
+                            ? "This Month"
+                            : "Selected Period"}
+                        </p>
+                        <div className="flex items-baseline gap-2 text-sm">
+                          <span className="text-2xl font-bold text-primary">
+                            {totalHours.toFixed(1)}h
+                          </span>
+                          <span className="text-muted-foreground">total</span>
+                          <span className="mx-2 text-border">|</span>
+                          <span className="text-lg font-bold">{scheduledDays}</span>
+                          <span className="text-muted-foreground">scheduled workdays</span>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="text-center py-10">
+                    <CalendarDays className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
+                    <p className="text-sm text-muted-foreground">No schedule assigned.</p>
+                  </div>
+                )}
+              </div>
             )}
 
+            {/* ── ATTENDANCE DETAILS TAB ─────────────────────────────────── */}
+            {activeTab === "attendance" && (
+              <>
+                {dashboardFilter === "day" ? (
+                  // Show same as Today tab when filter is Day
+                  <div className="p-5 space-y-4">
+                    <div className="grid grid-cols-3 gap-2.5">
+                      {[
+                        {
+                          label: "Time In",
+                          value: formatTime(timeIn?.timestamp ?? null),
+                          icon: LogIn,
+                          cls: "text-green-600",
+                        },
+                        {
+                          label: "Time Out",
+                          value: formatTime(timeOut?.timestamp ?? null),
+                          icon: LogOut,
+                          cls: "text-red-500",
+                        },
+                        {
+                          label: "Hours",
+                          value: formatHoursLabel(
+                            timeIn?.timestamp ?? null,
+                            timeOut?.timestamp ?? null
+                          ),
+                          icon: Timer,
+                          cls: "text-blue-600",
+                        },
+                      ].map(({ label, value, icon: Icon, cls }) => (
+                        <div
+                          key={label}
+                          className="p-3 rounded-xl border border-border bg-background text-center"
+                        >
+                          <Icon className={`h-4 w-4 mx-auto mb-1 ${cls}`} />
+                          <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-wide mb-0.5">
+                            {label}
+                          </p>
+                          <p className="font-bold text-sm">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+
+                    {todayPunches.length > 0 ? (
+                      <div>
+                        <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-2.5">
+                          Timeline
+                        </p>
+                        <div className="rounded-xl border border-border overflow-hidden">
+                          {todayPunches.map((p) => {
+                            const isIn = p.log_type === "time-in";
+                            const isOut = p.log_type === "time-out";
+                            return (
+                              <div
+                                key={p.log_id}
+                                className="flex items-start gap-3 px-4 py-3 border-b border-border/40 last:border-0"
+                              >
+                                <div
+                                  className={`mt-0.5 h-7 w-7 rounded-full flex items-center justify-center shrink-0 border ${
+                                    isIn
+                                      ? "bg-green-100 border-green-200"
+                                      : isOut
+                                      ? "bg-red-50 border-red-200"
+                                      : "bg-purple-50 border-purple-200"
+                                  }`}
+                                >
+                                  {isIn ? (
+                                    <LogIn className="h-3 w-3 text-green-600" />
+                                  ) : isOut ? (
+                                    <LogOut className="h-3 w-3 text-red-500" />
+                                  ) : (
+                                    <FileX className="h-3 w-3 text-purple-600" />
+                                  )}
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between">
+                                    <p className="text-xs font-semibold capitalize">
+                                      {p.log_type.replace("-", " ")}
+                                    </p>
+                                    <p className="text-xs font-mono text-muted-foreground">
+                                      {formatTime(p.timestamp)}
+                                    </p>
+                                  </div>
+                                  {p.latitude && p.longitude ? (
+                                    <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                      <MapPin className="h-3 w-3 text-green-600" />
+                                      {p.latitude.toFixed(4)}, {p.longitude.toFixed(4)}
+                                    </p>
+                                  ) : (
+                                    <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                                      <MapPinOff className="h-3 w-3" /> No GPS
+                                    </p>
+                                  )}
+                                  {p.clock_type && (
+                                    <span
+                                      className={`mt-1 inline-block text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                        p.clock_type === "LATE"
+                                          ? "bg-amber-100 text-amber-700"
+                                          : "bg-green-100 text-green-700"
+                                      }`}
+                                    >
+                                      {p.clock_type}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="text-center py-10">
+                        <CalendarDays className="h-8 w-8 mx-auto mb-2 text-muted-foreground/30" />
+                        <p className="text-sm text-muted-foreground">No punch records for today.</p>
+                      </div>
+                    )}
+                  </div>
+                ) : dashboardFilter === "week" ? (
+                  // Weekly view - show summary + daily list
+                  <>
+                    <AttendanceSummary days={sliderDays} />
+                    <div>
+                      {sliderDays.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-10">
+                          No records this week.
+                        </p>
+                      ) : (
+                        sliderDays.map((day) => <DayCompactRow key={day.date} day={day} />)
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  // Monthly or Custom view - show summary + weekly groups
+                  <>
+                    <AttendanceSummary days={sliderDays} />
+                    <div className="p-3 space-y-2">
+                      {weekGroups.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">
+                          No records in this period.
+                        </p>
+                      ) : (
+                        weekGroups.map((group) => {
+                          const isExpanded = expandedWeeks.has(group.key);
+                          const presentDays = group.days.filter(
+                            (d) => d.ci && !d.absent && !d.isFuture
+                          ).length;
+                          return (
+                            <div
+                              key={group.key}
+                              className="rounded-xl border border-border overflow-hidden"
+                            >
+                              <button
+                                onClick={() => toggleWeek(group.key)}
+                                className="w-full flex items-center justify-between px-4 py-3 bg-muted/20 hover:bg-muted/40 transition-colors cursor-pointer"
+                              >
+                                <div className="flex items-center gap-2.5 text-left">
+                                  <ChevronRight
+                                    className={`h-3.5 w-3.5 text-muted-foreground transition-transform duration-150 ${
+                                      isExpanded ? "rotate-90" : ""
+                                    }`}
+                                  />
+                                  <div>
+                                    <p className="text-xs font-bold">Week {group.weekNumber}</p>
+                                    <p className="text-[9px] text-muted-foreground mt-0.5">
+                                      {presentDays} present · {group.totalHours.toFixed(1)}h
+                                    </p>
+                                  </div>
+                                </div>
+                                {/* Dot strip preview */}
+                                <div className="flex items-center gap-1 shrink-0">
+                                  {group.days
+                                    .filter((d) => !d.isWeekend)
+                                    .map((d) => (
+                                      <div
+                                        key={d.date}
+                                        className={`h-2 w-2 rounded-full ${
+                                          d.isFuture
+                                            ? "bg-slate-200"
+                                            : d.absent
+                                            ? "bg-purple-400"
+                                            : d.ci && d.isLate
+                                            ? "bg-amber-400"
+                                            : d.ci
+                                            ? "bg-green-500"
+                                            : "bg-red-300"
+                                        }`}
+                                      />
+                                    ))}
+                                </div>
+                              </button>
+                              {isExpanded && (
+                                <div className="bg-background">
+                                  {group.days.map((day) => (
+                                    <DayCompactRow key={day.date} day={day} />
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </>
+                )}
+              </>
+            )}
           </div>
         )}
       </div>
@@ -1083,8 +1434,9 @@ export default function HRTimekeepingPage() {
           name={drillUser.name}
           employeeId={drillUser.employeeId}
           userId={drillUser.userId}
-          selectedDate={selectedDate}
-          initialPeriod={viewMode === "day" ? "today" : viewMode === "week" ? "week" : "month"}
+          dashboardFilter={viewMode}
+          dashboardFrom={from}
+          dashboardTo={to}
           onClose={() => setDrillUser(null)}
         />
       )}
