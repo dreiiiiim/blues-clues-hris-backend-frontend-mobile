@@ -14,7 +14,7 @@ import {
   UserCheck, Check,
 } from "lucide-react";
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Types â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 interface Employee {
   user_id: string;
@@ -34,7 +34,7 @@ interface Employee {
 type Role = { role_id: string; role_name: string };
 type Department = { department_id: string; department_name: string };
 
-// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Constants â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const ITEMS_PER_PAGE = 10;
 
@@ -44,7 +44,7 @@ const STATUS_STYLES: Record<string, string> = {
   Pending:  "bg-amber-100 text-amber-700 border-amber-200",
 };
 
-// â”€â”€â”€ API helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ API helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 async function apiFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const res = await authFetch(`${API_BASE_URL}${path}`, init);
@@ -74,7 +74,7 @@ function StatusBadge({ status }: Readonly<{ status: string }>) {
   );
 }
 
-// Row action dropdown â€” HR can only deactivate or reactivate, not edit
+// Row action dropdown â€" HR can only deactivate or reactivate, not edit
 function RowMenu({
   employee,
   onDeactivate,
@@ -178,7 +178,7 @@ function ConfirmDeactivate({
   );
 }
 
-// â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â"€â"€â"€ Main Page â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 export default function HRDashboardPage() {
   const user = getUserInfo();
@@ -224,12 +224,12 @@ export default function HRDashboardPage() {
   const filtered = employees.filter(e => {
     const q = search.toLowerCase();
     const matchesSearch = (
-      e.first_name.toLowerCase().includes(q) ||
-      e.last_name.toLowerCase().includes(q) ||
-      e.email.toLowerCase().includes(q) ||
-      e.employee_id.toLowerCase().includes(q)
+      (e.first_name ?? "").toLowerCase().includes(q) ||
+      (e.last_name ?? "").toLowerCase().includes(q) ||
+      (e.email ?? "").toLowerCase().includes(q) ||
+      (e.employee_id ?? "").toLowerCase().includes(q)
     );
-    const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status);
+    const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status ?? "");
     return matchesSearch && matchesStatus;
   });
 
@@ -293,19 +293,19 @@ export default function HRDashboardPage() {
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
-            {e.first_name.charAt(0)}
+            {(e.first_name ?? "?").charAt(0)}
           </div>
           <div>
             <p className="font-semibold text-foreground leading-none">
-              {e.first_name} {e.last_name}
+              {(e.first_name ?? "")} {(e.last_name ?? "")}
             </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">{e.email}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{(e.email ?? "")}</p>
           </div>
         </div>
       </td>
       {/* Employee ID */}
       <td className="px-5 py-4">
-        <span className="font-mono text-xs text-muted-foreground">{e.employee_id}</span>
+        <span className="font-mono text-xs text-muted-foreground">{(e.employee_id ?? "")}</span>
       </td>
       {/* Role */}
       <td className="px-5 py-4">
@@ -319,7 +319,7 @@ export default function HRDashboardPage() {
       </td>
       {/* Status */}
       <td className="px-5 py-4">
-        <StatusBadge status={e.account_status} />
+        <StatusBadge status={e.account_status ?? "unknown"} />
       </td>
       {/* Actions */}
       <td className="px-5 py-4 text-right">
@@ -441,7 +441,7 @@ export default function HRDashboardPage() {
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className=”divide-y divide-border”>
+            <tbody className="divide-y divide-border">
               {tableRows}
             </tbody>
           </table>
@@ -451,7 +451,7 @@ export default function HRDashboardPage() {
         <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-muted/20">
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             {filtered.length > 0
-              ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}â€“${Math.min(page * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}`
+              ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}â€"${Math.min(page * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}`
               : "No results"}
           </p>
           <div className="flex gap-2">

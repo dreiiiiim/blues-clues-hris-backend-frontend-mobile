@@ -8,13 +8,14 @@ import {
   Search, MapPin, Clock, Building2, Briefcase,
   DollarSign, SlidersHorizontal, Bookmark, CheckCircle,
   Loader2, Calendar, CalendarX2, X, ArrowRight, Zap,
-  Sparkles, TrendingUp, Users, ChevronRight, Check,
+  Sparkles, TrendingUp, Users, ChevronRight,
 } from "lucide-react";
 import {
   getApplicantJobs, applyToJob, getMyApplications, getJobQuestions,
   type JobPosting, type ApplicationQuestion,
 } from "@/lib/authApi";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
+import { emitApplicantApplicationsDirty } from "@/lib/applicantApplicationsSync";
 
 function timeAgo(dateStr: string): string {
   const diff = Date.now() - new Date(dateStr).getTime();
@@ -43,11 +44,11 @@ function ApplicationForm({
   job,
   onClose,
   onApplied,
-}: {
+}: Readonly<{
   job: JobPosting;
   onClose: () => void;
   onApplied: () => void;
-}) {
+}>) {
   const [questions, setQuestions] = useState<ApplicationQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -86,7 +87,7 @@ function ApplicationForm({
     catch { return []; }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     for (const q of questions) {
       if (!q.is_required) continue;
@@ -115,16 +116,22 @@ function ApplicationForm({
 
       await applyToJob(job.job_posting_id, answerPayload.length ? { answers: answerPayload } : undefined);
       toast.success("Application submitted!");
+      // Backend handover: keep this signal until API returns created application payload
+      // or server-side push invalidation is available.
+      emitApplicantApplicationsDirty("applied");
       onApplied();
     } catch (err: any) {
-      toast.error(err.message || "Failed to apply");
+      if (err?.status === 409) {
+        toast.error("You have already submitted an application for this role.");
+      } else {
+        toast.error(err.message || "Failed to apply");
+      }
     } finally {
       setSubmitting(false);
     }
   };
 
   const hasQuestions = !loading && questions.length > 0;
-  const totalSteps = hasQuestions ? 2 : 1;
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -168,22 +175,22 @@ function ApplicationForm({
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Your Information</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground font-medium">First Name</label>
-                <Input value={autoFill.first_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
+                <label htmlFor="applicant-first-name" className="text-xs text-muted-foreground font-medium">First Name</label>
+                <Input id="applicant-first-name" value={autoFill.first_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground font-medium">Last Name</label>
-                <Input value={autoFill.last_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
+                <label htmlFor="applicant-last-name" className="text-xs text-muted-foreground font-medium">Last Name</label>
+                <Input id="applicant-last-name" value={autoFill.last_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
               </div>
             </div>
             <div className="mt-3 space-y-1.5">
-              <label className="text-xs text-muted-foreground font-medium">Email</label>
-              <Input value={autoFill.email} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
+              <label htmlFor="applicant-email" className="text-xs text-muted-foreground font-medium">Email</label>
+              <Input id="applicant-email" value={autoFill.email} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
             </div>
             {autoFill.phone_number && (
               <div className="mt-3 space-y-1.5">
-                <label className="text-xs text-muted-foreground font-medium">Phone Number</label>
-                <Input value={autoFill.phone_number} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
+                <label htmlFor="applicant-phone-number" className="text-xs text-muted-foreground font-medium">Phone Number</label>
+                <Input id="applicant-phone-number" value={autoFill.phone_number} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed text-xs" />
               </div>
             )}
             <p className="text-[10px] text-muted-foreground/50 mt-2">Pulled from your account profile.</p>
@@ -216,7 +223,7 @@ function ApplicationForm({
                     {q.question_type === "multiple_choice" && q.options && (
                       <div className="space-y-2">
                         {q.options.map((opt, oi) => (
-                          <label key={oi} className="flex items-center gap-2.5 cursor-pointer group">
+                          <label key={`${q.question_id}-${opt}`} className="flex items-center gap-2.5 cursor-pointer group">
                             <input type="radio" name={q.question_id} value={String(oi)}
                               checked={answers[q.question_id] === String(oi)}
                               onChange={() => setAnswer(q.question_id, String(oi))}
@@ -229,7 +236,7 @@ function ApplicationForm({
                     {q.question_type === "checkbox" && q.options && (
                       <div className="space-y-2">
                         {q.options.map((opt, oi) => (
-                          <label key={oi} className="flex items-center gap-2.5 cursor-pointer group">
+                          <label key={`${q.question_id}-${opt}`} className="flex items-center gap-2.5 cursor-pointer group">
                             <input type="checkbox" checked={checkedIndices(q.question_id).includes(oi)}
                               onChange={() => toggleCheckbox(q.question_id, oi)}
                               className="h-4 w-4 rounded text-primary" />
@@ -302,7 +309,7 @@ export default function ApplicantJobsPage() {
   }, [jobs, search, typeFilter, locationFilter]);
 
   useEffect(() => {
-    if (selectedJob && !filtered.find((j) => j.job_posting_id === selectedJob.job_posting_id)) {
+    if (selectedJob && !filtered.some((j) => j.job_posting_id === selectedJob.job_posting_id)) {
       setDetailVisible(false);
       setTimeout(() => { setSelectedJob(null); setDisplayedJob(null); }, 150);
     }
@@ -314,11 +321,11 @@ export default function ApplicantJobsPage() {
       setDetailVisible(false);
       setTimeout(() => {
         setDisplayedJob(job);
-        requestAnimationFrame(() => requestAnimationFrame(() => setDetailVisible(true)));
+        requestAnimationFrame(() => { setDetailVisible(true); });
       }, 150);
     } else {
       setDisplayedJob(job);
-      requestAnimationFrame(() => requestAnimationFrame(() => setDetailVisible(true)));
+      requestAnimationFrame(() => { setDetailVisible(true); });
     }
   };
 
@@ -332,7 +339,9 @@ export default function ApplicantJobsPage() {
   };
 
   const isApplied = displayedJob ? appliedJobIds.has(displayedJob.job_posting_id) : false;
-  const activeFilters = (typeFilter !== "All Types" ? 1 : 0) + (locationFilter !== "All Locations" ? 1 : 0);
+  const isTypeFiltered = typeFilter !== "All Types";
+  const isLocationFiltered = locationFilter !== "All Locations";
+  const activeFilters = (isTypeFiltered ? 1 : 0) + (isLocationFiltered ? 1 : 0);
   const hasActiveFilter = search.trim().length > 0 || activeFilters > 0;
 
   return (
@@ -499,33 +508,44 @@ export default function ApplicantJobsPage() {
         <div className="w-75 shrink-0 space-y-2">
           <div className="flex items-center justify-between px-1 pb-1">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-              {loading ? "Loading…" : `${filtered.length} position${filtered.length !== 1 ? "s" : ""}`}
+              {(() => {
+                if (loading) return "Loading…";
+                const suffix = filtered.length === 1 ? "" : "s";
+                return `${filtered.length} position${suffix}`;
+              })()}
             </p>
             {filtered.length !== jobs.length && (
               <span className="text-[10px] text-muted-foreground/60">filtered</span>
             )}
           </div>
 
-          {loading ? (
-            <div className="flex items-center justify-center py-24">
-              <div className="flex flex-col items-center gap-3">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
-                <p className="text-xs text-muted-foreground/40">Loading positions…</p>
+          {(() => {
+          if (loading) {
+            return (
+              <div className="flex items-center justify-center py-24">
+                <div className="flex flex-col items-center gap-3">
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground/40" />
+                  <p className="text-xs text-muted-foreground/40">Loading positions…</p>
+                </div>
               </div>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <div className="h-12 w-12 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
-                <Search className="h-5 w-5 text-muted-foreground/30" />
+            );
+          }
+          if (filtered.length === 0) {
+            return (
+              <div className="flex flex-col items-center justify-center py-16 gap-3">
+                <div className="h-12 w-12 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
+                  <Search className="h-5 w-5 text-muted-foreground/30" />
+                </div>
+                <div className="text-center">
+                  <p className="text-sm font-semibold text-foreground">{jobs.length === 0 ? "No openings yet" : "No matches"}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5 max-w-45">
+                    {jobs.length === 0 ? "Check back soon for new opportunities" : "Try adjusting your search or filters"}
+                  </p>
+                </div>
               </div>
-              <div className="text-center">
-                <p className="text-sm font-semibold text-foreground">{jobs.length === 0 ? "No openings yet" : "No matches"}</p>
-                <p className="text-xs text-muted-foreground mt-0.5 max-w-45">
-                  {jobs.length === 0 ? "Check back soon for new opportunities" : "Try adjusting your search or filters"}
-                </p>
-              </div>
-            </div>
-          ) : (
+            );
+          }
+          return (
             filtered.map((job, idx) => {
               const isSelected = selectedJob?.job_posting_id === job.job_posting_id;
               const applied = appliedJobIds.has(job.job_posting_id);
@@ -538,7 +558,12 @@ export default function ApplicantJobsPage() {
                   role="button"
                   tabIndex={0}
                   onClick={() => selectJob(job)}
-                  onKeyDown={(e) => e.key === "Enter" && selectJob(job)}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+                      e.preventDefault();
+                      selectJob(job);
+                    }
+                  }}
                   style={{ animationDelay: `${idx * 40}ms` }}
                   className={`relative w-full text-left rounded-xl border p-4 transition-all cursor-pointer group animate-in fade-in slide-in-from-bottom-1 duration-300 ${
                     isSelected
@@ -575,6 +600,7 @@ export default function ApplicantJobsPage() {
                             </span>
                           )}
                           <button
+                            type="button"
                             onClick={(e) => toggleBookmark(job.job_posting_id, e)}
                             className="p-0.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer"
                           >
@@ -618,10 +644,11 @@ export default function ApplicantJobsPage() {
                   <div className={`absolute right-3 bottom-3 transition-all duration-200 ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-60"}`}>
                     <ChevronRight className="h-3.5 w-3.5 text-primary" />
                   </div>
-                </div>
+                        </div>
               );
             })
-          )}
+          );
+        })()}
         </div>
 
         {/* ── Detail Panel ────────────────────────────────────────────────── */}
@@ -666,8 +693,7 @@ export default function ApplicantJobsPage() {
                       <h2 className="text-xl font-bold text-white leading-tight">{displayedJob.title}</h2>
                       <div className="flex flex-wrap gap-1.5 mt-2.5">
                         <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-green-500/20 border border-green-400/30 text-[10px] font-bold text-green-300 uppercase tracking-wide">
-                          <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" />
-                          Accepting Applications
+                          <span className="h-1.5 w-1.5 rounded-full bg-green-400 animate-pulse" /> Accepting Applications
                         </span>
                         {displayedJob.employment_type && (
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 border border-white/15 text-[10px] font-semibold text-white/75">
@@ -820,29 +846,42 @@ export default function ApplicantJobsPage() {
 
 function SummaryCard({
   icon, label, value, accent,
-}: {
+}: Readonly<{
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode | string | null | undefined;
   accent?: "green" | "amber";
-}) {
+}>) {
   if (!value) return null;
-  const containerClass =
-    accent === "green" ? "border-green-200/70 bg-green-50/60 dark:border-green-500/20 dark:bg-green-900/10" :
-    accent === "amber" ? "border-amber-200/70 bg-amber-50/60 dark:border-amber-500/20 dark:bg-amber-900/10" :
-    "border-border bg-muted/15";
-  const iconClass =
-    accent === "green" ? "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400" :
-    accent === "amber" ? "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400" :
-    "bg-primary/8 text-primary";
-  const labelClass =
-    accent === "green" ? "text-green-600/60 dark:text-green-400/60" :
-    accent === "amber" ? "text-amber-600/60 dark:text-amber-400/60" :
-    "text-muted-foreground/60";
-  const valueClass =
-    accent === "green" ? "text-green-700 dark:text-green-300" :
-    accent === "amber" ? "text-amber-700 dark:text-amber-300" :
-    "text-foreground";
+
+  const getContainerClass = (a: string | undefined) => {
+    if (a === "green") return "border-green-200/70 bg-green-50/60 dark:border-green-500/20 dark:bg-green-900/10";
+    if (a === "amber") return "border-amber-200/70 bg-amber-50/60 dark:border-amber-500/20 dark:bg-amber-900/10";
+    return "border-border bg-muted/15";
+  };
+
+  const getIconClass = (a: string | undefined) => {
+    if (a === "green") return "bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400";
+    if (a === "amber") return "bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400";
+    return "bg-primary/8 text-primary";
+  };
+
+  const getLabelClass = (a: string | undefined) => {
+    if (a === "green") return "text-green-600/60 dark:text-green-400/60";
+    if (a === "amber") return "text-amber-600/60 dark:text-amber-400/60";
+    return "text-muted-foreground/60";
+  };
+
+  const getValueClass = (a: string | undefined) => {
+    if (a === "green") return "text-green-700 dark:text-green-300";
+    if (a === "amber") return "text-amber-700 dark:text-amber-300";
+    return "text-foreground";
+  };
+
+  const containerClass = getContainerClass(accent);
+  const iconClass = getIconClass(accent);
+  const labelClass = getLabelClass(accent);
+  const valueClass = getValueClass(accent);
 
   return (
     <div className={`flex items-start gap-3 rounded-xl border px-3 py-2.5 ${containerClass}`}>

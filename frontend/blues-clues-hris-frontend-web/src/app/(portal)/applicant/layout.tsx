@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getAccessToken } from "@/lib/authStorage";
-import { applicantRefreshApi } from "@/lib/authApi";
+import { applicantRefreshApi, applicantLogoutApi } from "@/lib/authApi";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { Briefcase, FileText, LayoutDashboard, LogOut, Menu, X } from "lucide-react";

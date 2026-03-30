@@ -9,12 +9,16 @@ import {
   getApplicantJobs, applyToJob, getMyApplications, getJobQuestions,
   type JobPosting, type ApplicationQuestion, type MyApplication,
 } from "@/lib/authApi";
+import {
+  emitApplicantApplicationsDirty,
+  subscribeApplicantApplicationsDirty,
+} from "@/lib/applicantApplicationsSync";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import {
-  Check, Briefcase, MapPin, Clock,
+  Check, Briefcase, MapPin,
   Search, ChevronRight, Building2, X, Loader2, CheckCircle,
   DollarSign, FileText, TrendingUp, CalendarClock, Sparkles,
   ArrowUpRight,
@@ -26,11 +30,11 @@ function ApplicationForm({
   job,
   onClose,
   onApplied,
-}: {
+}: Readonly<{
   job: JobPosting;
   onClose: () => void;
   onApplied: () => void;
-}) {
+}>) {
   const [questions, setQuestions] = useState<ApplicationQuestion[]>([]);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loadingQ, setLoadingQ] = useState(true);
@@ -69,7 +73,7 @@ function ApplicationForm({
     catch { return []; }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     for (const q of questions) {
       if (!q.is_required) continue;
@@ -97,9 +101,14 @@ function ApplicationForm({
 
       await applyToJob(job.job_posting_id, payload.length ? { answers: payload } : undefined);
       toast.success("Application submitted!");
+      emitApplicantApplicationsDirty("applied");
       onApplied();
     } catch (err: any) {
-      toast.error(err.message || "Failed to apply");
+      if (err?.status === 409) {
+        toast.error("You have already submitted an application for this role.");
+      } else {
+        toast.error(err.message || "Failed to apply");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -107,7 +116,12 @@ function ApplicationForm({
 
   const hasQuestions = !loadingQ && questions.length > 0;
   const totalSteps = hasQuestions ? 2 : 1;
-  const [formStep, setFormStep] = useState(1);
+  const formStep = 1;
+  const stepClass = (step: number) => {
+    if (formStep === step) return "bg-white/20 border-white/30 text-white";
+    if (formStep > step) return "bg-green-500/30 border-green-400/40 text-green-300";
+    return "bg-white/5 border-white/10 text-white/30";
+  };
 
   return (
     <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 backdrop-blur-sm">
@@ -130,13 +144,7 @@ function ApplicationForm({
             <div className="relative mt-4 flex items-center gap-2">
               {[1, 2].map((step) => (
                 <div key={step} className="flex items-center gap-2">
-                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-bold transition-all ${
-                    formStep === step
-                      ? "bg-white/20 border-white/30 text-white"
-                      : formStep > step
-                      ? "bg-green-500/30 border-green-400/40 text-green-300"
-                      : "bg-white/5 border-white/10 text-white/30"
-                  }`}>
+                  <div className={`flex items-center gap-1.5 px-3 py-1 rounded-full border text-[10px] font-bold transition-all ${stepClass(step)}`}>
                     {formStep > step ? <Check className="h-2.5 w-2.5" /> : <span>{step}</span>}
                     <span>{step === 1 ? "Your Info" : "Questions"}</span>
                   </div>
@@ -152,22 +160,22 @@ function ApplicationForm({
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">Your Information</p>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground font-medium">First Name</label>
-                <Input value={autoFill.first_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
+                <label htmlFor="applicant-first-name" className="text-xs text-muted-foreground font-medium">First Name</label>
+                <Input id="applicant-first-name" value={autoFill.first_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
               </div>
               <div className="space-y-1">
-                <label className="text-xs text-muted-foreground font-medium">Last Name</label>
-                <Input value={autoFill.last_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
+                <label htmlFor="applicant-last-name" className="text-xs text-muted-foreground font-medium">Last Name</label>
+                <Input id="applicant-last-name" value={autoFill.last_name} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
               </div>
             </div>
             <div className="mt-3 space-y-1">
-              <label className="text-xs text-muted-foreground font-medium">Email</label>
-              <Input value={autoFill.email} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
+              <label htmlFor="applicant-email" className="text-xs text-muted-foreground font-medium">Email</label>
+              <Input id="applicant-email" value={autoFill.email} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
             </div>
             {autoFill.phone_number && (
               <div className="mt-3 space-y-1">
-                <label className="text-xs text-muted-foreground font-medium">Phone Number</label>
-                <Input value={autoFill.phone_number} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
+                <label htmlFor="applicant-phone-number" className="text-xs text-muted-foreground font-medium">Phone Number</label>
+                <Input id="applicant-phone-number" value={autoFill.phone_number} readOnly className="h-9 bg-muted/30 text-muted-foreground cursor-not-allowed" />
               </div>
             )}
             <p className="text-[10px] text-muted-foreground/60 mt-1.5">Pulled from your account.</p>
@@ -200,7 +208,7 @@ function ApplicationForm({
                     {q.question_type === "multiple_choice" && q.options && (
                       <div className="space-y-2">
                         {q.options.map((opt, oi) => (
-                          <label key={oi} className="flex items-center gap-2.5 cursor-pointer group">
+                          <label key={`${q.question_id}-${opt}`} className="flex items-center gap-2.5 cursor-pointer group">
                             <input
                               type="radio"
                               name={q.question_id}
@@ -218,7 +226,7 @@ function ApplicationForm({
                     {q.question_type === "checkbox" && q.options && (
                       <div className="space-y-2">
                         {q.options.map((opt, oi) => (
-                          <label key={oi} className="flex items-center gap-2.5 cursor-pointer group">
+                          <label key={`${q.question_id}-${opt}`} className="flex items-center gap-2.5 cursor-pointer group">
                             <input
                               type="checkbox"
                               checked={checkedIndices(q.question_id).includes(oi)}
@@ -291,6 +299,18 @@ function statusDotClass(status: string): string {
   return "bg-primary";
 }
 
+function applicantStatusCategory(status: string): "Under Review" | "Shortlisted" | "Rejected" {
+  if (status === "rejected" || status === "withdrawn") return "Rejected";
+  if (status.includes("interview") || status === "hired") return "Shortlisted";
+  return "Under Review";
+}
+
+function applicantStatusCategoryClass(category: "Under Review" | "Shortlisted" | "Rejected"): string {
+  if (category === "Shortlisted") return "text-green-600 border-green-600/20 bg-green-500/10";
+  if (category === "Rejected") return "text-red-600 border-red-600/20 bg-red-500/10";
+  return "text-amber-600 border-amber-600/20 bg-amber-500/10";
+}
+
 const STAGE_LABELS = ["Submitted", "Screening", "1st Interview", "Technical", "Final"];
 const STAGE_KEYS   = ["submitted", "screening", "first_interview", "technical_interview", "final_interview"];
 
@@ -310,6 +330,454 @@ function isNewJob(postedAt: string): boolean {
   return (Date.now() - new Date(postedAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
 }
 
+function StepItem({ icon, label, active, completed, current }: Readonly<{
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  completed: boolean;
+  current: boolean;
+}>) {
+  let circleClass = "bg-background border-border text-muted-foreground";
+  if (completed) {
+    circleClass = "bg-linear-to-br from-primary to-primary/80 border-primary text-primary-foreground shadow-primary/25";
+  } else if (current) {
+    circleClass = "bg-background border-primary text-primary ring-4 ring-primary/15 shadow-primary/10";
+  }
+
+  return (
+    <div className="flex flex-col items-center gap-2 relative z-10">
+      <div className={`h-12 w-12 rounded-full border-2 flex items-center justify-center transition-all shadow-sm ${circleClass}`}>
+        {icon}
+      </div>
+      <span className={`text-[10px] font-bold uppercase tracking-widest text-center max-w-18 leading-tight
+        ${active ? "text-foreground" : "text-muted-foreground/40"}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
+function LatestApplicationTracker({ latestApp, currentStep }: Readonly<{ latestApp: MyApplication | null; currentStep: number }>) {
+  return (
+    <div className="rounded-2xl border border-border shadow-sm overflow-hidden bg-card">
+      <div className="px-6 pt-5 pb-4 border-b border-border bg-linear-to-r from-primary/6 to-teal-500/4">
+        <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
+          <div>
+            <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Latest Application</p>
+            {latestApp ? (
+              <>
+                <h2 className="text-xl font-bold tracking-tight text-foreground">
+                  {latestApp.job_postings?.title}
+                </h2>
+                <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
+                  <Building2 className="h-3.5 w-3.5" />
+                  {STAGE_LABELS[stageIndex(latestApp.status)] ?? latestApp.status}
+                  {latestApp.job_postings?.location && ` · ${latestApp.job_postings.location}`}
+                </p>
+              </>
+            ) : (
+              <h2 className="text-xl font-bold tracking-tight text-muted-foreground">
+                No applications yet
+              </h2>
+            )}
+          </div>
+          {latestApp && (
+            <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-tight rounded-full border border-primary/20 self-start">
+              Active Phase
+            </span>
+          )}
+        </div>
+      </div>
+
+      <div className="px-8 py-10">
+        {latestApp ? (
+          <div className="relative flex items-center justify-between w-full max-w-4xl mx-auto">
+            <div className="absolute left-0 top-6 -translate-y-1/2 w-full h-1.5 bg-muted rounded-full z-0" />
+            <div
+              className="absolute left-0 top-6 -translate-y-1/2 h-1.5 bg-linear-to-r from-primary to-teal-500 rounded-full z-0 transition-all duration-1000"
+              style={{ width: `${((currentStep - 1) / (STAGE_LABELS.length - 1)) * 100}%` }}
+            />
+            {STAGE_LABELS.map((label, i) => (
+              <StepItem
+                key={label}
+                icon={i + 1 < currentStep ? <Check className="h-4 w-4" /> : <span className="text-xs font-bold">{i + 1}</span>}
+                label={label}
+                active={i + 1 <= currentStep}
+                completed={i + 1 < currentStep}
+                current={i + 1 === currentStep}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <div className="h-14 w-14 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
+              <Briefcase className="h-6 w-6 text-muted-foreground/30" />
+            </div>
+            <p className="text-center text-muted-foreground text-sm">
+              Start by applying to an open role, then track every stage here.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="px-6 pb-4 border-t border-border flex justify-end">
+        <Link
+          href="/applicant/applications"
+          className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1 cursor-pointer"
+        >
+          View all applications <ChevronRight className="h-3.5 w-3.5" />
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function AvailablePositionsSection({
+  loading,
+  jobs,
+  filtered,
+  search,
+  appliedJobIds,
+  onSearchChange,
+  onBrowseAll,
+  onApply,
+}: Readonly<{
+  loading: boolean;
+  jobs: JobPosting[];
+  filtered: JobPosting[];
+  search: string;
+  appliedJobIds: Set<string>;
+  onSearchChange: (value: string) => void;
+  onBrowseAll: () => void;
+  onApply: (job: JobPosting) => void;
+}>) {
+  let openPositionsLabel = "Loading…";
+  if (!loading) {
+    const suffix = jobs.length === 1 ? "" : "s";
+    openPositionsLabel = `${jobs.length} open position${suffix}`;
+  }
+
+  const renderJobsContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    if (filtered.length === 0) {
+      return (
+        <div className="flex flex-col items-center gap-3 py-10">
+          <div className="h-14 w-14 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
+            <Search className="h-6 w-6 text-muted-foreground/30" />
+          </div>
+          <p className="text-center text-muted-foreground text-sm">
+            {jobs.length === 0 ? "No open positions available." : "No jobs match your search."}
+          </p>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <div className="grid gap-3 sm:grid-cols-2">
+          {filtered.slice(0, 6).map((job) => {
+            const applied = appliedJobIds.has(job.job_posting_id);
+            const isNew = isNewJob(job.posted_at);
+            return (
+              <article
+                key={job.job_posting_id}
+                className="group relative bg-card border border-border rounded-xl shadow-sm hover:shadow-md hover:border-primary/30 hover:-translate-y-px transition-all overflow-hidden"
+              >
+                <div className="absolute left-0 top-0 bottom-0 w-0.75 bg-primary/0 group-hover:bg-primary/60 rounded-l-xl transition-colors duration-200" />
+
+                <div className="p-4 flex flex-col gap-3">
+                  <Link href="/applicant/jobs" className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 rounded-lg">
+                    <div className="flex items-start gap-3">
+                      <div className="h-10 w-10 rounded-xl border border-border bg-muted/30 flex items-center justify-center shrink-0 group-hover:bg-primary/8 group-hover:border-primary/20 transition-colors">
+                        <Briefcase className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-1">
+                          <h3 className="font-bold text-foreground text-sm leading-tight group-hover:text-primary transition-colors truncate">
+                            {job.title}
+                          </h3>
+                          {isNew && (
+                            <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-green-500/15 text-green-600 border border-green-500/20">
+                              New
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1.5">
+                          {job.employment_type && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md bg-muted/60 text-muted-foreground">
+                              {job.employment_type}
+                            </span>
+                          )}
+                          {job.location && (
+                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                              <MapPin className="h-3 w-3" />{job.location}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  </Link>
+
+                  <div className="flex items-center justify-between border-t border-border pt-3">
+                    <div className="flex items-center gap-2">
+                      {job.salary_range && (
+                        <span className="flex items-center gap-1 text-[11px] text-muted-foreground font-medium">
+                          <DollarSign className="h-3 w-3" />{job.salary_range}
+                        </span>
+                      )}
+                      <span className="text-[11px] text-muted-foreground/50">
+                        {timeAgo(job.posted_at)}
+                      </span>
+                    </div>
+                    {applied ? (
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-green-600 dark:text-green-400 border border-green-600/20 bg-green-500/10 px-2.5 py-1 rounded-lg">
+                        <CheckCircle className="h-3 w-3" /> Applied
+                      </span>
+                    ) : (
+                      <Button
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground h-8 px-4 text-xs"
+                        onClick={() => onApply(job)}
+                      >
+                        Apply <ChevronRight className="ml-1 h-3.5 w-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        {jobs.length > 6 && (
+          <div className="flex justify-center pt-1">
+            <Button
+              variant="ghost"
+              className="text-primary font-bold hover:bg-primary/5 text-sm gap-1.5"
+              onClick={onBrowseAll}
+            >
+              View all {jobs.length} positions <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
+      </>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold tracking-tight">Available Positions</h2>
+          <p className="text-xs text-muted-foreground mt-1">{openPositionsLabel}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Search jobs..."
+              value={search}
+              onChange={(e) => onSearchChange(e.target.value)}
+              className="pl-9 h-10 bg-card border-border focus-visible:ring-primary/20"
+            />
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-10 px-3 text-xs font-semibold shrink-0 gap-1.5"
+            onClick={onBrowseAll}
+          >
+            Browse All <ArrowUpRight className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {renderJobsContent()}
+    </div>
+  );
+}
+
+function RecentApplicationsSection({ loading, recentApplications }: Readonly<{ loading: boolean; recentApplications: MyApplication[] }>) {
+  const renderRecentContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    if (recentApplications.length === 0) {
+      return (
+        <div className="flex flex-col items-center gap-3 py-8">
+          <div className="h-12 w-12 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
+            <FileText className="h-5 w-5 text-muted-foreground/30" />
+          </div>
+          <p className="text-center text-muted-foreground text-sm">No applications yet.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="relative">
+        <div className="absolute left-2.75 top-3 bottom-3 w-px bg-border" />
+
+        <div className="space-y-1">
+          {recentApplications.map((app) => (
+            <div key={app.application_id} className="relative flex items-center gap-4 pl-7 py-2.5 rounded-xl hover:bg-muted/30 transition-colors group">
+              <div className={`absolute left-0 h-5.5 w-5.5 rounded-full border-2 border-background flex items-center justify-center z-10 ${statusDotClass(app.status)}`}>
+                <div className="h-2 w-2 rounded-full bg-white/80" />
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-sm truncate text-foreground group-hover:text-primary transition-colors">
+                  {app.job_postings?.title ?? "Untitled role"}
+                </p>
+                <div className="flex items-center gap-2 mt-0.5">
+                  <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md border inline-block ${statusPillClass(app.status)}`}>
+                    {statusLabel(app.status)}
+                  </span>
+                </div>
+              </div>
+              <span className="text-[11px] text-muted-foreground shrink-0">{formatDate(app.applied_at)}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-4 pt-3 border-t border-border">
+          <Button asChild className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
+            <Link href="/applicant/applications">
+              <Sparkles className="h-4 w-4 mr-2" />
+              Open Full Tracker
+            </Link>
+          </Button>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <Card className="border-border shadow-sm bg-card overflow-hidden">
+      <CardHeader className="pb-4 bg-linear-to-r from-primary/7 to-teal-500/4 border-b border-border/70">
+        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Application Feed</p>
+        <CardTitle className="text-lg font-bold tracking-tight">Recent Applications</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Latest submissions and their current status.
+        </p>
+      </CardHeader>
+      <CardContent className="p-5">{renderRecentContent()}</CardContent>
+    </Card>
+  );
+}
+
+function MyApplicationsSection({ loading, applications }: Readonly<{ loading: boolean; applications: MyApplication[] }>) {
+  const renderMyApplicationsContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-10">
+          <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    if (applications.length === 0) {
+      return (
+        <div className="flex flex-col items-center gap-3 py-8">
+          <div className="h-12 w-12 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
+            <FileText className="h-5 w-5 text-muted-foreground/30" />
+          </div>
+          <p className="text-center text-muted-foreground text-sm">No applications yet.</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="space-y-2">
+        {applications
+          .slice()
+          .sort((a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime())
+          .map((app) => {
+            const category = applicantStatusCategory(app.status);
+            return (
+              <div key={app.application_id} className="flex items-center justify-between gap-3 border border-border rounded-xl p-3.5 hover:bg-muted/25 transition-colors">
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground truncate">{app.job_postings?.title ?? "Untitled role"}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">Applied {formatDate(app.applied_at)}</p>
+                </div>
+                <span className={`shrink-0 inline-flex items-center px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wide ${applicantStatusCategoryClass(category)}`}>
+                  {category}
+                </span>
+              </div>
+            );
+          })}
+      </div>
+    );
+  };
+
+  return (
+    <Card className="border-border shadow-sm bg-card overflow-hidden">
+      <CardHeader className="pb-4 bg-linear-to-r from-primary/7 to-teal-500/4 border-b border-border/70">
+        <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Application Status</p>
+        <CardTitle className="text-lg font-bold tracking-tight">My Applications</CardTitle>
+        <p className="text-xs text-muted-foreground mt-1">
+          Track current outcomes: Under Review, Shortlisted, and Rejected.
+        </p>
+      </CardHeader>
+      <CardContent className="p-5">{renderMyApplicationsContent()}</CardContent>
+    </Card>
+  );
+}
+
+function OverviewTab({
+  latestApp,
+  currentStep,
+  loading,
+  jobs,
+  filtered,
+  search,
+  appliedJobIds,
+  recentApplications,
+  onSearchChange,
+  onBrowseAll,
+  onApply,
+}: Readonly<{
+  latestApp: MyApplication | null;
+  currentStep: number;
+  loading: boolean;
+  jobs: JobPosting[];
+  filtered: JobPosting[];
+  search: string;
+  appliedJobIds: Set<string>;
+  recentApplications: MyApplication[];
+  onSearchChange: (value: string) => void;
+  onBrowseAll: () => void;
+  onApply: (job: JobPosting) => void;
+}>) {
+  return (
+    <>
+      <LatestApplicationTracker latestApp={latestApp} currentStep={currentStep} />
+      <AvailablePositionsSection
+        loading={loading}
+        jobs={jobs}
+        filtered={filtered}
+        search={search}
+        appliedJobIds={appliedJobIds}
+        onSearchChange={onSearchChange}
+        onBrowseAll={onBrowseAll}
+        onApply={onApply}
+      />
+      <RecentApplicationsSection loading={loading} recentApplications={recentApplications} />
+    </>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ApplicantDashboardPage() {
@@ -322,24 +790,35 @@ export default function ApplicantDashboardPage() {
   const [search, setSearch] = useState("");
   const [applyingJob, setApplyingJob] = useState<JobPosting | null>(null);
   const [latestApp, setLatestApp] = useState<MyApplication | null>(null);
+  const [activeTab, setActiveTab] = useState<"overview" | "my_applications">("overview");
+
+  const refreshApplications = async () => {
+    const myApps = await getMyApplications().catch(() => [] as MyApplication[]);
+    setApplications(myApps);
+    setAppliedJobIds(new Set(myApps.map((a) => a.job_posting_id)));
+
+    if (myApps.length === 0) {
+      setLatestApp(null);
+      return;
+    }
+
+    const sorted = [...myApps].sort(
+      (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime()
+    );
+    setLatestApp(sorted[0]);
+  };
 
   useEffect(() => {
     setSession(getUserInfo());
     Promise.all([
       getApplicantJobs().catch(() => [] as JobPosting[]),
-      getMyApplications().catch(() => [] as MyApplication[]),
-    ]).then(([jobList, myApps]) => {
+      refreshApplications(),
+    ]).then(([jobList]) => {
       setJobs(jobList);
-      setApplications(myApps);
-      setAppliedJobIds(new Set(myApps.map((a) => a.job_posting_id)));
-      if (myApps.length > 0) {
-        const sorted = [...myApps].sort(
-          (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime()
-        );
-        setLatestApp(sorted[0]);
-      }
     }).finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => subscribeApplicantApplicationsDirty(refreshApplications), []);
 
   const recentApplications = useMemo(() =>
     [...applications].sort((a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime()).slice(0, 5),
@@ -362,6 +841,7 @@ export default function ApplicantDashboardPage() {
   }, [jobs, search]);
 
   const currentStep = latestApp ? stageIndex(latestApp.status) + 1 : 0;
+  const dashboardFirstName = session?.name?.split(" ")[0] || "Demo Applicant";
 
   const metricCards = [
     {
@@ -398,6 +878,9 @@ export default function ApplicantDashboardPage() {
     },
   ];
 
+  const handleBrowseAll = () => router.push("/applicant/jobs");
+  const handleApply = (job: JobPosting) => setApplyingJob(job);
+
   return (
     <div className="space-y-6 max-w-5xl mx-auto animate-in fade-in duration-500">
 
@@ -415,11 +898,16 @@ export default function ApplicantDashboardPage() {
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45 mb-1.5">Candidate Dashboard</p>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white leading-tight">
-                {getGreeting()}, <span className="text-transparent bg-clip-text bg-linear-to-r from-blue-300 to-teal-300">{session?.name?.split(" ")[0] || "Applicant"}</span>
+                {getGreeting()}, <span className="text-transparent bg-clip-text bg-linear-to-r from-blue-300 to-teal-300">{dashboardFirstName}</span>
               </h1>
               <p className="text-sm text-white/55 mt-1.5 max-w-md">
                 Track your applications and discover fresh opportunities all in one place.
               </p>
+              {!session?.name && (
+                <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-white/45 mt-2">
+                  Demo Mode User (Google Auth pending)
+                </p>
+              )}
             </div>
             {!loading && applications.length > 0 && (
               <Link
@@ -452,279 +940,48 @@ export default function ApplicantDashboardPage() {
         </div>
       </div>
 
-      {/* ── Application Stage Tracker ── */}
-      <div className="rounded-2xl border border-border shadow-sm overflow-hidden bg-card">
-        <div className="px-6 pt-5 pb-4 border-b border-border bg-linear-to-r from-primary/6 to-teal-500/4">
-          <div className="flex flex-col md:flex-row md:items-start justify-between gap-3">
-            <div>
-              <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Latest Application</p>
-              {latestApp ? (
-                <>
-                  <h2 className="text-xl font-bold tracking-tight text-foreground">
-                    {latestApp.job_postings?.title}
-                  </h2>
-                  <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1.5">
-                    <Building2 className="h-3.5 w-3.5" />
-                    {STAGE_LABELS[stageIndex(latestApp.status)] ?? latestApp.status}
-                    {latestApp.job_postings?.location && ` · ${latestApp.job_postings.location}`}
-                  </p>
-                </>
-              ) : (
-                <h2 className="text-xl font-bold tracking-tight text-muted-foreground">
-                  No applications yet
-                </h2>
-              )}
-            </div>
-            {latestApp && (
-              <span className="px-3 py-1 bg-primary/10 text-primary text-[10px] font-bold uppercase tracking-tight rounded-full border border-primary/20 self-start">
-                Active Phase
-              </span>
-            )}
-          </div>
-        </div>
-
-        <div className="px-8 py-10">
-          {latestApp ? (
-            <div className="relative flex items-center justify-between w-full max-w-4xl mx-auto">
-              <div className="absolute left-0 top-6 -translate-y-1/2 w-full h-1.5 bg-muted rounded-full z-0" />
-              <div
-                className="absolute left-0 top-6 -translate-y-1/2 h-1.5 bg-linear-to-r from-primary to-teal-500 rounded-full z-0 transition-all duration-1000"
-                style={{ width: `${((currentStep - 1) / (STAGE_LABELS.length - 1)) * 100}%` }}
-              />
-              {STAGE_LABELS.map((label, i) => (
-                <StepItem
-                  key={label}
-                  icon={i + 1 < currentStep ? <Check className="h-4 w-4" /> : <span className="text-xs font-bold">{i + 1}</span>}
-                  label={label}
-                  active={i + 1 <= currentStep}
-                  completed={i + 1 < currentStep}
-                  current={i + 1 === currentStep}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="flex flex-col items-center gap-3 py-4">
-              <div className="h-14 w-14 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
-                <Briefcase className="h-6 w-6 text-muted-foreground/30" />
-              </div>
-              <p className="text-center text-muted-foreground text-sm">
-                Start by applying to an open role, then track every stage here.
-              </p>
-            </div>
-          )}
-        </div>
-
-        <div className="px-6 pb-4 border-t border-border flex justify-end">
-          <Link
-            href="/applicant/applications"
-            className="text-xs font-semibold text-primary hover:text-primary/80 transition-colors flex items-center gap-1 cursor-pointer"
-          >
-            View all applications <ChevronRight className="h-3.5 w-3.5" />
-          </Link>
-        </div>
+      <div className="flex items-center gap-1 bg-muted/40 border border-border rounded-xl p-1 w-fit">
+        <button
+          onClick={() => setActiveTab("overview")}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === "overview"
+              ? "bg-card text-foreground shadow-sm border border-border"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setActiveTab("my_applications")}
+          className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            activeTab === "my_applications"
+              ? "bg-card text-foreground shadow-sm border border-border"
+              : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          My Applications
+        </button>
       </div>
 
-      {/* ── Available Positions ── */}
-      <div className="space-y-4">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight">Available Positions</h2>
-            <p className="text-xs text-muted-foreground mt-1">
-              {loading ? "Loading…" : `${jobs.length} open position${jobs.length !== 1 ? "s" : ""}`}
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative w-full md:w-72">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                type="text"
-                placeholder="Search jobs..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9 h-10 bg-card border-border focus-visible:ring-primary/20"
-              />
-            </div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-10 px-3 text-xs font-semibold shrink-0 gap-1.5"
-              onClick={() => router.push("/applicant/jobs")}
-            >
-              Browse All <ArrowUpRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        </div>
+      {activeTab === "overview" && (
+        <OverviewTab
+          latestApp={latestApp}
+          currentStep={currentStep}
+          loading={loading}
+          jobs={jobs}
+          filtered={filtered}
+          search={search}
+          appliedJobIds={appliedJobIds}
+          recentApplications={recentApplications}
+          onSearchChange={setSearch}
+          onBrowseAll={handleBrowseAll}
+          onApply={handleApply}
+        />
+      )}
 
-        {loading ? (
-          <div className="flex items-center justify-center py-10">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-10">
-            <div className="h-14 w-14 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
-              <Search className="h-6 w-6 text-muted-foreground/30" />
-            </div>
-            <p className="text-center text-muted-foreground text-sm">
-              {jobs.length === 0 ? "No open positions available." : "No jobs match your search."}
-            </p>
-          </div>
-        ) : (
-          <>
-            <div className="grid gap-3 sm:grid-cols-2">
-              {filtered.slice(0, 6).map((job) => {
-                const applied = appliedJobIds.has(job.job_posting_id);
-                const isNew = isNewJob(job.posted_at);
-                return (
-                  <div
-                    key={job.job_posting_id}
-                    className="group relative bg-card border border-border rounded-xl shadow-sm hover:shadow-md hover:border-primary/30 hover:-translate-y-px transition-all cursor-pointer overflow-hidden"
-                    onClick={() => router.push("/applicant/jobs")}
-                  >
-                    {/* Left accent */}
-                    <div className="absolute left-0 top-0 bottom-0 w-0.75 bg-primary/0 group-hover:bg-primary/60 rounded-l-xl transition-colors duration-200" />
-
-                    <div className="p-4 flex flex-col gap-3">
-                      {/* Header row */}
-                      <div className="flex items-start gap-3">
-                        <div className="h-10 w-10 rounded-xl border border-border bg-muted/30 flex items-center justify-center shrink-0 group-hover:bg-primary/8 group-hover:border-primary/20 transition-colors">
-                          <Briefcase className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-start justify-between gap-1">
-                            <h3 className="font-bold text-foreground text-sm leading-tight group-hover:text-primary transition-colors truncate">
-                              {job.title}
-                            </h3>
-                            {isNew && (
-                              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-green-500/15 text-green-600 border border-green-500/20">
-                                New
-                              </span>
-                            )}
-                          </div>
-                          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 mt-1.5">
-                            {job.employment_type && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md bg-muted/60 text-muted-foreground">
-                                {job.employment_type}
-                              </span>
-                            )}
-                            {job.location && (
-                              <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                                <MapPin className="h-3 w-3" />{job.location}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Footer row */}
-                      <div
-                        className="flex items-center justify-between border-t border-border pt-3"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <div className="flex items-center gap-2">
-                          {job.salary_range && (
-                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground font-medium">
-                              <DollarSign className="h-3 w-3" />{job.salary_range}
-                            </span>
-                          )}
-                          <span className="text-[11px] text-muted-foreground/50">
-                            {timeAgo(job.posted_at)}
-                          </span>
-                        </div>
-                        {applied ? (
-                          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-green-600 dark:text-green-400 border border-green-600/20 bg-green-500/10 px-2.5 py-1 rounded-lg">
-                            <CheckCircle className="h-3 w-3" /> Applied
-                          </span>
-                        ) : (
-                          <Button
-                            className="bg-primary hover:bg-primary/90 text-primary-foreground h-8 px-4 text-xs"
-                            onClick={(e) => { e.stopPropagation(); setApplyingJob(job); }}
-                          >
-                            Apply <ChevronRight className="ml-1 h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {jobs.length > 6 && (
-              <div className="flex justify-center pt-1">
-                <Button
-                  variant="ghost"
-                  className="text-primary font-bold hover:bg-primary/5 text-sm gap-1.5"
-                  onClick={() => router.push("/applicant/jobs")}
-                >
-                  View all {jobs.length} positions <ChevronRight className="h-4 w-4" />
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* ── Recent Applications ── */}
-      <Card className="border-border shadow-sm bg-card overflow-hidden">
-        <CardHeader className="pb-4 bg-linear-to-r from-primary/7 to-teal-500/4 border-b border-border/70">
-          <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Application Feed</p>
-          <CardTitle className="text-lg font-bold tracking-tight">Recent Applications</CardTitle>
-          <p className="text-xs text-muted-foreground mt-1">
-            Latest submissions and their current status.
-          </p>
-        </CardHeader>
-        <CardContent className="p-5">
-          {loading ? (
-            <div className="flex items-center justify-center py-10">
-              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : recentApplications.length === 0 ? (
-            <div className="flex flex-col items-center gap-3 py-8">
-              <div className="h-12 w-12 rounded-2xl bg-muted/40 border border-border flex items-center justify-center">
-                <FileText className="h-5 w-5 text-muted-foreground/30" />
-              </div>
-              <p className="text-center text-muted-foreground text-sm">No applications yet.</p>
-            </div>
-          ) : (
-            <div className="relative">
-              {/* Timeline connector line */}
-              <div className="absolute left-2.75 top-3 bottom-3 w-px bg-border" />
-
-              <div className="space-y-1">
-                {recentApplications.map((app, idx) => (
-                  <div key={app.application_id} className="relative flex items-center gap-4 pl-7 py-2.5 rounded-xl hover:bg-muted/30 transition-colors group">
-                    {/* Timeline dot */}
-                    <div className={`absolute left-0 h-5.5 w-5.5 rounded-full border-2 border-background flex items-center justify-center z-10 ${statusDotClass(app.status)}`}>
-                      <div className="h-2 w-2 rounded-full bg-white/80" />
-                    </div>
-
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-sm truncate text-foreground group-hover:text-primary transition-colors">
-                        {app.job_postings?.title ?? "Untitled role"}
-                      </p>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md border inline-block ${statusPillClass(app.status)}`}>
-                          {statusLabel(app.status)}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="text-[11px] text-muted-foreground shrink-0">{formatDate(app.applied_at)}</span>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 pt-3 border-t border-border">
-                <Button asChild className="w-full bg-primary hover:bg-primary/90 text-primary-foreground">
-                  <Link href="/applicant/applications">
-                    <Sparkles className="h-4 w-4 mr-2" />
-                    Open Full Tracker
-                  </Link>
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {activeTab === "my_applications" && (
+        <MyApplicationsSection loading={loading} applications={applications} />
+      )}
 
       {/* Application form modal */}
       {applyingJob && (
@@ -732,45 +989,10 @@ export default function ApplicantDashboardPage() {
           job={applyingJob}
           onClose={() => setApplyingJob(null)}
           onApplied={() => {
-            setAppliedJobIds((prev) => new Set([...prev, applyingJob.job_posting_id]));
             setApplyingJob(null);
-            getMyApplications().catch(() => []).then((apps) => {
-              if (apps.length > 0) {
-                const sorted = [...apps].sort(
-                  (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime()
-                );
-                setLatestApp(sorted[0]);
-              }
-            });
           }}
         />
       )}
-    </div>
-  );
-}
-
-function StepItem({ icon, label, active, completed, current }: {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  completed: boolean;
-  current: boolean;
-}) {
-  return (
-    <div className="flex flex-col items-center gap-2 relative z-10">
-      <div className={`h-12 w-12 rounded-full border-2 flex items-center justify-center transition-all shadow-sm
-        ${completed
-          ? "bg-linear-to-br from-primary to-primary/80 border-primary text-primary-foreground shadow-primary/25"
-          : current
-          ? "bg-background border-primary text-primary ring-4 ring-primary/15 shadow-primary/10"
-          : "bg-background border-border text-muted-foreground"
-        }`}>
-        {icon}
-      </div>
-      <span className={`text-[10px] font-bold uppercase tracking-widest text-center max-w-18 leading-tight
-        ${active ? "text-foreground" : "text-muted-foreground/40"}`}>
-        {label}
-      </span>
     </div>
   );
 }

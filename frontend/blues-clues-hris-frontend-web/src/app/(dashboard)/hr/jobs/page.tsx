@@ -87,6 +87,15 @@ const APP_STATUS_STYLES: Record<string, string> = {
   rejected:            "bg-red-100 text-red-700 border-red-200",
 };
 
+const REJECTION_REASONS = [
+  "Skills mismatch",
+  "Insufficient experience",
+  "Compensation mismatch",
+  "Role no longer available",
+  "Culture/team fit concerns",
+  "Other",
+] as const;
+
 type StatusFilter = "all" | "open" | "closed" | "draft";
 type PageView = "postings" | "pipeline";
 
@@ -217,12 +226,21 @@ function QuestionBuilder({
               <div className="flex gap-2 items-center">
                 <select
                   value={q.question_type}
-                  onChange={(e) =>
+                  onChange={(e) => {
+                    const nextType = e.target.value as Question["question_type"];
+                    let nextOptions: string[] = [];
+                    if (nextType !== "text") {
+                      if (q.options.length > 0) {
+                        nextOptions = q.options;
+                      } else {
+                        nextOptions = [""];
+                      }
+                    }
                     updateQ(q.id, {
-                      question_type: e.target.value as Question["question_type"],
-                      options: e.target.value === "text" ? [] : q.options.length ? q.options : [""],
-                    })
-                  }
+                      question_type: nextType,
+                      options: nextOptions,
+                    });
+                  }}
                   className="h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="text">Text Answer</option>
@@ -236,13 +254,13 @@ function QuestionBuilder({
                     onChange={(e) => updateQ(q.id, { is_required: e.target.checked })}
                     className="h-3.5 w-3.5"
                   />
-                  Required
+                  <span>Required</span>
                 </label>
               </div>
               {(q.question_type === "multiple_choice" || q.question_type === "checkbox") && (
                 <div className="space-y-2 pl-1">
                   {q.options.map((opt, oi) => (
-                    <div key={oi} className="flex items-center gap-2">
+                    <div key={`${q.id}-${opt}`} className="flex items-center gap-2">
                       <div className={`h-3.5 w-3.5 shrink-0 border border-border ${q.question_type === "multiple_choice" ? "rounded-full" : "rounded"}`} />
                       <Input
                         value={opt}
@@ -313,7 +331,7 @@ function CreateJobModal({
     employment_type: "", salary_range: "", closes_at: "",
   });
 
-  const handleCreatePosting = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleCreatePosting = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -492,7 +510,7 @@ function EditJobModal({
     closes_at: job.closes_at ? job.closes_at.slice(0, 10) : "",
   });
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
     setSaving(true);
     try {
@@ -701,7 +719,7 @@ function ApplicationDetailModal({
 }: Readonly<{
   applicationId: string;
   onClose: () => void;
-  onStatusChange: (newStatus: string) => void;
+  onStatusChange: (appId: string, newStatus: string) => Promise<boolean>;
 }>) {
   const [detail, setDetail] = useState<ApplicationDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -719,12 +737,8 @@ function ApplicationDetailModal({
     if (!detail || status === detail.status) return;
     setUpdating(true);
     try {
-      await apiFetch(`/jobs/applications/${applicationId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      onStatusChange(status);
-      toast.success("Status updated");
+      const didUpdate = await onStatusChange(applicationId, status);
+      if (!didUpdate) return;
     } catch (err: any) {
       toast.error(err.message || "Failed to update status");
     } finally {
@@ -746,6 +760,77 @@ function ApplicationDetailModal({
     return <span>{val}</span>;
   };
 
+  const renderDetailContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    if (!detail) {
+      return null;
+    }
+
+    return (
+      <>
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Stage</p>
+          <div className="flex gap-2">
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+              className={`flex-1 h-9 rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${APP_STATUS_STYLES[status] ?? "border-border bg-background text-foreground"}`}
+            >
+              {APP_STATUSES.map((s) => (
+                <option key={s.value} value={s.value}>{s.label}</option>
+              ))}
+            </select>
+            <Button onClick={handleStatusSave} disabled={updating || status === detail.status} size="sm" className="h-9">
+              {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Info</p>
+          <div className="grid grid-cols-2 gap-2 text-sm">
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <p className="text-[10px] text-muted-foreground font-semibold">Code</p>
+              <p className="font-mono font-bold">{detail.applicant_profile.applicant_code}</p>
+            </div>
+            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+              <p className="text-[10px] text-muted-foreground font-semibold">Applied</p>
+              <p className="font-semibold">{formatDate(detail.applied_at)}</p>
+            </div>
+            {detail.applicant_profile.phone_number && (
+              <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 col-span-2">
+                <p className="text-[10px] text-muted-foreground font-semibold">Phone</p>
+                <p className="font-semibold">{detail.applicant_profile.phone_number}</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {detail.answers.length > 0 && (
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
+            {detail.answers
+              .slice()
+              .sort((a, b) => (a.application_questions.sort_order ?? 0) - (b.application_questions.sort_order ?? 0))
+              .map((ans) => (
+                <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
+                  <p className="text-xs font-semibold text-foreground">{ans.application_questions.question_text}</p>
+                  <p className="text-sm text-foreground">{formatAnswer(ans)}</p>
+                </div>
+              ))}
+          </div>
+        )}
+      </>
+    );
+  };
+
   return (
     <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50">
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xl mx-4 max-h-[85vh] flex flex-col">
@@ -763,68 +848,7 @@ function ApplicationDetailModal({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : !detail ? null : (
-            <>
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Stage</p>
-                <div className="flex gap-2">
-                  <select
-                    value={status}
-                    onChange={(e) => setStatus(e.target.value)}
-                    className={`flex-1 h-9 rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${APP_STATUS_STYLES[status] ?? "border-border bg-background text-foreground"}`}
-                  >
-                    {APP_STATUSES.map((s) => (
-                      <option key={s.value} value={s.value}>{s.label}</option>
-                    ))}
-                  </select>
-                  <Button onClick={handleStatusSave} disabled={updating || status === detail.status} size="sm" className="h-9">
-                    {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Info</p>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
-                    <p className="text-[10px] text-muted-foreground font-semibold">Code</p>
-                    <p className="font-mono font-bold">{detail.applicant_profile.applicant_code}</p>
-                  </div>
-                  <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
-                    <p className="text-[10px] text-muted-foreground font-semibold">Applied</p>
-                    <p className="font-semibold">{formatDate(detail.applied_at)}</p>
-                  </div>
-                  {detail.applicant_profile.phone_number && (
-                    <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 col-span-2">
-                      <p className="text-[10px] text-muted-foreground font-semibold">Phone</p>
-                      <p className="font-semibold">{detail.applicant_profile.phone_number}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {detail.answers.length > 0 && (
-                <div className="space-y-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
-                  {detail.answers
-                    .slice()
-                    .sort((a, b) => (a.application_questions.sort_order ?? 0) - (b.application_questions.sort_order ?? 0))
-                    .map((ans) => (
-                      <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
-                        <p className="text-xs font-semibold text-foreground">{ans.application_questions.question_text}</p>
-                        <p className="text-sm text-foreground">{formatAnswer(ans)}</p>
-                      </div>
-                    ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">{renderDetailContent()}</div>
       </div>
     </div>
   );
@@ -835,13 +859,75 @@ function ApplicationDetailModal({
 function ApplicantsModal({
   job,
   onClose,
+  onStatusChange,
 }: Readonly<{
   job: JobPosting;
   onClose: () => void;
+  onStatusChange: (appId: string, newStatus: string) => Promise<boolean>;
 }>) {
   const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  let applicantCountLabel = "Loading...";
+  if (!loading) {
+    const applicantSuffix = applications.length === 1 ? "" : "s";
+    applicantCountLabel = `${applications.length} applicant${applicantSuffix}`;
+  }
+
+  const renderApplicationsContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    if (applications.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
+          <Users className="h-10 w-10 opacity-30" />
+          <p className="text-sm font-medium">No applications yet</p>
+        </div>
+      );
+    }
+
+    return (
+      <div className="divide-y divide-border">
+        {applications.map((app) => {
+          const stageLabel = APP_STATUSES.find((s) => s.value === app.status)?.label ?? app.status;
+          return (
+            <button
+              key={app.application_id}
+              type="button"
+              className="flex w-full items-center justify-between py-4 px-1 gap-4 hover:bg-muted/20 rounded-lg transition-colors cursor-pointer text-left"
+              onClick={() => setSelectedAppId(app.application_id)}
+            >
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
+                  {app.applicant_profile?.first_name?.charAt(0) ?? "?"}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-foreground text-sm leading-none truncate">
+                    {app.applicant_profile?.first_name} {app.applicant_profile?.last_name}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{app.applicant_profile?.email}</p>
+                  <p className="text-[10px] font-mono text-muted-foreground/70">{app.applicant_profile?.applicant_code}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-[10px] text-muted-foreground">{formatDate(app.applied_at)}</span>
+                <span className={`text-[10px] font-bold uppercase border rounded-full px-2.5 py-1 ${APP_STATUS_STYLES[app.status] ?? "bg-gray-100 text-gray-700 border-gray-200"}`}>
+                  {stageLabel}
+                </span>
+                <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
+  };
 
   useEffect(() => {
     apiFetch<Application[]>(`/jobs/${job.job_posting_id}/applications`)
@@ -857,63 +943,14 @@ function ApplicantsModal({
           <div className="flex items-center justify-between mb-5 shrink-0">
             <div>
               <h3 className="font-bold text-foreground text-lg">{job.title}</h3>
-              <p className="text-xs text-muted-foreground">
-                {loading ? "Loading..." : `${applications.length} applicant${applications.length === 1 ? "" : "s"}`}
-              </p>
+              <p className="text-xs text-muted-foreground">{applicantCountLabel}</p>
             </div>
             <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
               <X className="h-4 w-4 text-muted-foreground" />
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto min-h-0">
-            {loading ? (
-              <div className="flex items-center justify-center py-16">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : applications.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-16 gap-2 text-muted-foreground">
-                <Users className="h-10 w-10 opacity-30" />
-                <p className="text-sm font-medium">No applications yet</p>
-              </div>
-            ) : (
-              <div className="divide-y divide-border">
-                {applications.map((app) => {
-                  const stageLabel = APP_STATUSES.find((s) => s.value === app.status)?.label ?? app.status;
-                  return (
-                    <div
-                      key={app.application_id}
-                      role="button"
-                      tabIndex={0}
-                      className="flex items-center justify-between py-4 px-1 gap-4 hover:bg-muted/20 rounded-lg transition-colors cursor-pointer"
-                      onClick={() => setSelectedAppId(app.application_id)}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { setSelectedAppId(app.application_id); } }}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
-                          {app.applicant_profile?.first_name?.charAt(0) ?? "?"}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-foreground text-sm leading-none truncate">
-                            {app.applicant_profile?.first_name} {app.applicant_profile?.last_name}
-                          </p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{app.applicant_profile?.email}</p>
-                          <p className="text-[10px] font-mono text-muted-foreground/70">{app.applicant_profile?.applicant_code}</p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] text-muted-foreground">{formatDate(app.applied_at)}</span>
-                        <span className={`text-[10px] font-bold uppercase border rounded-full px-2.5 py-1 ${APP_STATUS_STYLES[app.status] ?? "bg-gray-100 text-gray-700 border-gray-200"}`}>
-                          {stageLabel}
-                        </span>
-                        <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-muted-foreground" />
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
+          <div className="flex-1 overflow-y-auto min-h-0">{renderApplicationsContent()}</div>
         </div>
       </div>
 
@@ -921,15 +958,91 @@ function ApplicantsModal({
         <ApplicationDetailModal
           applicationId={selectedAppId}
           onClose={() => setSelectedAppId(null)}
-          onStatusChange={(newStatus) => {
+          onStatusChange={async (appId, newStatus) => {
+            const didUpdate = await onStatusChange(appId, newStatus);
+            if (!didUpdate) return false;
             setApplications((prev) =>
-              prev.map((a) => a.application_id === selectedAppId ? { ...a, status: newStatus } : a)
+              prev.map((a) => a.application_id === appId ? { ...a, status: newStatus } : a)
             );
             setSelectedAppId(null);
+            return true;
           }}
         />
       )}
     </>
+  );
+}
+
+function RejectionReasonModal({
+  reason,
+  notes,
+  submitting,
+  onReasonChange,
+  onNotesChange,
+  onCancel,
+  onConfirm,
+}: Readonly<{
+  reason: string;
+  notes: string;
+  submitting: boolean;
+  onReasonChange: (value: string) => void;
+  onNotesChange: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+}>) {
+  return (
+    <div className="fixed inset-0 z-80 flex items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="flex items-start justify-between gap-3 px-6 pt-6 pb-4 border-b border-border">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-red-600">Rejection Required</p>
+            <h3 className="text-lg font-bold text-foreground mt-1">Select a rejection reason</h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              A reason is required before moving this application to Rejected.
+            </p>
+          </div>
+          <button onClick={onCancel} className="p-1.5 rounded-md hover:bg-muted/60 transition-colors" disabled={submitting}>
+            <X className="h-4 w-4 text-muted-foreground" />
+          </button>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          <div className="space-y-1.5">
+            <label htmlFor="rejection-reason" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Rejection Reason *</label>
+            <select
+              id="rejection-reason"
+              value={reason}
+              onChange={(e) => onReasonChange(e.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="">Select a reason</option>
+              {REJECTION_REASONS.map((item) => (
+                <option key={item} value={item}>{item}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-1.5">
+            <label htmlFor="rejection-notes" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Optional Notes</label>
+            <textarea
+              id="rejection-notes"
+              value={notes}
+              onChange={(e) => onNotesChange(e.target.value)}
+              rows={3}
+              placeholder="Add additional context for audit trail"
+              className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            />
+          </div>
+
+          <div className="flex items-center gap-3 pt-1">
+            <Button type="button" variant="outline" className="flex-1" onClick={onCancel} disabled={submitting}>Cancel</Button>
+            <Button type="button" className="flex-1" onClick={onConfirm} disabled={submitting || !reason}>
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirm Rejection"}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -990,35 +1103,97 @@ function JobRowMenu({
           ref={menuRef}
           style={{ position: "fixed", top: pos.top, bottom: pos.bottom, right: pos.right }}
           className="z-200 w-48 bg-card border border-border rounded-lg shadow-lg py-1 text-sm"
-          onClick={() => setOpen(false)}
         >
-          <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={onViewApplicants}>
+          <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={() => { setOpen(false); onViewApplicants(); }}>
             <Users className="h-3.5 w-3.5" /> View Applicants
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={onEdit}>
+          <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={() => { setOpen(false); onEdit(); }}>
             <Pencil className="h-3.5 w-3.5" /> Edit Posting
           </button>
-          <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={onManageForm}>
+          <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground" onClick={() => { setOpen(false); onManageForm(); }}>
             <FileText className="h-3.5 w-3.5" /> Manage Form
           </button>
           {job.status === "open" && (
-            <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-red-600" onClick={onClose}>
+            <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-red-600" onClick={() => { setOpen(false); onClose(); }}>
               <XCircle className="h-3.5 w-3.5" /> Close Posting
             </button>
           )}
           {job.status === "closed" && (
-            <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600" onClick={onReopen}>
+            <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600" onClick={() => { setOpen(false); onReopen(); }}>
               <RefreshCw className="h-3.5 w-3.5" /> Reopen Posting
             </button>
           )}
           {job.status === "draft" && (
-            <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600" onClick={onReopen}>
+            <button className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600" onClick={() => { setOpen(false); onReopen(); }}>
               <CheckCircle className="h-3.5 w-3.5" /> Publish (Open)
             </button>
           )}
         </div>,
         document.body,
       )}
+    </div>
+  );
+}
+
+function PipelineCandidateCard({
+  app,
+  stageLabel,
+  stageBadge,
+  pipelineUpdating,
+  onStatusChange,
+  onViewDetail,
+}: Readonly<{
+  app: Application;
+  stageLabel: string;
+  stageBadge: string;
+  pipelineUpdating: boolean;
+  onStatusChange: (appId: string, status: string) => void;
+  onViewDetail: (appId: string) => void;
+}>) {
+  const { first_name, last_name, email, applicant_code } = app.applicant_profile;
+  const initials = `${first_name.charAt(0)}${last_name.charAt(0)}`.toUpperCase();
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 hover:-translate-y-0.5 flex flex-col gap-4">
+      <div className="flex items-start gap-3">
+        <div className="h-10 w-10 rounded-full bg-[linear-gradient(135deg,#1e3a8a,#2563eb)] flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm">
+          {initials}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold text-foreground truncate leading-tight">{first_name} {last_name}</p>
+          <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mt-0.5">{applicant_code}</p>
+        </div>
+        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border shrink-0 ${stageBadge}`}>
+          {stageLabel}
+        </span>
+      </div>
+      <div className="space-y-1.5">
+        <div className="flex items-center gap-2">
+          <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="text-xs text-muted-foreground truncate">{email}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Calendar className="h-3 w-3 text-muted-foreground shrink-0" />
+          <span className="text-xs text-muted-foreground">
+            Applied {new Date(app.applied_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2 pt-1 border-t border-border mt-auto">
+        <select
+          value={app.status}
+          disabled={pipelineUpdating}
+          onChange={(e) => onStatusChange(app.application_id, e.target.value)}
+          className="flex-1 h-7 rounded-md border border-border bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
+        >
+          {APP_STATUSES.map((s) => (
+            <option key={s.value} value={s.value}>{s.label}</option>
+          ))}
+        </select>
+        <Button size="sm" variant="outline" className="h-7 px-3 text-xs shrink-0" onClick={() => onViewDetail(app.application_id)}>
+          View
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1044,17 +1219,14 @@ function PipelineDetailModal({
   const currentStage = PIPELINE_STAGES.find((s) => s.value === detail.status) ?? PIPELINE_STAGES[0];
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4"
-      onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { onClose(); } }}
-    >
-      <div
-        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4">
+      <button
+        type="button"
+        aria-label="Close application pipeline details"
+        onClick={onClose}
+        className="absolute inset-0"
+      />
+      <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
         {/* Header */}
         <div className="flex items-start justify-between p-6 border-b border-border bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)]">
           <div className="flex items-start gap-4">
@@ -1170,6 +1342,10 @@ export default function HRJobsPage() {
   const [pipelineDetail, setPipelineDetail]   = useState<ApplicationDetail | null>(null);
   const [pipelineDetailLoading, setPipelineDetailLoading] = useState(false);
   const [pipelineUpdating, setPipelineUpdating]           = useState(false);
+  const [pendingRejection, setPendingRejection]           = useState<{ appId: string; status: string } | null>(null);
+  const [rejectionReason, setRejectionReason]             = useState("");
+  const [rejectionNotes, setRejectionNotes]               = useState("");
+  const [rejectSubmitting, setRejectSubmitting]           = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1209,23 +1385,57 @@ export default function HRJobsPage() {
     if (pageView === "pipeline" && pipelineJobId) loadPipelineApps(pipelineJobId);
   }, [pageView, pipelineJobId, loadPipelineApps]);
 
-  const handlePipelineStatusChange = async (appId: string, newStatus: string) => {
+  const commitPipelineStatusChange = async (
+    appId: string,
+    newStatus: string,
+    extra?: { rejection_reason?: string; rejection_notes?: string }
+  ): Promise<boolean> => {
     setPipelineUpdating(true);
     try {
       await apiFetch(`/jobs/applications/${appId}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status: newStatus }),
+        body: JSON.stringify({ status: newStatus, ...extra }),
       });
       setPipelineApps((prev) => prev.map((a) => a.application_id === appId ? { ...a, status: newStatus } : a));
       if (pipelineDetail?.application_id === appId) {
         setPipelineDetail((d) => d ? { ...d, status: newStatus } : d);
       }
       toast.success("Stage updated");
+      return true;
     } catch {
       toast.error("Failed to update stage");
+      return false;
     } finally {
       setPipelineUpdating(false);
     }
+  };
+
+  const requestPipelineStatusChange = async (appId: string, newStatus: string): Promise<boolean> => {
+    if (newStatus === "rejected") {
+      setPendingRejection({ appId, status: newStatus });
+      setRejectionReason("");
+      setRejectionNotes("");
+      return false;
+    }
+    return commitPipelineStatusChange(appId, newStatus);
+  };
+
+  const handlePipelineStatusChange = async (appId: string, newStatus: string) => {
+    await requestPipelineStatusChange(appId, newStatus);
+  };
+
+  const handleConfirmRejection = async () => {
+    if (!pendingRejection || !rejectionReason) return;
+    setRejectSubmitting(true);
+    const ok = await commitPipelineStatusChange(pendingRejection.appId, pendingRejection.status, {
+      rejection_reason: rejectionReason,
+      rejection_notes: rejectionNotes.trim() || undefined,
+    });
+    setRejectSubmitting(false);
+    if (!ok) return;
+    setPendingRejection(null);
+    setRejectionReason("");
+    setRejectionNotes("");
   };
 
   const handleOpenPipelineDetail = async (appId: string) => {
@@ -1243,7 +1453,7 @@ export default function HRJobsPage() {
   useEffect(() => {
     getMyCompany()
       .then((company) => {
-        const origin = typeof globalThis.window !== "undefined" ? globalThis.location.origin : "";
+        const origin = globalThis.window === undefined ? "" : globalThis.location.origin;
         setCareersUrl(`${origin}/careers/${company.slug}`);
       })
       .catch(() => {});
@@ -1294,32 +1504,39 @@ export default function HRJobsPage() {
   const openCount   = jobs.filter((j) => j.status === "open").length;
   const closedCount = jobs.filter((j) => j.status === "closed").length;
 
-  const jobTableRows = loading ? (
-    <tr><td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">Loading job postings...</td></tr>
-  ) : paged.length === 0 ? (
-    <tr>
-      <td colSpan={7} className="px-5 py-10 text-center">
-        <div className="flex flex-col items-center gap-2 text-muted-foreground">
-          <Briefcase className="h-10 w-10 opacity-20" />
-          <p className="text-sm font-medium">
-            {jobs.length === 0
-              ? "No job postings yet. Create your first one!"
-              : statusFilter !== "all"
-              ? `No ${statusFilter} postings found.`
-              : "No postings match your search."}
-          </p>
-          {jobs.length === 0 && (
-            <Button size="sm" className="mt-1 gap-1" onClick={() => setShowCreate(true)}>
-              <Plus className="h-3.5 w-3.5" /> Create Job Posting
-            </Button>
-          )}
-        </div>
-      </td>
-    </tr>
-  ) : (
-    <>
-      {paged.map((job) => (
-        <tr key={job.job_posting_id} className="hover:bg-primary/5 transition-colors">
+  let emptyJobPostingsLabel = "No postings match your search.";
+  if (jobs.length === 0) {
+    emptyJobPostingsLabel = "No job postings yet. Create your first one!";
+  } else if (statusFilter !== "all") {
+    emptyJobPostingsLabel = `No ${statusFilter} postings found.`;
+  }
+
+  let jobTableRows: React.ReactNode;
+  if (loading) {
+    jobTableRows = (
+      <tr><td colSpan={7} className="px-5 py-10 text-center text-muted-foreground">Loading job postings...</td></tr>
+    );
+  } else if (paged.length === 0) {
+    jobTableRows = (
+      <tr>
+        <td colSpan={7} className="px-5 py-10 text-center">
+          <div className="flex flex-col items-center gap-2 text-muted-foreground">
+            <Briefcase className="h-10 w-10 opacity-20" />
+            <p className="text-sm font-medium">{emptyJobPostingsLabel}</p>
+            {jobs.length === 0 && (
+              <Button size="sm" className="mt-1 gap-1" onClick={() => setShowCreate(true)}>
+                <Plus className="h-3.5 w-3.5" /> Create Job Posting
+              </Button>
+            )}
+          </div>
+        </td>
+      </tr>
+    );
+  } else {
+    jobTableRows = (
+      <>
+        {paged.map((job) => (
+          <tr key={job.job_posting_id} className="hover:bg-primary/5 transition-colors">
           <td className="px-5 py-4">
             <div className="flex items-center gap-2">
               <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
@@ -1354,10 +1571,11 @@ export default function HRJobsPage() {
               onManageForm={() => setManageFormJob(job)}
             />
           </td>
-        </tr>
-      ))}
-    </>
-  );
+          </tr>
+        ))}
+      </>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -1413,6 +1631,42 @@ export default function HRJobsPage() {
         const stageCounts = Object.fromEntries(PIPELINE_STAGES.map((s) => [s.value, pipelineApps.filter((a) => a.status === s.value).length]));
         const visibleApps = stageFiltered.filter((a) => a.status === pipelineStage);
         const activeStage = PIPELINE_STAGES.find((s) => s.value === pipelineStage)!;
+
+        const renderPipelineListView = () => {
+          if (pipelineLoading) {
+            return (
+              <div className="flex items-center justify-center py-20">
+                <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
+              </div>
+            );
+          }
+
+          if (visibleApps.length === 0) {
+            return (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                <activeStage.icon className="h-10 w-10 mb-3 opacity-20" />
+                <p className="text-sm font-medium">No candidates in this stage</p>
+                {pipelineSearch && <p className="text-xs mt-1 opacity-60">Try clearing the search filter</p>}
+              </div>
+            );
+          }
+
+          return (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {visibleApps.map((app) => (
+                <PipelineCandidateCard
+                  key={app.application_id}
+                  app={app}
+                  stageLabel={activeStage.label}
+                  stageBadge={activeStage.badge}
+                  pipelineUpdating={pipelineUpdating}
+                  onStatusChange={handlePipelineStatusChange}
+                  onViewDetail={handleOpenPipelineDetail}
+                />
+              ))}
+            </div>
+          );
+        };
 
         return (
           <div className="space-y-5 animate-in fade-in duration-300">
@@ -1539,70 +1793,7 @@ export default function HRJobsPage() {
 
             {/* ── List view (original design) ── */}
             {pipelineView === "list" && (
-              pipelineLoading ? (
-                <div className="flex items-center justify-center py-20">
-                  <Loader2 className="h-8 w-8 animate-spin text-primary/40" />
-                </div>
-              ) : visibleApps.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-                  <activeStage.icon className="h-10 w-10 mb-3 opacity-20" />
-                  <p className="text-sm font-medium">No candidates in this stage</p>
-                  {pipelineSearch && <p className="text-xs mt-1 opacity-60">Try clearing the search filter</p>}
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {visibleApps.map((app) => {
-                    const { first_name, last_name, email, applicant_code } = app.applicant_profile;
-                    const ini = `${first_name.charAt(0)}${last_name.charAt(0)}`.toUpperCase();
-                    return (
-                      <div
-                        key={app.application_id}
-                        className="bg-card border border-border rounded-xl p-5 shadow-sm hover:shadow-md hover:border-primary/30 transition-all duration-200 hover:-translate-y-0.5 flex flex-col gap-4"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="h-10 w-10 rounded-full bg-[linear-gradient(135deg,#1e3a8a,#2563eb)] flex items-center justify-center text-white text-sm font-bold shrink-0 shadow-sm">
-                            {ini}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-bold text-foreground truncate leading-tight">{first_name} {last_name}</p>
-                            <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground mt-0.5">{applicant_code}</p>
-                          </div>
-                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold uppercase border shrink-0 ${activeStage.badge}`}>
-                            {activeStage.label}
-                          </span>
-                        </div>
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
-                            <span className="text-xs text-muted-foreground truncate">{email}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-3 w-3 text-muted-foreground shrink-0" />
-                            <span className="text-xs text-muted-foreground">
-                              Applied {new Date(app.applied_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="flex items-center gap-2 pt-1 border-t border-border mt-auto">
-                          <select
-                            value={app.status}
-                            disabled={pipelineUpdating}
-                            onChange={(e) => handlePipelineStatusChange(app.application_id, e.target.value)}
-                            className="flex-1 h-7 rounded-md border border-border bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
-                          >
-                            {APP_STATUSES.map((s) => (
-                              <option key={s.value} value={s.value}>{s.label}</option>
-                            ))}
-                          </select>
-                          <Button size="sm" variant="outline" className="h-7 px-3 text-xs shrink-0" onClick={() => handleOpenPipelineDetail(app.application_id)}>
-                            View
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )
+              renderPipelineListView()
             )}
           </div>
         );
@@ -1775,7 +1966,28 @@ export default function HRJobsPage() {
       )}
 
       {viewApplicants && (
-        <ApplicantsModal job={viewApplicants} onClose={() => setViewApplicants(null)} />
+        <ApplicantsModal
+          job={viewApplicants}
+          onClose={() => setViewApplicants(null)}
+          onStatusChange={requestPipelineStatusChange}
+        />
+      )}
+
+      {pendingRejection && (
+        <RejectionReasonModal
+          reason={rejectionReason}
+          notes={rejectionNotes}
+          submitting={rejectSubmitting}
+          onReasonChange={setRejectionReason}
+          onNotesChange={setRejectionNotes}
+          onCancel={() => {
+            if (rejectSubmitting) return;
+            setPendingRejection(null);
+            setRejectionReason("");
+            setRejectionNotes("");
+          }}
+          onConfirm={handleConfirmRejection}
+        />
       )}
     </div>
   );

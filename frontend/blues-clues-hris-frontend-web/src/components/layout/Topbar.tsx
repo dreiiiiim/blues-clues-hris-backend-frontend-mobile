@@ -1,9 +1,16 @@
 "use client"
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, Bell, ChevronDown, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
 
 type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
@@ -17,18 +24,65 @@ const TOPBAR_CONFIG: Record<PersonaType, { search: string; role: string }> = {
   "system-admin": { search: "Search...", role: "System Admin" },
 };
 
-export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {
+type PortalNotification = {
+  id: string;
+  title: string;
+  message: string;
+  time: string;
+  unread: boolean;
+};
+
+export function Topbar({ persona = "applicant" }: Readonly<{ persona?: PersonaType }>) {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [searchValue, setSearchValue] = useState("");
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const config = TOPBAR_CONFIG[persona];
+  const [notifications, setNotifications] = useState<PortalNotification[]>([]);
 
   useEffect(() => {
     setUser(getUserInfo());
   }, []);
+
+  useEffect(() => {
+    const applicantFeed: PortalNotification[] = [
+      {
+        id: "n1",
+        title: "Application Update",
+        message: "Frontend Developer role is now under review.",
+        time: "2h ago",
+        unread: true,
+      },
+      {
+        id: "n2",
+        title: "Recruiter Message",
+        message: "Please keep your contact number updated for interview scheduling.",
+        time: "1d ago",
+        unread: true,
+      },
+      {
+        id: "n3",
+        title: "New Job Match",
+        message: "A new opening matches your saved job preferences.",
+        time: "3d ago",
+        unread: false,
+      },
+    ];
+
+    const defaultFeed: PortalNotification[] = [
+      {
+        id: "n1",
+        title: "System Update",
+        message: "New activity is available in your dashboard.",
+        time: "Today",
+        unread: true,
+      },
+    ];
+
+    setNotifications(persona === "applicant" ? applicantFeed : defaultFeed);
+  }, [persona]);
 
   // Sync topbar input with URL ?q= when URL changes (e.g. page navigation)
   useEffect(() => {
@@ -43,6 +97,15 @@ export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {
       if (value) params.set("q", value); else params.delete("q");
       router.replace(`${pathname}?${params.toString()}`, { scroll: false } as any);
     }, 300);
+  };
+
+  const unreadCount = useMemo(
+    () => notifications.filter((note) => note.unread).length,
+    [notifications]
+  );
+
+  const markAllRead = () => {
+    setNotifications((prev) => prev.map((note) => ({ ...note, unread: false })));
   };
 
   const initial = user?.name?.charAt(0) || persona.charAt(0).toUpperCase();
@@ -66,10 +129,53 @@ export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {
       <div className="flex items-center gap-6">
 
         {/* Notifications */}
-        <button className="relative text-muted-foreground hover:text-primary transition-colors cursor-pointer group">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-destructive rounded-full border-2 border-background group-hover:scale-110 transition-transform"></span>
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button className="relative text-muted-foreground hover:text-primary transition-colors cursor-pointer group">
+              <Bell className="h-5 w-5" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1.5 -right-1.5 min-w-4 h-4 px-1 rounded-full bg-destructive text-[9px] leading-none font-bold text-destructive-foreground border border-background flex items-center justify-center group-hover:scale-105 transition-transform">
+                  {unreadCount > 9 ? "9+" : unreadCount}
+                </span>
+              )}
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-90 p-0">
+            <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
+              <DropdownMenuLabel className="p-0 text-sm text-foreground font-semibold">
+                Notifications
+              </DropdownMenuLabel>
+              {unreadCount > 0 && (
+                <button
+                  onClick={markAllRead}
+                  className="text-[11px] font-semibold text-primary hover:underline cursor-pointer"
+                >
+                  Mark all as read
+                </button>
+              )}
+            </div>
+            <div className="max-h-80 overflow-y-auto">
+              {notifications.map((note) => (
+                <div key={note.id} className="px-3 py-3 hover:bg-muted/40 transition-colors border-b last:border-b-0 border-border/70">
+                  <div className="flex items-start gap-2">
+                    <span
+                      className={`mt-1.5 h-1.5 w-1.5 rounded-full shrink-0 ${note.unread ? "bg-primary" : "bg-muted-foreground/35"}`}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs font-semibold text-foreground">{note.title}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 leading-relaxed">{note.message}</p>
+                      <p className="text-[10px] text-muted-foreground/70 mt-1">{note.time}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <DropdownMenuSeparator />
+            <div className="px-3 py-2 text-[11px] text-muted-foreground">
+              {persona === "applicant" ? "Messages and application updates" : "Workspace updates"}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
 
         {/* Profile Dropdown */}
         <button className="flex items-center gap-3 border-l border-border pl-6 cursor-pointer group">
