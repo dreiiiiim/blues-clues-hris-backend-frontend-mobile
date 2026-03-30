@@ -239,11 +239,10 @@ export default function AdminDashboardPage() {
           <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-6">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold leading-snug max-w-xl">
-                {adminName}, the platform is live across{" "}
-                <span className="text-emerald-300">{loading ? "—" : companies} {companies === 1 ? "company" : "companies"}</span>.
+                Welcome back, <span className="text-emerald-300">{adminName}</span>. Your control panel is ready.
               </h1>
               <p className="mt-3 text-sm text-white/65 max-w-xl">
-                Review account health, watch expiring invites, and jump into tenant operations without leaving the control surface.
+                Monitor platform health, manage users, and handle administrative tasks from one place.
               </p>
             </div>
             <div className="flex items-stretch gap-3 shrink-0">

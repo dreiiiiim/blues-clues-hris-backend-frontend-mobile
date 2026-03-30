@@ -31,6 +31,14 @@ export default function SharedDashboardLayout({
 
   useLayoutEffect(() => {
     const verify = async () => {
+      // Block children only when the token is missing or expired.
+      // If the token is still valid, keep children visible and verify silently
+      // in the background — this avoids a blank flash on every navigation.
+      const token = getAccessToken();
+      const payload = token ? parseJwt(token) : null;
+      const needsRefresh = !payload?.exp || Date.now() / 1000 >= payload.exp - 30;
+      if (needsRefresh) setIsAuthorized(false);
+
       const res = await authFetch(`${API_BASE_URL}/me`);
       if (!res.ok) {
         clearAuthStorage();

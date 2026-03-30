@@ -132,8 +132,9 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
 
     await this.auditService.log(
-      `Job posting created: "${dto.title}" (ID: ${job_posting_id})`,
+      `Job posting created: "${dto.title}"`,
       performedBy,
+      companyId,
     );
 
     return data;
@@ -208,8 +209,9 @@ export class JobsService {
       ? ` (status: ${existing.status} → ${dto.status})`
       : '';
     await this.auditService.log(
-      `Job posting updated: "${existing.title}" (ID: ${jobPostingId}) - fields: ${changedFields.join(', ')}${statusChange}`,
+      `Job posting updated: "${existing.title}" - fields: ${changedFields.join(', ')}${statusChange}`,
       performedBy,
+      companyId,
     );
 
     return data;
@@ -229,8 +231,9 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
 
     await this.auditService.log(
-      `Job posting closed: "${existing.title}" (ID: ${jobPostingId})`,
+      `Job posting closed: "${existing.title}"`,
       performedBy,
+      companyId,
     );
 
     return { message: 'Job posting closed successfully' };
@@ -251,8 +254,9 @@ export class JobsService {
 
     if (questions.length === 0) {
       await this.auditService.log(
-        `Application form cleared: job "${existing.title}" (ID: ${jobPostingId})`,
+        `Application form cleared: job "${existing.title}"`,
         performedBy,
+        companyId,
       );
       return [];
     }
@@ -275,8 +279,9 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
 
     await this.auditService.log(
-      `Application form updated: job "${existing.title}" (ID: ${jobPostingId}) - ${questions.length} question(s) set`,
+      `Application form updated: job "${existing.title}" - ${questions.length} question(s) set`,
       performedBy,
+      companyId,
     );
 
     return data ?? [];
@@ -304,7 +309,7 @@ export class JobsService {
 
     await this.findOnePosting(jobPostingId, companyId);
 
-    const { data, error } = await supabase
+    const { data: regularApps, error: regularError } = await supabase
       .from('job_applications')
       .select(`
         application_id,
@@ -322,8 +327,49 @@ export class JobsService {
       .eq('job_posting_id', jobPostingId)
       .order('applied_at', { ascending: false });
 
-    if (error) throw new InternalServerErrorException(error.message);
-    return data ?? [];
+    if (regularError) throw new InternalServerErrorException(regularError.message);
+
+    const { data: sfiaApps, error: sfiaError } = await supabase
+      .from('job_application_sfia')
+      .select('application_id, status, application_timestamp, applicant_id')
+      .eq('job_posting_id', jobPostingId)
+      .order('application_timestamp', { ascending: false });
+
+    if (sfiaError) {
+      this.logger.warn(`Unable to fetch SFIA applications for job ${jobPostingId}: ${sfiaError.message}`);
+    }
+
+    const regularIds = new Set((regularApps ?? []).map((a: { application_id: string }) => a.application_id));
+
+    const uniqueSfiaApps = (sfiaApps ?? []).filter(
+      (a: { application_id: string }) => !regularIds.has(a.application_id),
+    );
+
+    let sfiaProfiles: ApplicantProfileRow[] = [];
+    if (uniqueSfiaApps.length > 0) {
+      const applicantIds = uniqueSfiaApps.map((a: { applicant_id: string }) => a.applicant_id);
+      const { data: profiles } = await supabase
+        .from('applicant_profile')
+        .select('applicant_id, first_name, last_name, email, phone_number, applicant_code')
+        .in('applicant_id', applicantIds);
+      sfiaProfiles = (profiles ?? []) as ApplicantProfileRow[];
+    }
+
+    const profileMap = new Map(sfiaProfiles.map((p) => [p.applicant_id, p]));
+
+    const normalizedSfiaApps = uniqueSfiaApps.map(
+      (a: { application_id: string; status: string; application_timestamp: string; applicant_id: string }) => ({
+        application_id: a.application_id,
+        status: a.status?.toLowerCase() ?? 'submitted',
+        applied_at: a.application_timestamp,
+        applicant_id: a.applicant_id,
+        applicant_profile: profileMap.get(a.applicant_id) ?? null,
+      }),
+    );
+
+    return [...(regularApps ?? []), ...normalizedSfiaApps].sort(
+      (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime(),
+    );
   }
 
   async getRankedCandidates(
@@ -375,7 +421,7 @@ export class JobsService {
   ) {
     const supabase = this.supabaseService.getClient();
 
-    await this.findOnePosting(jobPostingId, companyId);
+    const jobPosting = await this.findOnePosting(jobPostingId, companyId);
 
     const { data: applications, error: applicationsError } = await supabase
       .from('job_application_sfia')
@@ -447,8 +493,9 @@ export class JobsService {
     }
 
     await this.auditService.log(
-      `Manual candidate ranking saved for job ${jobPostingId} (${rankings.length} candidate(s))`,
+      `Manual candidate ranking saved for "${jobPosting.title}" (${rankings.length} candidate(s))`,
       performedBy,
+      companyId,
     );
 
     return {
@@ -499,16 +546,37 @@ export class JobsService {
       .maybeSingle();
 
     if (appError) throw new InternalServerErrorException(appError.message);
-    if (!app) throw new NotFoundException('Application not found');
 
-    await this.findOnePosting(app.job_posting_id, companyId);
+    if (app) {
+      await this.findOnePosting(app.job_posting_id, companyId);
 
-    const { error } = await supabase
-      .from('job_applications')
-      .update({ status })
+      const { error } = await supabase
+        .from('job_applications')
+        .update({ status })
+        .eq('application_id', applicationId);
+
+      if (error) throw new InternalServerErrorException(error.message);
+      return { message: 'Application status updated' };
+    }
+
+    // Fall back to SFIA applications table
+    const { data: sfiaApp, error: sfiaAppError } = await supabase
+      .from('job_application_sfia')
+      .select('application_id, job_posting_id')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (sfiaAppError) throw new InternalServerErrorException(sfiaAppError.message);
+    if (!sfiaApp) throw new NotFoundException('Application not found');
+
+    await this.findOnePosting(sfiaApp.job_posting_id, companyId);
+
+    const { error: sfiaUpdateError } = await supabase
+      .from('job_application_sfia')
+      .update({ status: status.toUpperCase() })
       .eq('application_id', applicationId);
 
-    if (error) throw new InternalServerErrorException(error.message);
+    if (sfiaUpdateError) throw new InternalServerErrorException(sfiaUpdateError.message);
     return { message: 'Application status updated' };
   }
 

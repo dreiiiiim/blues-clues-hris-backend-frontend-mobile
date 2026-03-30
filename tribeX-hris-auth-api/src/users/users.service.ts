@@ -535,6 +535,7 @@ export class UsersService {
     await this.auditService.log(
       'Global lifecycle permissions updated',
       adminUserId,
+      companyId,
     );
 
     return this.getLifecyclePermissions(companyId);
@@ -667,32 +668,36 @@ export class UsersService {
 
   async createDepartment(name: string, companyId: string, performedBy: string) {
     const supabase = this.supabaseService.getClient();
-    const year = new Date().getFullYear();
 
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const rand = String(Math.floor(Math.random() * 9000) + 1000);
-      const department_id = `DPT-${year}-${rand}`;
+    const { data, error } = await supabase
+      .from('department')
+      .insert({ department_name: name, company_id: companyId })
+      .select('department_id, department_name')
+      .single();
 
-      const { data, error } = await supabase
-        .from('department')
-        .insert({ department_id, department_name: name, company_id: companyId })
-        .select('department_id, department_name')
-        .single();
-
-      if (!error) {
-        await this.auditService.log(
-          `Department created: "${name}" (ID: ${data.department_id})`,
-          performedBy,
+    if (error) {
+      if (error.code === '23505') {
+        await this.auditService.logIncident(
+          `Department creation failed: "${name}" already exists`,
+          'WARNING',
+          { companyId, performedBy },
         );
-        return data;
+        throw new ConflictException(`Department "${name}" already exists`);
       }
-      if ((error as any).code !== '23505') throw new Error(error.message);
-      // 23505 = unique violation on department_id, retry with new random
+      await this.auditService.logIncident(
+        `Department creation failed: "${name}" — ${error.message}`,
+        'ERROR',
+        { companyId, performedBy },
+      );
+      throw new Error(error.message);
     }
 
-    throw new InternalServerErrorException(
-      'Could not generate a unique department ID. Please try again.',
+    await this.auditService.log(
+      `Department created: "${name}"`,
+      performedBy,
+      companyId,
     );
+    return data;
   }
 
   async renameDepartment(id: string, name: string, companyId: string, performedBy: string) {
@@ -707,14 +712,24 @@ export class UsersService {
     if (error) throw new Error(error.message);
     if (!data) throw new NotFoundException('Department not found.');
     await this.auditService.log(
-      `Department renamed to "${name}" (ID: ${id})`,
+      `Department renamed to "${name}"`,
       performedBy,
+      companyId,
     );
     return data;
   }
 
   async deleteDepartment(id: string, companyId: string, performedBy: string) {
     const supabase = this.supabaseService.getClient();
+
+    // Fetch name before deletion so the audit log is human-readable
+    const { data: dept } = await supabase
+      .from('department')
+      .select('department_name')
+      .eq('department_id', id)
+      .eq('company_id', companyId)
+      .single();
+
     // Unassign all users in this department first
     await supabase
       .from('user_profile')
@@ -729,8 +744,9 @@ export class UsersService {
       .eq('company_id', companyId);
     if (error) throw new Error(error.message);
     await this.auditService.log(
-      `Department deleted (ID: ${id})`,
+      `Department deleted: "${dept?.department_name ?? 'Unknown'}"`,
       performedBy,
+      companyId,
     );
     return { deleted: true };
   }
@@ -896,6 +912,7 @@ export class UsersService {
     await this.auditService.log(
       `User created: ${email}`,
       adminUserId,
+      companyId,
       user_id,
     );
 
@@ -928,6 +945,23 @@ export class UsersService {
     if (findError) throw new BadRequestException(findError.message);
     if (!user) throw new NotFoundException('User not found in your company');
 
+    // Block reassigning to a different department if user already has one
+    if (
+      dto.department_id !== undefined &&
+      dto.department_id !== null &&
+      user.department_id !== null &&
+      user.department_id !== dto.department_id
+    ) {
+      await this.auditService.logIncident(
+        `Department assignment failed: ${user.email} is already assigned to a department`,
+        'WARNING',
+        { companyId, performedBy: adminUserId, targetUserId: id },
+      );
+      throw new ConflictException(
+        'User is already assigned to a department. Remove the current assignment before assigning a new one.',
+      );
+    }
+
     const updates: Record<string, any> = {};
     if (dto.first_name !== undefined) updates.first_name = dto.first_name;
     if (dto.last_name !== undefined) updates.last_name = dto.last_name;
@@ -959,6 +993,7 @@ export class UsersService {
     await this.auditService.log(
       `User profile updated: ${user.email} - ${changes}`,
       adminUserId,
+      companyId,
       id,
     );
 
@@ -996,6 +1031,7 @@ export class UsersService {
     await this.auditService.log(
       `User deactivated: ${user.email}`,
       adminUserId,
+      companyId,
       id,
     );
 
@@ -1056,6 +1092,7 @@ export class UsersService {
     await this.auditService.log(
       `Invite resent to: ${user.email}`,
       adminUserId,
+      companyId,
       id,
     );
 
@@ -1090,6 +1127,7 @@ export class UsersService {
     await this.auditService.log(
       `User reactivated: ${user.email} -> ${nextStatus}`,
       adminUserId,
+      companyId,
       id,
     );
 

@@ -24,7 +24,7 @@ function GoogleLogo() {
   );
 }
 
-export function GoogleSignInButton({ disabled, onClick }: GoogleSignInButtonProps) {
+export function GoogleSignInButton({ disabled, onClick }: Readonly<GoogleSignInButtonProps>) {
   return (
     <Button
       type="button"
