@@ -224,12 +224,12 @@ export default function HRDashboardPage() {
   const filtered = employees.filter(e => {
     const q = search.toLowerCase();
     const matchesSearch = (
-      e.first_name.toLowerCase().includes(q) ||
-      e.last_name.toLowerCase().includes(q) ||
-      e.email.toLowerCase().includes(q) ||
-      e.employee_id.toLowerCase().includes(q)
+      (e.first_name ?? "").toLowerCase().includes(q) ||
+      (e.last_name ?? "").toLowerCase().includes(q) ||
+      (e.email ?? "").toLowerCase().includes(q) ||
+      (e.employee_id ?? "").toLowerCase().includes(q)
     );
-    const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status);
+    const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status ?? "");
     return matchesSearch && matchesStatus;
   });
 
@@ -293,19 +293,19 @@ export default function HRDashboardPage() {
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
-            {e.first_name.charAt(0)}
+            {(e.first_name ?? "?").charAt(0)}
           </div>
           <div>
             <p className="font-semibold text-foreground leading-none">
-              {e.first_name} {e.last_name}
+              {(e.first_name ?? "")} {(e.last_name ?? "")}
             </p>
-            <p className="text-[11px] text-muted-foreground mt-0.5">{e.email}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5">{(e.email ?? "")}</p>
           </div>
         </div>
       </td>
       {/* Employee ID */}
       <td className="px-5 py-4">
-        <span className="font-mono text-xs text-muted-foreground">{e.employee_id}</span>
+        <span className="font-mono text-xs text-muted-foreground">{(e.employee_id ?? "")}</span>
       </td>
       {/* Role */}
       <td className="px-5 py-4">
@@ -319,7 +319,7 @@ export default function HRDashboardPage() {
       </td>
       {/* Status */}
       <td className="px-5 py-4">
-        <StatusBadge status={e.account_status} />
+        <StatusBadge status={e.account_status ?? "unknown"} />
       </td>
       {/* Actions */}
       <td className="px-5 py-4 text-right">

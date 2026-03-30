@@ -190,7 +190,15 @@ export async function applyToJob(
     body: JSON.stringify(dto ?? {}),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.message || "Failed to apply");
+  if (!res.ok) {
+    const err = new Error(
+      res.status === 409
+        ? "You have already submitted an application for this role."
+        : (data as { message?: string })?.message || "Failed to apply"
+    ) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
+  }
   return data;
 }
 
@@ -340,10 +348,15 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
   } catch {
     // refresh failed: session is fully expired — clear storage and send to correct login page
     clearAuthStorage();
-    if (typeof globalThis.window !== "undefined") {
-      const userInfo = getUserInfo();
-      globalThis.location.href = userInfo?.role === "applicant" ? "/applicant/login" : "/login";
+    if (globalThis.window === undefined) {
+      // SSR case: return a 401 Response
+      return new Response(JSON.stringify({ error: "Session expired" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
     }
+    const userInfo = getUserInfo();
+    globalThis.location.href = userInfo?.role === "applicant" ? "/applicant/login" : "/login";
     return first;
   }
 }

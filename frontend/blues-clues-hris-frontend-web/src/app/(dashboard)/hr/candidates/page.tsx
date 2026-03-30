@@ -28,6 +28,7 @@ interface RankedCandidate {
   applied_at: string;
   status: string;
   fit_percentage: number;  // computed: Σ(weight × min(supply/demand, 1)) × 100
+  survey_score: number;    // applicant survey score shown during manual ranking mode
   sfia_rank: number;       // server-computed rank by SFIA pillars
   manual_rank: number;     // HR-defined rank (defaults to sfia_rank)
   pillars: SFIAPillar[];
@@ -99,6 +100,7 @@ function generateMockCandidates(jobId: string): RankedCandidate[] {
     const fit = Math.round(
       pillars.reduce((sum, p) => sum + p.weight * Math.min(p.supply / p.demand, 1) * 100, 0)
     );
+    const surveyScore = Math.max(40, Math.min(100, Math.round(base + ((i * 11 + seed) % 18) - 8)));
 
     return {
       application_id: `app-${jobId}-${i}`,
@@ -108,6 +110,7 @@ function generateMockCandidates(jobId: string): RankedCandidate[] {
       applied_at: new Date(Date.now() - i * 86_400_000 * 2).toISOString(),
       status: MOCK_STATUSES[i] ?? "Submitted",
       fit_percentage: fit,
+      survey_score: surveyScore,
       sfia_rank: 0,
       manual_rank: 0,
       pillars,
@@ -248,6 +251,8 @@ function CandidateCard({
 }>) {
   const [expanded, setExpanded] = useState(false);
   const statusStyle = STATUS_STYLES[candidate.status] ?? "bg-gray-100 text-gray-600 border-gray-200";
+  const scoreValue = mode === "manual" ? candidate.survey_score : candidate.fit_percentage;
+  const scoreLabel = mode === "manual" ? "Survey Score" : "AI Fit";
 
   return (
     <div
@@ -297,10 +302,10 @@ function CandidateCard({
 
         {/* Fit percentage */}
         <div className="text-right shrink-0">
-          <p className={`text-lg font-bold leading-none ${fitTextColor(candidate.fit_percentage)}`}>
-            {candidate.fit_percentage}%
+          <p className={`text-lg font-bold leading-none ${fitTextColor(scoreValue)}`}>
+            {scoreValue}%
           </p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">Fit Score</p>
+          <p className="text-[10px] text-muted-foreground mt-0.5">{scoreLabel}</p>
         </div>
 
         {/* Expand toggle */}
@@ -403,7 +408,7 @@ export default function CandidateEvaluationPage() {
           </p>
           <button
             onClick={() => setJobDropdownOpen((v) => !v)}
-            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-xl text-sm font-semibold hover:bg-muted/50 transition-colors min-w-[260px]"
+            className="flex items-center gap-2 px-4 py-2.5 bg-card border border-border rounded-xl text-sm font-semibold hover:bg-muted/50 transition-colors min-w-65"
           >
             <Briefcase className="h-4 w-4 text-muted-foreground shrink-0" />
             <span className="flex-1 text-left truncate">{selectedJob.title}</span>

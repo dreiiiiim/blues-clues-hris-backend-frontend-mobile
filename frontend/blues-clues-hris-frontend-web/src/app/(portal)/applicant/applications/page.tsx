@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
   Loader2, FileText, MapPin, Briefcase, CheckCircle2, X, Calendar,
-  Mail, Phone, ChevronRight, ClipboardList, Clock, Trophy, Mic, Cpu,
+  ChevronRight, ClipboardList, Clock, Trophy, Mic, Cpu,
   Search, Filter, SortAsc, SortDesc, TrendingUp, CheckCheck, XCircle,
   RotateCcw, DollarSign, AlarmClock,
 } from "lucide-react";
@@ -13,6 +13,7 @@ import {
   getMyApplications, getMyApplicationDetail,
   type MyApplication, type ApplicationDetail,
 } from "@/lib/authApi";
+import { subscribeApplicantApplicationsDirty } from "@/lib/applicantApplicationsSync";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -52,9 +53,27 @@ function timeAgo(iso: string) {
   return `${Math.floor(d / 30)}mo ago`;
 }
 
+function terminalStageCircleClass(status: string, terminal: boolean) {
+  if (!terminal) return "bg-muted/30 border-border";
+  return status === "hired"
+    ? "bg-green-500 border-green-500 shadow-sm shadow-green-500/20"
+    : "bg-red-400 border-red-400";
+}
+
+function terminalStageTextClass(status: string, terminal: boolean) {
+  if (!terminal) return "text-muted-foreground/35";
+  return status === "hired" ? "text-green-600" : "text-red-500";
+}
+
+function terminalStageLabel(status: string) {
+  if (status === "hired") return "Hired";
+  if (status === "rejected") return "Out";
+  return "Result";
+}
+
 // ─── Stage Progress ───────────────────────────────────────────────────────────
 
-function StageProgress({ status }: { status: string }) {
+function StageProgress({ status }: Readonly<{ status: string }>) {
   const terminal     = isTerminal(status);
   const currentIdx   = STAGES.findIndex((s) => s.key === status);
   const effectiveIdx = terminal ? STAGES.length : currentIdx;
@@ -92,13 +111,13 @@ function StageProgress({ status }: { status: string }) {
         <div className={`h-0.5 flex-1 -mt-4 mx-0.5 rounded-full ${terminal ? "bg-primary" : "bg-border"}`} />
         <div className="flex flex-col items-center shrink-0">
           <div className={`h-8 w-8 rounded-full border-2 flex items-center justify-center transition-all
-            ${terminal ? (status === "hired" ? "bg-green-500 border-green-500 shadow-sm shadow-green-500/20" : "bg-red-400 border-red-400") : "bg-muted/30 border-border"}
+            ${terminalStageCircleClass(status, terminal)}
           `}>
             {terminal ? <CheckCircle2 className="h-3.5 w-3.5 text-white" /> : <Trophy className="h-3 w-3 text-muted-foreground/30" />}
           </div>
           <span className={`mt-1 text-[9px] font-bold uppercase tracking-[0.06em] text-center leading-tight max-w-11
-            ${terminal ? (status === "hired" ? "text-green-600" : "text-red-500") : "text-muted-foreground/35"}
-          `}>{status === "hired" ? "Hired" : status === "rejected" ? "Out" : "Result"}</span>
+            ${terminalStageTextClass(status, terminal)}
+          `}>{terminalStageLabel(status)}</span>
         </div>
       </div>
     </div>
@@ -107,30 +126,33 @@ function StageProgress({ status }: { status: string }) {
 
 // ─── Application Card ─────────────────────────────────────────────────────────
 
-function ApplicationCard({ app, onView }: { app: MyApplication; onView: (id: string) => void }) {
+function ApplicationCard({ app, onView }: Readonly<{ app: MyApplication; onView: (id: string) => void }>) {
   const cfg      = STATUS_CONFIG[app.status] ?? STATUS_CONFIG["submitted"];
   const terminal = isTerminal(app.status);
+  let cardBorderClass = "border-border";
+  let statusBarClass = cfg.dot;
+  let iconWrapperClass = "bg-primary/10 text-primary border border-primary/15";
+
+  if (app.status === "hired") {
+    cardBorderClass = "border-green-200 dark:border-green-800/50";
+    statusBarClass = "bg-linear-to-r from-green-400 to-emerald-500";
+    iconWrapperClass = "bg-green-500/10 text-green-600 border border-green-200/60 dark:border-green-700/40";
+  } else if (app.status === "rejected") {
+    cardBorderClass = "border-red-200/60 dark:border-red-800/30";
+    statusBarClass = "bg-linear-to-r from-red-400 to-rose-500";
+    iconWrapperClass = "bg-red-500/10 text-red-500 border border-red-200/60 dark:border-red-700/40";
+  }
 
   return (
-    <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer ${
-      app.status === "hired" ? "border-green-200 dark:border-green-800/50" : app.status === "rejected" ? "border-red-200/60 dark:border-red-800/30" : "border-border"
-    }`}>
+    <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer ${cardBorderClass}`}>
       {/* Status color bar — thicker + gradient for hired/rejected */}
-      <div className={`h-1.5 w-full ${
-        app.status === "hired" ? "bg-linear-to-r from-green-400 to-emerald-500" :
-        app.status === "rejected" ? "bg-linear-to-r from-red-400 to-rose-500" :
-        cfg.dot
-      }`} />
+      <div className={`h-1.5 w-full ${statusBarClass}`} />
 
       <div className="p-5 space-y-3.5">
         {/* Header */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
-            <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${
-              app.status === "hired" ? "bg-green-500/10 text-green-600 border border-green-200/60 dark:border-green-700/40" :
-              app.status === "rejected" ? "bg-red-500/10 text-red-500 border border-red-200/60 dark:border-red-700/40" :
-              "bg-primary/10 text-primary border border-primary/15"
-            }`}>
+            <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${iconWrapperClass}`}>
               <Briefcase className="h-5 w-5" />
             </div>
             <div className="min-w-0">
@@ -211,15 +233,21 @@ type DetailWithJob = ApplicationDetail & {
   };
 };
 
-function DetailModal({ detail, onClose }: { detail: DetailWithJob; onClose: () => void }) {
+function DetailModal({ detail, onClose }: Readonly<{ detail: DetailWithJob; onClose: () => void }>) {
   const [tab, setTab] = useState<"job" | "answers">("job");
   const cfg    = STATUS_CONFIG[detail.status] ?? STATUS_CONFIG["submitted"];
   const job    = detail.job_postings;
   const sorted = [...detail.answers].sort((a, b) => a.application_questions.sort_order - b.application_questions.sort_order);
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4" onClick={onClose}>
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-60 flex items-center justify-center animate-in fade-in duration-200 p-4">
+      <button
+        type="button"
+        aria-label="Close application details"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/40"
+      />
+      <div className="relative bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200">
 
         {/* Gradient header */}
         <div className="relative overflow-hidden rounded-t-2xl bg-[linear-gradient(135deg,#0f172a_0%,#172554_55%,#134e4a_100%)] px-6 pt-5 pb-0">
@@ -406,12 +434,28 @@ export default function ApplicantApplicationsPage() {
   const [filterStatus, setFilterStatus]   = useState<FilterStatus>("all");
   const [sort, setSort]                   = useState<SortKey>("date_desc");
 
+  const refreshApplications = async (showError = false) => {
+    try {
+      const list = await getMyApplications();
+      setApplications(list);
+    } catch (err: any) {
+      if (showError) {
+        toast.error(err?.message || "Failed to load applications");
+      }
+      throw err;
+    }
+  };
+
   useEffect(() => {
-    getMyApplications()
-      .then(setApplications)
-      .catch((err: any) => toast.error(err.message || "Failed to load applications"))
+    refreshApplications(true)
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(
+    () => subscribeApplicantApplicationsDirty(() => refreshApplications(false).catch(() => {})),
+    []
+  );
 
   const handleViewDetails = async (appId: string) => {
     setDetailLoading(true);
@@ -466,6 +510,60 @@ export default function ApplicantApplicationsPage() {
     { key: "hired",    label: "Hired",      count: hired,     icon: CheckCheck  },
     { key: "rejected", label: "Not Selected", count: rejected, icon: XCircle    },
   ];
+
+  const applicationSuffix = total === 1 ? "" : "s";
+
+  const renderContent = () => {
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="h-7 w-7 animate-spin text-primary/40" />
+        </div>
+      );
+    }
+
+    if (total === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-24 gap-5 text-muted-foreground">
+          <div className="relative">
+            <div className="h-20 w-20 rounded-3xl bg-linear-to-br from-primary/10 to-muted/30 border border-border flex items-center justify-center">
+              <FileText className="h-9 w-9 opacity-25" />
+            </div>
+            <div className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
+              <Search className="h-3.5 w-3.5 text-primary/50" />
+            </div>
+          </div>
+          <div className="text-center space-y-1">
+            <p className="text-base font-bold text-foreground">No applications yet</p>
+            <p className="text-sm text-muted-foreground max-w-60">Browse open positions and submit your first application to get started.</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (filtered.length === 0) {
+      return (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <Search className="h-8 w-8 opacity-20" />
+          <p className="text-sm font-medium text-foreground">No results found</p>
+          <p className="text-xs">Try adjusting your search or filter.</p>
+        </div>
+      );
+    }
+
+    return (
+      <>
+        <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
+          Showing {filtered.length} of {total} application{applicationSuffix}
+        </p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          {filtered.map((app) => (
+            <ApplicationCard key={app.application_id} app={app} onView={handleViewDetails} />
+          ))}
+        </div>
+      </>
+    );
+  };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto animate-in fade-in duration-500">
@@ -618,43 +716,7 @@ export default function ApplicantApplicationsPage() {
       )}
 
       {/* ── Content ── */}
-      {loading ? (
-        <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-7 w-7 animate-spin text-primary/40" />
-        </div>
-      ) : total === 0 ? (
-        <div className="flex flex-col items-center justify-center py-24 gap-5 text-muted-foreground">
-          <div className="relative">
-            <div className="h-20 w-20 rounded-3xl bg-linear-to-br from-primary/10 to-muted/30 border border-border flex items-center justify-center">
-              <FileText className="h-9 w-9 opacity-25" />
-            </div>
-            <div className="absolute -top-2 -right-2 h-7 w-7 rounded-full bg-primary/10 border border-primary/20 flex items-center justify-center">
-              <Search className="h-3.5 w-3.5 text-primary/50" />
-            </div>
-          </div>
-          <div className="text-center space-y-1">
-            <p className="text-base font-bold text-foreground">No applications yet</p>
-            <p className="text-sm text-muted-foreground max-w-60">Browse open positions and submit your first application to get started.</p>
-          </div>
-        </div>
-      ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
-          <Search className="h-8 w-8 opacity-20" />
-          <p className="text-sm font-medium text-foreground">No results found</p>
-          <p className="text-xs">Try adjusting your search or filter.</p>
-        </div>
-      ) : (
-        <>
-          <p className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground">
-            Showing {filtered.length} of {total} application{total !== 1 ? "s" : ""}
-          </p>
-          <div className="grid gap-4 sm:grid-cols-2">
-            {filtered.map((app) => (
-              <ApplicationCard key={app.application_id} app={app} onView={handleViewDetails} />
-            ))}
-          </div>
-        </>
-      )}
+      {renderContent()}
 
       {/* Loading overlay */}
       {detailLoading && (
