@@ -20,9 +20,9 @@ export type TimekeepingLog = {
 };
 
 type Props = {
-  logs: TimekeepingLog[];
-  title?: string;
-  subtitle?: string;
+  readonly logs: TimekeepingLog[];
+  readonly title?: string;
+  readonly subtitle?: string;
 };
 
 const FILTER_OPTIONS = [
@@ -80,18 +80,13 @@ export function TimekeepingTable({ logs, title, subtitle }: Props) {
           borderColor: "#FECACA",
           textColor: "#B91C1C",
         };
-      case "Absent":
-        return {
-          backgroundColor: "#E5E7EB",
-          borderColor: "#D1D5DB",
-          textColor: "#374151",
-        };
       case "On Leave":
         return {
           backgroundColor: "#DBEAFE",
           borderColor: "#BFDBFE",
           textColor: "#1D4ED8",
         };
+      case "Absent":
       default:
         return {
           backgroundColor: "#E5E7EB",

@@ -55,6 +55,21 @@ function todayPHT(): string {
   return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
 }
 
+function getStartDate(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 30);
+  return d.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function buildHistoryRecords(grouped: GroupedDayRow[]): DayRecord[] {
+  return grouped.map(({ date, time_in, time_out }) => ({
+    date,
+    timeIn: time_in?.timestamp ?? null,
+    timeOut: time_out?.timestamp ?? null,
+    status: deriveStatus(time_in?.timestamp ?? null),
+  }));
+}
+
 function formatDateStr(dateStr: string): string {
   const [year, month, day] = dateStr.split("-").map(Number);
   return new Date(year, month - 1, day).toLocaleDateString("en-US", {
@@ -108,33 +123,16 @@ export function EmployeeTimekeepingScreen() {
     setLoading(true);
     try {
       const today = todayPHT();
-      const startDate = (() => {
-        const d = new Date();
-        d.setDate(d.getDate() - 30);
-        return d.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
-      })();
-
-      // Backend uses "from"/"to" — not "start"/"end"
+      const startDate = getStartDate();
       const res = await authFetch(
         `${API_BASE_URL}/timekeeping/my-timesheet?from=${startDate}&to=${today}`
       );
       if (!res.ok) throw new Error("Failed to load timesheet");
-      // Backend returns grouped records: { date, time_in, time_out, all_logs }[]
       const grouped: GroupedDayRow[] = await res.json();
-
-      // Today's punch state
       const todayRow = grouped.find((g) => g.date === today);
       setTodayIn(todayRow?.time_in?.timestamp ?? null);
       setTodayOut(todayRow?.time_out?.timestamp ?? null);
-
-      // Build sorted history
-      const records: DayRecord[] = grouped.map(({ date, time_in, time_out }) => ({
-        date,
-        timeIn: time_in?.timestamp ?? null,
-        timeOut: time_out?.timestamp ?? null,
-        status: deriveStatus(time_in?.timestamp ?? null),
-      }));
-      setHistory(records);
+      setHistory(buildHistoryRecords(grouped));
     } catch {
       Alert.alert("Error", "Failed to load timekeeping data.");
     } finally {
@@ -156,7 +154,7 @@ export function EmployeeTimekeepingScreen() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any)?.message || "Failed to punch");
+        throw new Error((err as { message?: string })?.message || "Failed to punch");
       }
 
       Alert.alert(
@@ -316,21 +314,22 @@ export function EmployeeTimekeepingScreen() {
               <Text style={styles.sectionSubtitle}>Last 30 days</Text>
             </View>
 
-            {loading ? (
+            {loading && (
               <ActivityIndicator
                 size="large"
                 color="#1e3a8a"
                 style={{ marginTop: 24 }}
               />
-            ) : history.length === 0 ? (
+            )}
+            {!loading && history.length === 0 && (
               <View style={styles.emptyCard}>
                 <Text style={styles.emptyTitle}>No records found</Text>
                 <Text style={styles.emptyText}>
                   Your attendance history will appear here.
                 </Text>
               </View>
-            ) : (
-              history.map((rec) => {
+            )}
+            {!loading && history.length > 0 && history.map((rec) => {
                 const s = getStatusStyle(rec.status);
                 return (
                   <View key={rec.date} style={styles.historyCard}>
@@ -371,8 +370,7 @@ export function EmployeeTimekeepingScreen() {
                     </View>
                   </View>
                 );
-              })
-            )}
+              })}
           </ScrollView>
         </View>
       </View>

@@ -57,7 +57,6 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
   const lockedCount = taskState.filter((t) => t.locked).length;
   const progress = unlockedTasks.length ? Math.round((completedCount / unlockedTasks.length) * 100) : 0;
 
-  const nextTask = taskState.find((t) => !t.locked && !t.completed)?.title ?? "All unlocked tasks completed";
 
   const visibleTasks = taskState.filter((task) => {
     if (filter === "pending") return !task.locked && !task.completed;
@@ -182,8 +181,10 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
                 <Text style={styles.emptyText}>No tasks in this filter.</Text>
               ) : (
                 visibleTasks.map((task) => {
-                  const status = task.locked ? "Locked" : task.completed ? "Completed" : "Pending";
-                  const statusStyle = task.locked ? styles.statusLocked : task.completed ? styles.statusDone : styles.statusPending;
+                  const status = getTaskStatus(task.locked, task.completed);
+                  let statusStyle = styles.statusPending;
+                  if (task.locked) statusStyle = styles.statusLocked;
+                  else if (task.completed) statusStyle = styles.statusDone;
                   return (
                     <Pressable
                       key={task.id}
@@ -211,7 +212,13 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
   );
 };
 
-function StatTile({ label, value, helper, accent = "#111827" }: { label: string; value: string; helper: string; accent?: string }) {
+function getTaskStatus(locked: boolean, completed: boolean): string {
+  if (locked) return "Locked";
+  if (completed) return "Completed";
+  return "Pending";
+}
+
+function StatTile({ label, value, helper, accent = "#111827" }: { readonly label: string; readonly value: string; readonly helper: string; readonly accent?: string }) {
   return (
     <View style={[styles.statTile, { borderTopColor: accent, borderTopWidth: 3 }]}>
       <Text style={styles.statLabel}>{label}</Text>

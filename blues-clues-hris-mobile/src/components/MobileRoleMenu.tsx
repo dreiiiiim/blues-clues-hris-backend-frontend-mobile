@@ -13,11 +13,11 @@ import { clearSession, UserRole } from "../services/auth";
 import { MENU_CONFIG, ROLE_LABELS } from "../constants/config";
 
 type Props = {
-  role: UserRole;
-  userName: string;
-  email?: string;
-  activeScreen: string;
-  navigation: any;
+  readonly role: UserRole;
+  readonly userName: string;
+  readonly email?: string;
+  readonly activeScreen: string;
+  readonly navigation: any;
 };
 
 export function MobileRoleMenu({
@@ -42,38 +42,20 @@ export function MobileRoleMenu({
     );
   };
 
+  const SCREEN_MAP: Partial<Record<UserRole, Record<string, string>>> = {
+    system_admin: { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
+    admin:        { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
+    manager:      { Dashboard: "ManagerDashboard", Timekeeping: "ManagerTimekeeping", Team: "ManagerTeam" },
+    hr:           { Dashboard: "HROfficerDashboard", Timekeeping: "HROfficerTimekeeping", Recruitment: "HROfficerRecruitment" },
+    employee:     { Dashboard: "EmployeeDashboard", Timekeeping: "EmployeeTimekeeping" },
+    applicant:    { Dashboard: "ApplicantDashboard", Jobs: "ApplicantJobs", Applications: "ApplicantApplications" },
+  };
+
   const goToScreen = (screenName: string) => {
     if (screenName === activeScreen) { setVisible(false); return; }
 
-    if (role === "system_admin" || role === "admin") {
-      if (screenName === "Dashboard") { switchTo("SystemAdminDashboard"); return; }
-      if (screenName === "Users")     { switchTo("SystemAdminUsers");     return; }
-      if (screenName === "Billing")   { switchTo("SystemAdminBilling");   return; }
-      if (screenName === "AuditLogs") { switchTo("SystemAdminAuditLogs"); return; }
-    }
-
-    if (role === "manager") {
-      if (screenName === "Dashboard")   { switchTo("ManagerDashboard"); return; }
-      if (screenName === "Timekeeping") { switchTo("ManagerTimekeeping"); return; }
-      if (screenName === "Team")        { switchTo("ManagerTeam");       return; }
-    }
-
-    if (role === "hr") {
-      if (screenName === "Dashboard")   { switchTo("HROfficerDashboard");   return; }
-      if (screenName === "Timekeeping") { switchTo("HROfficerTimekeeping"); return; }
-      if (screenName === "Recruitment") { switchTo("HROfficerRecruitment"); return; }
-    }
-
-    if (role === "employee") {
-      if (screenName === "Dashboard")   { switchTo("EmployeeDashboard");   return; }
-      if (screenName === "Timekeeping") { switchTo("EmployeeTimekeeping"); return; }
-    }
-
-    if (role === "applicant") {
-      if (screenName === "Dashboard")    { switchTo("ApplicantDashboard");    return; }
-      if (screenName === "Jobs")         { switchTo("ApplicantJobs");         return; }
-      if (screenName === "Applications") { switchTo("ApplicantApplications"); return; }
-    }
+    const target = SCREEN_MAP[role]?.[screenName];
+    if (target) { switchTo(target); return; }
 
     setVisible(false);
   };
@@ -115,10 +97,10 @@ export function MobileRoleMenu({
       case "Jobs":
         return <Feather name="briefcase" size={17} color={color} />;
       case "Applications":
-        return (
-          <Ionicons name="document-text-outline" size={17} color={color} />
-        );
+      case "Documents":
+        return <Ionicons name="document-text-outline" size={17} color={color} />;
       case "Recruitment":
+      case "Team":
         return <Feather name="users" size={17} color={color} />;
       case "AuditLogs":
         return <Ionicons name="shield-checkmark-outline" size={17} color={color} />;
@@ -128,18 +110,12 @@ export function MobileRoleMenu({
         return <Ionicons name="wallet-outline" size={17} color={color} />;
       case "Performance":
         return <Ionicons name="bar-chart-outline" size={17} color={color} />;
-      case "Team":
-        return <Feather name="users" size={17} color={color} />;
       case "Approvals":
         return (
           <Ionicons name="checkmark-done-outline" size={17} color={color} />
         );
       case "Profile":
         return <Ionicons name="person-outline" size={17} color={color} />;
-      case "Documents":
-        return (
-          <Ionicons name="document-text-outline" size={17} color={color} />
-        );
       default:
         return <Feather name="circle" size={16} color={color} />;
     }

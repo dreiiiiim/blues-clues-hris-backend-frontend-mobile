@@ -89,7 +89,7 @@ function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-function StageProgress({ status }: { status: ApplicationStage }) {
+function StageProgress({ status }: { readonly status: ApplicationStage }) {
   if (status === "rejected") {
     return (
       <View style={sp.wrap}>
@@ -312,9 +312,10 @@ export function ApplicantApplicationsScreen() {
               })}
             </View>
 
-            {loading ? (
+            {loading && (
               <ActivityIndicator size="large" color="#1E3A8A" style={{ marginTop: 32 }} />
-            ) : filtered.length === 0 ? (
+            )}
+            {!loading && filtered.length === 0 && (
               <View style={styles.emptyCard}>
                 <Feather name="inbox" size={32} color="#CBD5E1" />
                 <Text style={styles.emptyTitle}>No applications found</Text>
@@ -324,7 +325,8 @@ export function ApplicantApplicationsScreen() {
                     : "Try clearing the search or filter."}
                 </Text>
               </View>
-            ) : (
+            )}
+            {!loading && filtered.length > 0 && (
               <>
                 {active.length > 0 && <SectionHeader title="In Progress" count={active.length} />}
                 {active.map((app) => (
@@ -431,16 +433,17 @@ export function ApplicantApplicationsScreen() {
                   </View>
 
                   {/* Job Description */}
-                  {loadingJobDetail ? (
+                  {loadingJobDetail && (
                     <View style={styles.descCard}>
                       <ActivityIndicator size="small" color="#1E3A8A" />
                     </View>
-                  ) : mergedJobDetail.description ? (
+                  )}
+                  {!loadingJobDetail && !!mergedJobDetail.description && (
                     <View style={styles.descCard}>
                       <Text style={styles.sectionLabel}>About this Role</Text>
                       <Text style={styles.descBody}>{mergedJobDetail.description}</Text>
                     </View>
-                  ) : null}
+                  )}
 
                   {/* Timeline */}
                   <View style={styles.timelineCard}>
@@ -472,7 +475,7 @@ export function ApplicantApplicationsScreen() {
   );
 }
 
-function SectionHeader({ title, count }: { title: string; count: number }) {
+function SectionHeader({ title, count }: { readonly title: string; readonly count: number }) {
   return (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
@@ -483,7 +486,7 @@ function SectionHeader({ title, count }: { title: string; count: number }) {
   );
 }
 
-function ApplicationCard({ app, onPress }: { app: Application; onPress: () => void }) {
+function ApplicationCard({ app, onPress }: { readonly app: Application; readonly onPress: () => void }) {
   const s = getStatusStyle(app.status);
   return (
     <Pressable style={({ pressed }) => [styles.card, pressed && styles.cardPressed]} onPress={onPress}>
@@ -493,7 +496,7 @@ function ApplicationCard({ app, onPress }: { app: Application; onPress: () => vo
         </View>
         <View style={{ flex: 1 }}>
           <Text style={styles.cardTitle} numberOfLines={1}>{app.job_title ?? "Job Application"}</Text>
-          {app.company_name && (
+          {!!app.company_name && (
             <Text style={styles.cardCompany} numberOfLines={1}>{app.company_name}</Text>
           )}
         </View>
@@ -503,13 +506,13 @@ function ApplicationCard({ app, onPress }: { app: Application; onPress: () => vo
       </View>
 
       <View style={styles.cardMeta}>
-        {app.location && (
+        {!!app.location && (
           <View style={styles.metaChip}>
             <Feather name="map-pin" size={11} color="#64748B" />
             <Text style={styles.metaChipText}>{app.location}</Text>
           </View>
         )}
-        {app.employment_type && (
+        {!!app.employment_type && (
           <View style={styles.metaChip}>
             <Feather name="briefcase" size={11} color="#64748B" />
             <Text style={styles.metaChipText}>{app.employment_type}</Text>
@@ -526,7 +529,7 @@ function ApplicationCard({ app, onPress }: { app: Application; onPress: () => vo
   );
 }
 
-function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
+function StatBox({ label, value, color }: { readonly label: string; readonly value: string; readonly color: string }) {
   return (
     <View style={[styles.statBox, { borderTopColor: color }]}>
       <Text style={[styles.statValue, { color }]}>{value}</Text>
@@ -535,7 +538,7 @@ function StatBox({ label, value, color }: { label: string; value: string; color:
   );
 }
 
-function MetaItem({ icon, label, value }: { icon: any; label: string; value: string }) {
+function MetaItem({ icon, label, value }: { readonly icon: any; readonly label: string; readonly value: string }) {
   return (
     <View style={styles.metaItem}>
       <Feather name={icon} size={13} color="#64748B" />

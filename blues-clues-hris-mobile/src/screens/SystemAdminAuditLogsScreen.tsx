@@ -188,7 +188,7 @@ export function SystemAdminAuditLogsScreen() {
             >
               {ACTION_FILTERS.map((f) => {
                 const active = actionFilter === f;
-                const s = f !== "ALL" ? getActionStyle(f) : null;
+                const s = f === "ALL" ? null : getActionStyle(f);
                 return (
                   <Pressable
                     key={f}
@@ -246,9 +246,10 @@ export function SystemAdminAuditLogsScreen() {
             </View>
 
             {/* Logs */}
-            {loading && logs.length === 0 ? (
+            {loading && logs.length === 0 && (
               <ActivityIndicator size="large" color="#1E3A8A" style={{ marginTop: 32 }} />
-            ) : apiError ? (
+            )}
+            {!loading && !!apiError && (
               <View style={styles.errorCard}>
                 <Feather name="alert-triangle" size={28} color="#DC2626" />
                 <Text style={styles.errorTitle}>Failed to load audit logs</Text>
@@ -257,7 +258,8 @@ export function SystemAdminAuditLogsScreen() {
                   <Text style={styles.retryBtnText}>Retry</Text>
                 </Pressable>
               </View>
-            ) : filtered.length === 0 ? (
+            )}
+            {!loading && !apiError && filtered.length === 0 && (
               <View style={styles.emptyCard}>
                 <Feather name="file-text" size={32} color="#CBD5E1" />
                 <Text style={styles.emptyTitle}>No audit logs found</Text>
@@ -265,7 +267,8 @@ export function SystemAdminAuditLogsScreen() {
                   {search ? "Try a different search term." : "No system events have been recorded yet."}
                 </Text>
               </View>
-            ) : (
+            )}
+            {!loading && !apiError && filtered.length > 0 && (
               <>
                 <Text style={styles.resultCount}>
                   Showing {paginated.length} of {filtered.length} events
@@ -287,7 +290,7 @@ export function SystemAdminAuditLogsScreen() {
   );
 }
 
-function AuditLogCard({ log }: { log: AuditLog }) {
+function AuditLogCard({ log }: { readonly log: AuditLog }) {
   const s = getActionStyle(log.action);
   const shortId = log.log_id ? log.log_id.slice(0, 8).toUpperCase() : "—";
   return (
@@ -300,13 +303,13 @@ function AuditLogCard({ log }: { log: AuditLog }) {
       </View>
 
       <View style={styles.logMeta}>
-        {log.performed_by && (
+        {!!log.performed_by && (
           <View style={styles.metaRow}>
             <Feather name="user" size={12} color="#94A3B8" />
             <Text style={styles.metaText}>By: {log.performed_by.slice(0, 8)}…</Text>
           </View>
         )}
-        {log.target_user_id && (
+        {!!log.target_user_id && (
           <View style={styles.metaRow}>
             <Feather name="target" size={12} color="#94A3B8" />
             <Text style={styles.metaText}>Target: {log.target_user_id.slice(0, 8)}…</Text>

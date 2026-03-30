@@ -49,6 +49,12 @@ type Question = {
 
 const STAGES = ["Applied", "Screening", "Interview", "Final", "Offer"];
 
+function formatPostedDate(j: any): string {
+  if (j.posted_at) return new Date(j.posted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (j.created_at) return new Date(j.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  return "—";
+}
+
 function stageIndex(stage: string): number {
   const s = stage?.toLowerCase() ?? "";
   if (s.includes("screen")) return 1;
@@ -103,17 +109,7 @@ export function ApplicantDashboardScreen() {
             title: j.title ?? j.job_title ?? "Untitled",
             department: j.department ?? j.department_name ?? "—",
             location: j.location ?? "—",
-            posted: j.posted_at
-              ? new Date(j.posted_at).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })
-              : j.created_at
-              ? new Date(j.created_at).toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })
-              : "—",
+            posted: formatPostedDate(j),
             type: j.employment_type ?? j.type ?? "Full-time",
             description: j.description ?? "",
             salary_range: j.salary_range ?? "",
@@ -238,7 +234,7 @@ export function ApplicantDashboardScreen() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any)?.message || "Failed to submit application");
+        throw new Error((err as { message?: string })?.message || "Failed to submit application");
       }
 
       setApplyVisible(false);
@@ -320,11 +316,12 @@ export function ApplicantDashboardScreen() {
             </View>
 
             {/* Application Status */}
-            {loadingApps ? (
+            {loadingApps && (
               <View style={styles.sectionCard}>
                 <ActivityIndicator color="#3366D6" />
               </View>
-            ) : latestApp ? (
+            )}
+            {!loadingApps && !!latestApp && (
               <View style={styles.sectionCard}>
                 <Text style={styles.sectionEyebrow}>Latest Application</Text>
                 <Text style={styles.currentStatus}>
@@ -335,7 +332,7 @@ export function ApplicantDashboardScreen() {
                   <Text style={styles.phasePillText}>{latestApp.stage}</Text>
                 </View>
               </View>
-            ) : null}
+            )}
 
             {/* Progress Tracker */}
             {latestApp && (
@@ -398,12 +395,13 @@ export function ApplicantDashboardScreen() {
                 Tap a job to view details and apply
               </Text>
 
-              {loadingJobs ? (
+              {loadingJobs && (
                 <ActivityIndicator
                   color="#3366E8"
                   style={{ marginVertical: 20 }}
                 />
-              ) : filteredJobs.length === 0 ? (
+              )}
+              {!loadingJobs && filteredJobs.length === 0 && (
                 <View style={styles.emptyCard}>
                   <Text style={styles.emptyTitle}>
                     {jobs.length === 0 ? "No open positions" : "No jobs found"}
@@ -414,8 +412,8 @@ export function ApplicantDashboardScreen() {
                       : "Try a different keyword."}
                   </Text>
                 </View>
-              ) : (
-                filteredJobs.map((job) => (
+              )}
+              {!loadingJobs && filteredJobs.length > 0 && filteredJobs.map((job) => (
                   <Pressable
                     key={job.job_posting_id}
                     style={({ pressed }) => [
@@ -447,8 +445,7 @@ export function ApplicantDashboardScreen() {
                       </Text>
                     </View>
                   </Pressable>
-                ))
-              )}
+                ))}
             </View>
           </ScrollView>
         </View>
@@ -519,7 +516,7 @@ export function ApplicantDashboardScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {applyTab === "details" && selectedJob ? (
+              {applyTab === "details" && !!selectedJob && (
                 <View style={{ gap: 14 }}>
                   {/* Meta cards */}
                   <View style={styles.metaGrid}>
@@ -563,7 +560,8 @@ export function ApplicantDashboardScreen() {
                     </Text>
                   </Pressable>
                 </View>
-              ) : applyTab === "apply" && selectedJob ? (
+              )}
+              {applyTab === "apply" && !!selectedJob && (
                 <View style={{ gap: 16 }}>
                   <View style={styles.formHeader}>
                     <Text style={styles.formTitle}>Application Form</Text>
@@ -572,9 +570,10 @@ export function ApplicantDashboardScreen() {
                     </Text>
                   </View>
 
-                  {loadingQuestions ? (
+                  {loadingQuestions && (
                     <ActivityIndicator color="#3366E8" />
-                  ) : questions.length === 0 ? (
+                  )}
+                  {!loadingQuestions && questions.length === 0 && (
                     <View style={styles.noQuestionsCard}>
                       <Ionicons
                         name="checkmark-circle-outline"
@@ -590,8 +589,8 @@ export function ApplicantDashboardScreen() {
                         application right away.
                       </Text>
                     </View>
-                  ) : (
-                    questions.map((q, idx) => (
+                  )}
+                  {!loadingQuestions && questions.length > 0 && questions.map((q, idx) => (
                       <View key={q.question_id} style={styles.questionCard}>
                         <Text style={styles.questionLabel}>
                           {idx + 1}. {q.question_text}
@@ -692,8 +691,7 @@ export function ApplicantDashboardScreen() {
                             );
                           })}
                       </View>
-                    ))
-                  )}
+                    ))}
 
                   <Pressable
                     style={[
@@ -712,7 +710,7 @@ export function ApplicantDashboardScreen() {
                     )}
                   </Pressable>
                 </View>
-              ) : null}
+              )}
             </ScrollView>
           </View>
         </View>
