@@ -553,10 +553,17 @@ export default function ApplicantJobsPage() {
               const isNew = isNewJob(job.posted_at);
 
               return (
-                <button
+                <div
                   key={job.job_posting_id}
-                  type="button"
+                  role="button"
+                  tabIndex={0}
                   onClick={() => selectJob(job)}
+                  onKeyDown={(e) => {
+                    if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) {
+                      e.preventDefault();
+                      selectJob(job);
+                    }
+                  }}
                   style={{ animationDelay: `${idx * 40}ms` }}
                   className={`relative w-full text-left rounded-xl border p-4 transition-all cursor-pointer group animate-in fade-in slide-in-from-bottom-1 duration-300 ${
                     isSelected
@@ -593,6 +600,7 @@ export default function ApplicantJobsPage() {
                             </span>
                           )}
                           <button
+                            type="button"
                             onClick={(e) => toggleBookmark(job.job_posting_id, e)}
                             className="p-0.5 rounded-md hover:bg-muted/60 transition-colors cursor-pointer"
                           >
@@ -636,7 +644,7 @@ export default function ApplicantJobsPage() {
                   <div className={`absolute right-3 bottom-3 transition-all duration-200 ${isSelected ? "opacity-100" : "opacity-0 group-hover:opacity-60"}`}>
                     <ChevronRight className="h-3.5 w-3.5 text-primary" />
                   </div>
-                        </button>
+                        </div>
               );
             })
           );
