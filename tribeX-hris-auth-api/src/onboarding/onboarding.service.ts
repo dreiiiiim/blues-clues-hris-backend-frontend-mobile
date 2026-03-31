@@ -559,7 +559,7 @@ export class OnboardingService {
     if (error) throw new BadRequestException(error.message);
 
     // Enrich with position and department names
-    const enriched = [];
+    const enriched: any[] = [];
     for (const t of templates || []) {
       const { data: pos } = await supabase
         .from('job_positions')
@@ -641,7 +641,7 @@ export class OnboardingService {
 
     if (error) throw new BadRequestException(error.message);
 
-    const enriched = [];
+    const enriched: any[] = [];
     for (const p of data || []) {
       const { data: dept } = await supabase
         .from('department')
