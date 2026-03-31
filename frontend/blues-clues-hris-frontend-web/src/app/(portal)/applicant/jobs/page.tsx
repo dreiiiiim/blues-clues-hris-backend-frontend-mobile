@@ -143,7 +143,26 @@ function ApplicationForm({
       toast.success("Application submitted!");
       onApplied();
     } catch (err: any) {
-      toast.error(err.message || "Failed to apply");
+      const errorMessage = err.message || "Failed to apply";
+      
+      // Check for duplicate application error
+      if (errorMessage.toLowerCase().includes("already applied")) {
+        toast.error(
+          "You have already applied to this job.",
+          {
+            description: "View your application status in My Applications",
+            action: {
+              label: "View Applications",
+              onClick: () => {
+                window.location.href = "/portal/applicant/applications";
+              },
+            },
+            duration: 6000,
+          }
+        );
+      } else {
+        toast.error(errorMessage);
+      }
     } finally {
       setSubmitting(false);
     }

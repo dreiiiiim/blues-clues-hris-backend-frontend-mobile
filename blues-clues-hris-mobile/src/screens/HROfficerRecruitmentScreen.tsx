@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
   useWindowDimensions,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather, Ionicons } from "@expo/vector-icons";
@@ -91,6 +92,12 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
   const [activeTab, setActiveTab] = useState<ActiveTab>("details");
   const [applications, setApplications] = useState<Application[]>([]);
   const [loadingApplications, setLoadingApplications] = useState(false);
+
+  // Rejection modal
+  const [rejectionModalVisible, setRejectionModalVisible] = useState(false);
+  const [selectedApplicant, setSelectedApplicant] = useState<Application | null>(null);
+  const [rejectionReason, setRejectionReason] = useState("");
+  const [submittingRejection, setSubmittingRejection] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -434,6 +441,23 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                             <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
                           </View>
                           <Text style={styles.applicantDate}>{formatDate(app.applied_at)}</Text>
+                          {(app.status === "screening" || app.status === "submitted") && (
+                            <Pressable
+                              style={styles.rejectButton}
+                              onPress={() => {
+                                setSelectedApplicant(app);
+                                setRejectionReason("");
+                                setRejectionModalVisible(true);
+                              }}
+                            >
+                              <Text style={styles.rejectButtonText}>Reject</Text>
+                            </Pressable>
+                          )}
+                        </View>
+                      </View>
+                            <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
+                          </View>
+                          <Text style={styles.applicantDate}>{formatDate(app.applied_at)}</Text>
                         </View>
                       </View>
                     );
@@ -441,6 +465,125 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                 </View>
               )}
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Rejection Modal */}
+      <Modal visible={rejectionModalVisible} animationType="fade" transparent>
+        <View style={styles.rejectionOverlay}>
+          <View style={styles.rejectionModal}>
+            <View style={styles.rejectionHeader}>
+              <Text style={styles.rejectionTitle}>Reject Application</Text>
+              <Pressable onPress={() => setRejectionModalVisible(false)}>
+                <Ionicons name="close" size={24} color="#374151" />
+              </Pressable>
+            </View>
+
+            {selectedApplicant && (
+              <>
+                <View style={styles.rejectionApplicantInfo}>
+                  <View
+                    style={[
+                      styles.rejectionAvatar,
+                      {
+                        backgroundColor: avatarColor(
+                          [selectedApplicant.applicant_profile?.first_name, selectedApplicant.applicant_profile?.last_name]
+                            .filter(Boolean)
+                            .join(" ") || "Unnamed"
+                        ),
+                      },
+                    ]}
+                  >
+                    <Text style={styles.rejectionAvatarText}>
+                      {([selectedApplicant.applicant_profile?.first_name, selectedApplicant.applicant_profile?.last_name]
+                        .filter(Boolean)
+                        .join(" ") || "Unnamed")[0]?.toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.rejectionApplicantName}>
+                      {[selectedApplicant.applicant_profile?.first_name, selectedApplicant.applicant_profile?.last_name]
+                        .filter(Boolean)
+                        .join(" ") || "Unnamed Applicant"}
+                    </Text>
+                    <Text style={styles.rejectionApplicantEmail}>{selectedApplicant.applicant_profile?.email}</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.rejectionLabel}>Rejection Reason (Required)</Text>
+                <TextInput
+                  style={styles.rejectionInput}
+                  placeholder="Please provide a reason for rejection..."
+                  placeholderTextColor="#94A3B8"
+                  value={rejectionReason}
+                  onChangeText={setRejectionReason}
+                  multiline
+                  numberOfLines={4}
+                  textAlignVertical="top"
+                />
+
+                <View style={styles.rejectionButtonRow}>
+                  <Pressable
+                    style={styles.rejectionCancelButton}
+                    onPress={() => setRejectionModalVisible(false)}
+                  >
+                    <Text style={styles.rejectionCancelButtonText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={[
+                      styles.rejectionConfirmButton,
+                      (!rejectionReason.trim() || submittingRejection) && styles.rejectionConfirmButtonDisabled,
+                    ]}
+                    onPress={async () => {
+                      if (!rejectionReason.trim()) {
+                        Alert.alert("Required", "Please provide a reason for rejection.");
+                        return;
+                      }
+                      setSubmittingRejection(true);
+                      try {
+                        const res = await authFetch(
+                          `${API_BASE_URL}/jobs/${selectedJob?.job_posting_id}/applications/${selectedApplicant.application_id}/status`,
+                          {
+                            method: "PATCH",
+                            body: JSON.stringify({
+                              status: "rejected",
+                              rejection_reason: rejectionReason,
+                            }),
+                          }
+                        );
+                        if (!res.ok) {
+                          throw new Error("Failed to reject application");
+                        }
+                        setRejectionModalVisible(false);
+                        // Refresh applications
+                        if (selectedJob) {
+                          setLoadingApplications(true);
+                          const updated = await authFetch(
+                            `${API_BASE_URL}/jobs/${selectedJob.job_posting_id}/applications`
+                          );
+                          const data = await updated.json().catch(() => []);
+                          setApplications(Array.isArray(data) ? data : []);
+                          setLoadingApplications(false);
+                        }
+                        Alert.alert("Success", "Application rejected successfully.");
+                      } catch (e: any) {
+                        Alert.alert("Error", e?.message || "Failed to reject application");
+                      } finally {
+                        setSubmittingRejection(false);
+                      }
+                    }}
+                    disabled={!rejectionReason.trim() || submittingRejection}
+                  >
+                    {submittingRejection ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.rejectionConfirmButtonText}>Confirm Rejection</Text>
+                    )}
+                  </Pressable>
+                </View>
+              </>
+            )}
           </View>
         </View>
       </Modal>
@@ -637,4 +780,57 @@ const styles = StyleSheet.create({
   applicantEmail: { color: "#64748B", fontSize: 12, marginTop: 2 },
   applicantCode: { color: "#94A3B8", fontSize: 11, marginTop: 1 },
   applicantDate: { color: "#94A3B8", fontSize: 11 },
+
+  // Reject button
+  rejectButton: {
+    backgroundColor: "#FEE2E2", borderWidth: 1, borderColor: "#FECACA",
+    borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4,
+  },
+  rejectButtonText: { color: "#991B1B", fontSize: 10, fontWeight: "700" },
+
+  // Rejection Modal
+  rejectionOverlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center", justifyContent: "center",
+  },
+  rejectionModal: {
+    backgroundColor: "#FFFFFF", borderRadius: 16,
+    width: "90%", maxWidth: 420, padding: 24,
+  },
+  rejectionHeader: {
+    flexDirection: "row", justifyContent: "space-between", alignItems: "center",
+    marginBottom: 20,
+  },
+  rejectionTitle: { color: "#0F172A", fontSize: 18, fontWeight: "800" },
+  rejectionApplicantInfo: {
+    flexDirection: "row", alignItems: "center", gap: 12,
+    backgroundColor: "#F8FAFC", borderRadius: 12, padding: 12, marginBottom: 16,
+  },
+  rejectionAvatar: {
+    width: 48, height: 48, borderRadius: 12,
+    alignItems: "center", justifyContent: "center",
+  },
+  rejectionAvatarText: { color: "#FFFFFF", fontSize: 18, fontWeight: "800" },
+  rejectionApplicantName: { color: "#0F172A", fontSize: 14, fontWeight: "700" },
+  rejectionApplicantEmail: { color: "#64748B", fontSize: 12, marginTop: 2 },
+  rejectionLabel: { color: "#374151", fontSize: 12, fontWeight: "700", marginBottom: 8 },
+  rejectionInput: {
+    borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 10,
+    paddingHorizontal: 12, paddingVertical: 10, color: "#0F172A",
+    fontSize: 14, marginBottom: 16, fontFamily: "System",
+  },
+  rejectionButtonRow: {
+    flexDirection: "row", gap: 10,
+  },
+  rejectionCancelButton: {
+    flex: 1, paddingVertical: 10, borderRadius: 8,
+    backgroundColor: "#F1F5F9", alignItems: "center", justifyContent: "center",
+  },
+  rejectionCancelButtonText: { color: "#374151", fontSize: 14, fontWeight: "700" },
+  rejectionConfirmButton: {
+    flex: 1, paddingVertical: 10, borderRadius: 8,
+    backgroundColor: "#DC2626", alignItems: "center", justifyContent: "center",
+  },
+  rejectionConfirmButtonDisabled: { backgroundColor: "#FCA5A5", opacity: 0.6 },
+  rejectionConfirmButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });

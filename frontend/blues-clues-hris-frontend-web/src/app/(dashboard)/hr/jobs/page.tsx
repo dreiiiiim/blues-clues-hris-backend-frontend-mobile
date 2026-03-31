@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { PipelineKanbanView } from "./_components/PipelineKanbanView";
 import { getApplicationDetail, getMyCompany, type ApplicationDetail } from "@/lib/authApi";
+import { updateApplicationStatus } from "@/lib/candidateApi";
+import { RejectionReasonModal } from "@/components/modals/RejectionReasonModal";
 import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1170,6 +1172,11 @@ export default function HRJobsPage() {
   const [pipelineDetail, setPipelineDetail]   = useState<ApplicationDetail | null>(null);
   const [pipelineDetailLoading, setPipelineDetailLoading] = useState(false);
   const [pipelineUpdating, setPipelineUpdating]           = useState(false);
+  
+  // Rejection modal state
+  const [showRejectionModal, setShowRejectionModal] = useState(false);
+  const [rejectionAppId, setRejectionAppId] = useState<string>("");
+  const [rejectionCandidateName, setRejectionCandidateName] = useState<string>("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1210,12 +1217,23 @@ export default function HRJobsPage() {
   }, [pageView, pipelineJobId, loadPipelineApps]);
 
   const handlePipelineStatusChange = async (appId: string, newStatus: string) => {
+    // If rejecting, show the rejection modal first
+    if (newStatus.toLowerCase() === "rejected") {
+      const app = pipelineApps.find((a) => a.application_id === appId);
+      if (app) {
+        setRejectionAppId(appId);
+        setRejectionCandidateName(
+          `${app.applicant_profile.first_name} ${app.applicant_profile.last_name}`
+        );
+        setShowRejectionModal(true);
+      }
+      return;
+    }
+
+    // For non-rejection status changes, proceed normally
     setPipelineUpdating(true);
     try {
-      await apiFetch(`/jobs/applications/${appId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status: newStatus }),
-      });
+      await updateApplicationStatus(appId, newStatus);
       setPipelineApps((prev) => prev.map((a) => a.application_id === appId ? { ...a, status: newStatus } : a));
       if (pipelineDetail?.application_id === appId) {
         setPipelineDetail((d) => d ? { ...d, status: newStatus } : d);
@@ -1226,6 +1244,30 @@ export default function HRJobsPage() {
     } finally {
       setPipelineUpdating(false);
     }
+  };
+
+  const handleRejectionConfirm = async (appId: string, reason: string) => {
+    setPipelineUpdating(true);
+    try {
+      await updateApplicationStatus(appId, "rejected", reason);
+      setPipelineApps((prev) => prev.map((a) => a.application_id === appId ? { ...a, status: "rejected" } : a));
+      if (pipelineDetail?.application_id === appId) {
+        setPipelineDetail((d) => d ? { ...d, status: "rejected" } : d);
+      }
+      setShowRejectionModal(false);
+      toast.success("Application rejected");
+    } catch (error) {
+      toast.error("Failed to reject application");
+      throw error; // Let modal handle error state
+    } finally {
+      setPipelineUpdating(false);
+    }
+  };
+
+  const handleRejectionCancel = () => {
+    setShowRejectionModal(false);
+    setRejectionAppId("");
+    setRejectionCandidateName("");
   };
 
   const handleOpenPipelineDetail = async (appId: string) => {
@@ -1776,6 +1818,16 @@ export default function HRJobsPage() {
 
       {viewApplicants && (
         <ApplicantsModal job={viewApplicants} onClose={() => setViewApplicants(null)} />
+      )}
+
+      {showRejectionModal && (
+        <RejectionReasonModal
+          isOpen={showRejectionModal}
+          candidateName={rejectionCandidateName}
+          applicationId={rejectionAppId}
+          onConfirm={handleRejectionConfirm}
+          onCancel={handleRejectionCancel}
+        />
       )}
     </div>
   );

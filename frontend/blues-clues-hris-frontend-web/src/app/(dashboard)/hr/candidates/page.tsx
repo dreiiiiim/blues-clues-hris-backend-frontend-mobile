@@ -143,6 +143,7 @@ function CandidateCard({
   mode,
   isDragging,
   isDragOver,
+  surveyScore,
   onDragStart,
   onDragOver,
   onDrop,
@@ -153,6 +154,7 @@ function CandidateCard({
   mode: RankingMode;
   isDragging: boolean;
   isDragOver: boolean;
+  surveyScore?: number;
   onDragStart: () => void;
   onDragOver: (e: React.DragEvent) => void;
   onDrop: () => void;
@@ -164,6 +166,10 @@ function CandidateCard({
     STATUS_STYLES[normalizedStatus] ??
     STATUS_STYLES[candidate.status] ??
     "bg-gray-100 text-gray-600 border-gray-200";
+
+  // Show survey score in manual mode, SFIA fit score in SFIA mode
+  const displayScore = mode === "manual" ? (surveyScore ?? 0) : candidate.sfia_match_percentage;
+  const scoreLabel = mode === "manual" ? "Survey Score" : "Fit Score";
 
   return (
     <div
@@ -203,10 +209,10 @@ function CandidateCard({
         </span>
 
         <div className="shrink-0 text-right">
-          <p className={`text-lg font-bold leading-none ${fitTextColor(candidate.sfia_match_percentage)}`}>
-            {candidate.sfia_match_percentage}%
+          <p className={`text-lg font-bold leading-none ${fitTextColor(displayScore)}`}>
+            {Math.round(displayScore)}%
           </p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">Fit Score</p>
+          <p className="mt-0.5 text-[10px] text-muted-foreground">{scoreLabel}</p>
         </div>
 
         <button
@@ -235,6 +241,7 @@ export default function CandidateEvaluationPage() {
   const [error, setError] = useState<string | null>(null);
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [surveyScores, setSurveyScores] = useState<Record<string, number>>({});
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.job_posting_id === selectedJobId) ?? null,
@@ -302,6 +309,44 @@ export default function CandidateEvaluationPage() {
       cancelled = true;
     };
   }, [selectedJobId, mode]);
+
+  // Fetch survey scores when switching to manual mode
+  useEffect(() => {
+    if (mode !== "manual" || candidates.length === 0) {
+      setSurveyScores({});
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadSurveyScores() {
+      const scores: Record<string, number> = {};
+      const { getSurveyScore } = await import("@/lib/candidateApi");
+      
+      for (const candidate of candidates) {
+        try {
+          const result = await getSurveyScore(candidate.application_id);
+          if (!cancelled) {
+            scores[candidate.application_id] = result.surveyScore;
+          }
+        } catch (err) {
+          console.error(`Failed to fetch survey score for ${candidate.application_id}:`, err);
+          if (!cancelled) {
+            scores[candidate.application_id] = 0;
+          }
+        }
+      }
+
+      if (!cancelled) {
+        setSurveyScores(scores);
+      }
+    }
+
+    void loadSurveyScores();
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, candidates]);
 
   const visibleList = showAll ? candidates : candidates.slice(0, 20);
   const top3 = candidates.slice(0, 3);
@@ -523,6 +568,7 @@ export default function CandidateEvaluationPage() {
                 candidate={candidate}
                 rank={index + 1}
                 mode={mode}
+                surveyScore={surveyScores[candidate.application_id]}
                 isDragging={dragIndex === index}
                 isDragOver={dragOverIndex === index}
                 onDragStart={() => setDragIndex(index)}

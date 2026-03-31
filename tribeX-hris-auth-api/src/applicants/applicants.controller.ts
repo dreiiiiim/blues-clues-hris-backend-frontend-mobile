@@ -13,6 +13,7 @@ import {
   Res,
   Headers,
   UnauthorizedException,
+  Param,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -115,8 +116,14 @@ export class ApplicantsController {
   @Post('sfia-upload')
   @UseGuards(ApplicantJwtAuthGuard)
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ summary: 'Applicant: Upload SFIA resume for a specific job posting' })
-  uploadSfiaResume(@Body() dto: UploadSfiaResumeDto, @Req() req: any) {
-    return this.applicantsService.uploadSfiaResume(req.user.sub_userid, dto);
+  @ApiOperation({ summary: 'Applicant: Upload SFIA resume for a specific job posting (applicant_id optional for testing)' })
+  uploadSfiaResume(
+    @Body() dto: UploadSfiaResumeDto,
+    @Query('applicant_id') applicantIdParam?: string,
+    @Req() req?: any,
+  ) {
+    // Use query param if provided (for testing), otherwise extract from JWT
+    const applicantId = applicantIdParam || req.user.sub_userid;
+    return this.applicantsService.uploadSfiaResume(applicantId, dto);
   }
 }

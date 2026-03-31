@@ -99,8 +99,14 @@ function ApplicationForm({
       toast.success("Application submitted!");
       onApplied();
     } catch (err: any) {
-      toast.error(err.message || "Failed to apply");
-    } finally {
+      const errorMsg = err.message || "Failed to apply";
+      
+      // Check for specific error codes or messages
+      if (errorMsg.includes("already submitted") || errorMsg.includes("already applied")) {
+        toast.error("You have already submitted an application for this role.");
+      } else {
+        toast.error(errorMsg);
+      } finally {
       setSubmitting(false);
     }
   };

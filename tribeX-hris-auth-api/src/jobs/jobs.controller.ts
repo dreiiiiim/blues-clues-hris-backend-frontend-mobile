@@ -24,6 +24,7 @@ import { CreateApplicationDto } from './dto/create-application.dto';
 import { SetQuestionsDto } from './dto/create-questions.dto';
 import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { SaveManualRankingDto } from './dto/save-manual-ranking.dto';
+import { UpdateApplicationStatusDto } from './dto/update-application-status.dto';
 
 const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
 
@@ -92,10 +93,15 @@ export class JobsController {
   @ApiOperation({ summary: 'HR: Update an application status' })
   updateApplicationStatus(
     @Param('applicationId') applicationId: string,
-    @Body() body: { status: string },
+    @Body() body: UpdateApplicationStatusDto,
     @Req() req: any,
   ) {
-    return this.jobsService.updateApplicationStatus(applicationId, body.status, req.user.company_id);
+    return this.jobsService.updateApplicationStatus(
+      applicationId,
+      body.status,
+      req.user.company_id,
+      body.rejection_reason,
+    );
   }
 
   // ---------------------------------------------------------------------------

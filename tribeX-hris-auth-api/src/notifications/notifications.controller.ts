@@ -7,9 +7,8 @@ import {
   Body,
   HttpCode,
   HttpStatus,
-  ApiTags,
-  ApiOperation,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { NotificationsService } from './notifications.service';
 import { CreateNotificationDto } from './dto/create-notification.dto';
 

@@ -7,6 +7,7 @@ export interface UserSession {
   email: string;
   name: string;
   role: UserRole;
+  userId: string;
 }
 
 const ACCESS_KEY = "access_token";
@@ -131,6 +132,7 @@ export async function login(identifier: string, password: string, rememberMe: bo
     if (!role) return { ok: false as const, error: `Unknown role: ${payload.role_name}` };
 
     const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ") || identifier;
+    const userId = String(payload.sub_userid ?? payload.user_id ?? payload.id ?? "");
 
     if (rememberMe) {
       await AsyncStorage.setItem(ACCESS_KEY, access_token);
@@ -142,7 +144,7 @@ export async function login(identifier: string, password: string, rememberMe: bo
       memoryStore.isApplicant = false;
     }
 
-    return { ok: true as const, user: { role, name, email: payload.email ?? "" } as UserSession };
+    return { ok: true as const, user: { role, name, email: payload.email ?? "", userId } as UserSession };
   } catch {
     return { ok: false as const, error: "Network error. Check your connection." };
   }
@@ -263,7 +265,8 @@ async function refreshExpiredSession(payload: Record<string, unknown>): Promise<
   if (!role) return null;
 
   const name = [newPayload.first_name, newPayload.last_name].filter(Boolean).join(" ");
-  return { role, name, email: String(newPayload.email ?? "") };
+  const userId = String(newPayload.sub_userid ?? newPayload.applicant_id ?? newPayload.user_id ?? newPayload.id ?? "");
+  return { role, name, email: String(newPayload.email ?? ""), userId };
 }
 
 export async function getSession(): Promise<UserSession | null> {
@@ -290,7 +293,8 @@ export async function getSession(): Promise<UserSession | null> {
     if (!role) return null;
 
     const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ");
-    return { role, name, email: String(payload.email ?? "") };
+    const userId = String(payload.sub_userid ?? payload.applicant_id ?? payload.user_id ?? payload.id ?? "");
+    return { role, name, email: String(payload.email ?? ""), userId };
   } catch {
     return null;
   }

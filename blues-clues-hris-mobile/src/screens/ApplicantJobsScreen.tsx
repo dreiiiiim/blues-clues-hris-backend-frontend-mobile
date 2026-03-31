@@ -194,6 +194,17 @@ export function ApplicantJobsScreen() {
         method: "POST",
         body: JSON.stringify(body),
       });
+      
+      if (res.status === 409) {
+        // Duplicate application
+        Alert.alert(
+          "Already Applied",
+          "You have already submitted an application for this role.",
+          [{ text: "OK", onPress: () => setModalVisible(false) }]
+        );
+        return;
+      }
+      
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error((err as { message?: string })?.message || "Failed to submit");

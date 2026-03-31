@@ -2,8 +2,9 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Search, Bell, ChevronDown, Loader2 } from "lucide-react";
+import { Search, ChevronDown, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { NotificationBell } from "@/components/NotificationBell";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
 
 type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
@@ -66,10 +67,9 @@ export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {
       <div className="flex items-center gap-6">
 
         {/* Notifications */}
-        <button className="relative text-muted-foreground hover:text-primary transition-colors cursor-pointer group">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-destructive rounded-full border-2 border-background group-hover:scale-110 transition-transform"></span>
-        </button>
+        {persona === "applicant" && user && (
+          <NotificationBell applicantId={user.applicant_id} showUnreadBadge={true} />
+        )}
 
         {/* Profile Dropdown */}
         <button className="flex items-center gap-3 border-l border-border pl-6 cursor-pointer group">

@@ -384,3 +384,46 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
     return first;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Notification API helpers
+// ---------------------------------------------------------------------------
+
+export type Notification = {
+  notification_id: string;
+  applicant_id: string;
+  message: string;
+  notification_type: string;
+  related_application_id: string | null;
+  is_read: boolean;
+  created_at: string;
+};
+
+export async function getUnreadNotifications(applicantId: string): Promise<Notification[]> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/applicant/${applicantId}/unread`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error('Failed to fetch notifications');
+  return data;
+}
+
+export async function getAllNotifications(applicantId: string): Promise<Notification[]> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/applicant/${applicantId}`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error('Failed to fetch notifications');
+  return data;
+}
+
+export async function markNotificationAsRead(notificationId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/${notificationId}/mark-read`, {
+    method: 'PATCH',
+  });
+  if (!res.ok) throw new Error('Failed to mark notification as read');
+}
+
+export async function markAllNotificationsAsRead(applicantId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/applicant/${applicantId}/mark-all-read`, {
+    method: 'PATCH',
+  });
+  if (!res.ok) throw new Error('Failed to mark all notifications as read');
+}
+

@@ -19,6 +19,7 @@ import { MobileRoleMenu } from "../components/MobileRoleMenu";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
+import { Colors } from "../constants/colors";
 
 type ApplicationStage =
   | "submitted"
@@ -30,6 +31,13 @@ type ApplicationStage =
   | "rejected";
 
 type FilterStatus = "all" | "active" | "hired" | "rejected";
+
+type Notification = {
+  notification_id: string;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+};
 
 type Application = {
   application_id: string;
@@ -87,6 +95,35 @@ function getStatusStyle(status: ApplicationStage) {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
+function StatBox({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: string;
+  color: string;
+}) {
+  return (
+    <View
+      style={{
+        flex: 1,
+        backgroundColor: "#FFFFFF",
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: "#E2E8F0",
+        borderTopWidth: 3,
+        borderTopColor: color,
+        padding: 10,
+        alignItems: "center",
+      }}
+    >
+      <Text style={{fontSize: 18, fontWeight: "800", color }}>{value}</Text>
+      <Text style={{color: "#64748B", fontSize: 10, fontWeight: "700", marginTop: 2}}>{label}</Text>
+    </View>
+  );
 }
 
 function StageProgress({ status }: { readonly status: ApplicationStage }) {
@@ -157,6 +194,11 @@ export function ApplicantApplicationsScreen() {
   const [selectedApp, setSelectedApp] = useState<Application | null>(null);
   const [jobDetail, setJobDetail] = useState<JobDetail | null>(null);
   const [loadingJobDetail, setLoadingJobDetail] = useState(false);
+  const [showSurveyscore, setShowSurveyscore] = useState(false);
+  const [notificationOpen, setNotificationOpen] = useState(false);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   const loadApps = useCallback(async () => {
     setLoading(true);
@@ -172,6 +214,45 @@ export function ApplicantApplicationsScreen() {
   }, []);
 
   useEffect(() => { loadApps(); }, [loadApps]);
+
+  useEffect(() => {
+    if (notificationOpen && session.userId) {
+      fetchNotifications();
+    }
+  }, [notificationOpen, session.userId]);
+
+  const fetchNotifications = async () => {
+    try {
+      setLoadingNotifications(true);
+      const res = await authFetch(
+        `${API_BASE_URL}/notifications/applicant/${session.userId}`
+      );
+      const data = await res.json().catch(() => []);
+      if (Array.isArray(data)) {
+        setNotifications(data);
+        setUnreadCount(data.filter((n) => !n.is_read).length);
+      }
+    } catch {
+      setNotifications([]);
+    } finally {
+      setLoadingNotifications(false);
+    }
+  };
+
+  const formatRelativeDate = (iso: string) => {
+    const date = new Date(iso);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  };
 
   async function openDetail(app: Application) {
     setSelectedApp(app);
@@ -245,6 +326,34 @@ export function ApplicantApplicationsScreen() {
                   <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
                 </View>
                 <Text style={styles.heroEyebrow}>Applicant Portal</Text>
+                {/* Notification Bell */}
+                <Pressable
+                  style={{ marginLeft: "auto" }}
+                  onPress={() => setNotificationOpen(!notificationOpen)}
+                >
+                  <View className="relative">
+                    <Ionicons name="notifications" size={20} color="#FFFFFF" />
+                    {unreadCount > 0 && (
+                      <View
+                        style={{
+                          backgroundColor: "#EF4444",
+                          borderRadius: 8,
+                          minWidth: 16,
+                          height: 16,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          position: "absolute",
+                          top: -4,
+                          right: -4,
+                        }}
+                      >
+                        <Text style={{ color: "#FFFFFF", fontSize: 10, fontWeight: "700" }}>
+                          {unreadCount > 9 ? "9+" : unreadCount}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </Pressable>
               </View>
               <Text style={styles.heroTitle}>
                 My <Text style={styles.heroAccent}>Applications</Text>
@@ -262,6 +371,60 @@ export function ApplicantApplicationsScreen() {
               <StatBox label="Rejected" value={String(rejectedCount)} color="#DC2626" />
             </View>
 
+            {/* Notifications Dropdown */}
+            {notificationOpen && (
+              <View
+                style={{
+                  backgroundColor: "#FFFFFF",
+                  borderRadius: 14,
+                  borderWidth: 1,
+                  borderColor: "#E2E8F0",
+                  overflow: "hidden",
+                  marginBottom: 12,
+                }}
+              >
+                {/* Header */}
+                <View style={{ paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "#E2E8F0" }}>
+                  <Text style={{ color: "#0F172A", fontSize: 13, fontWeight: "700" }}>Notifications</Text>
+                </View>
+
+                {/* Content */}
+                {loadingNotifications ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#1E3A8A"
+                    style={{ paddingVertical: 20 }}
+                  />
+                ) : notifications.length === 0 ? (
+                  <View style={{ paddingVertical: 16, paddingHorizontal: 14, alignItems: "center" }}>
+                    <Text style={{ color: "#94A3B8", fontSize: 12 }}>No notifications yet</Text>
+                  </View>
+                ) : (
+                  <View>
+                    {notifications.slice(0, 5).map((notif) => (
+                      <View
+                        key={notif.notification_id}
+                        style={{
+                          backgroundColor: notif.is_read ? "#FFFFFF" : "#F0F9FF",
+                          borderBottomWidth: 1,
+                          borderBottomColor: "#E2E8F0",
+                          paddingHorizontal: 14,
+                          paddingVertical: 10,
+                        }}
+                      >
+                        <Text style={{ color: "#0F172A", fontSize: 12, lineHeight: 16 }}>
+                          {notif.message}
+                        </Text>
+                        <Text style={{ color: "#94A3B8", fontSize: 11, marginTop: 4 }}>
+                          {formatRelativeDate(notif.created_at)}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            )}
+
             {/* Search */}
             <View style={styles.searchWrap}>
               <Feather name="search" size={16} color="#94A3B8" style={styles.searchIcon} />
@@ -277,6 +440,45 @@ export function ApplicantApplicationsScreen() {
                   <Ionicons name="close-circle" size={16} color="#94A3B8" />
                 </Pressable>
               )}
+            </View>
+
+            {/* Manual vs SFIA Toggle */}
+            <View style={styles.toggleRow}>
+              <Text style={styles.toggleLabel}>Ranking View:</Text>
+              <View style={styles.toggleButtonGroup}>
+                <Pressable
+                  style={[
+                    styles.toggleButton,
+                    !showSurveyscore && styles.toggleButtonActive,
+                  ]}
+                  onPress={() => setShowSurveyscore(false)}
+                >
+                  <Text
+                    style={[
+                      styles.toggleButtonText,
+                      !showSurveyscore && styles.toggleButtonTextActive,
+                    ]}
+                  >
+                    AI Fit %
+                  </Text>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.toggleButton,
+                    showSurveyscore && styles.toggleButtonActive,
+                  ]}
+                  onPress={() => setShowSurveyscore(true)}
+                >
+                  <Text
+                    style={[
+                      styles.toggleButtonText,
+                      showSurveyscore && styles.toggleButtonTextActive,
+                    ]}
+                  >
+                    Survey Score
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
             {/* Status filter pills */}
@@ -608,6 +810,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF", borderWidth: 1.5, borderColor: "#E2E8F0",
   },
   filterPillText: { color: "#64748B", fontSize: 12, fontWeight: "700" },
+
+  // Toggle
+  toggleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  toggleLabel: { color: "#374151", fontSize: 12, fontWeight: "700" },
+  toggleButtonGroup: { flexDirection: "row", gap: 0, backgroundColor: "#F0F4FA", borderRadius: 8, padding: 2 },
+  toggleButton: {
+    flex: 1, paddingVertical: 7, paddingHorizontal: 12, borderRadius: 6,
+    alignItems: "center", justifyContent: "center",
+  },
+  toggleButtonActive: { backgroundColor: "#1E3A8A" },
+  toggleButtonText: { color: "#64748B", fontSize: 11, fontWeight: "700" },
+  toggleButtonTextActive: { color: "#FFFFFF" },
 
   // Empty
   emptyCard: {

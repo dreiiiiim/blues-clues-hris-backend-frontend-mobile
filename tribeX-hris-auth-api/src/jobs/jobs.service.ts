@@ -10,6 +10,7 @@ import {
 import * as crypto from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
@@ -102,6 +103,7 @@ export class JobsService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -504,12 +506,17 @@ export class JobsService {
     };
   }
 
-  async updateApplicationStatus(applicationId: string, status: string, companyId: string) {
+  async updateApplicationStatus(
+    applicationId: string,
+    status: string,
+    companyId: string,
+    rejectionReason?: string,
+  ) {
     const supabase = this.supabaseService.getClient();
 
     const { data: app, error: appError } = await supabase
       .from('job_applications')
-      .select('application_id, job_posting_id')
+      .select('application_id, job_posting_id, applicant_id')
       .eq('application_id', applicationId)
       .maybeSingle();
 
@@ -518,13 +525,176 @@ export class JobsService {
 
     await this.findOnePosting(app.job_posting_id, companyId);
 
+    // Prepare update object
+    const updateData: any = { status };
+    
+    // Add rejection_reason if status is rejected
+    if (status.toLowerCase() === 'rejected' && rejectionReason) {
+      updateData.rejection_reason = rejectionReason;
+    }
+
     const { error } = await supabase
       .from('job_applications')
-      .update({ status })
+      .update(updateData)
       .eq('application_id', applicationId);
 
     if (error) throw new InternalServerErrorException(error.message);
+
+    // Create notification for status changes
+    const statusMessages: Record<string, string> = {
+      'shortlisted': 'Great news! Your application has been shortlisted.',
+      'rejected': 'Thank you for applying. Unfortunately, we won\'t be moving forward at this time.',
+      'hold': 'Your application is currently on hold. We\'ll be in touch soon.',
+      'first_interview': 'You have been scheduled for a first interview!',
+      'technical_interview': 'You have been scheduled for a technical interview!',
+      'final_interview': 'You have been scheduled for a final interview!',
+      'hired': 'Congratulations! We\'re excited to welcome you to the team!',
+    };
+
+    if (statusMessages[status.toLowerCase()]) {
+      try {
+        await this.notificationsService.createNotification({
+          applicant_id: app.applicant_id,
+          message: statusMessages[status.toLowerCase()],
+          notification_type: 'status_update',
+          related_application_id: applicationId,
+        });
+      } catch (notifError) {
+        this.logger.error(`Failed to create notification: ${notifError}`);
+        // Don't fail the status update if notification fails
+      }
+    }
+
     return { message: 'Application status updated' };
+  }
+
+  async getSurveyScore(applicationId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: application, error: appError } = await supabase
+      .from('job_applications')
+      .select('application_id, applicant_id, survey_score')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (appError) throw new InternalServerErrorException(appError.message);
+    if (!application) throw new NotFoundException('Application not found');
+
+    return { 
+      applicationId: application.application_id,
+      applicantId: application.applicant_id,
+      surveyScore: application.survey_score ?? 0,
+    };
+  }
+
+  // Calculate survey score from applicant answers with weighted scoring
+  private async calculateSurveyScore(applicationId: string): Promise<number> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: answers, error } = await supabase
+      .from('applicant_answers')
+      .select(`answer_value, application_questions (question_type, options, sort_order, is_required)`)
+      .eq('application_id', applicationId);
+
+    if (error) {
+      console.error('Error fetching answers:', error.message);
+      return 0;
+    }
+
+    if (!answers || answers.length === 0) return 0;
+
+    let totalWeightedScore = 0;
+    let totalWeight = 0;
+
+    answers.forEach((record: any) => {
+      const val = record.answer_value;
+      const question = record.application_questions;
+      
+      if (!val || !question) return;
+
+      let score = 0;
+      // Required questions have higher weight
+      let weight = question.is_required ? 1.5 : 1.0;
+
+      // Normalize different answer types to 0-100 scale
+      if (question.question_type === 'text') {
+        // Enhanced text scoring: consider both length and word count
+        const trimmedText = val.trim();
+        const wordCount = trimmedText.split(/\s+/).length;
+        const charCount = trimmedText.length;
+        
+        // Score based on both word count and character count
+        // Ideal: 50-150 words or 250-750 characters
+        const wordScore = Math.min(100, (wordCount / 75) * 100); // 75 words = 100 points
+        const charScore = Math.min(100, (charCount / 500) * 100); // 500 chars = 100 points
+        
+        // Take the average of both scores
+        score = (wordScore + charScore) / 2;
+        
+        // Bonus points for punctuation (indicates structured response)
+        const punctuationCount = (trimmedText.match(/[.!?]/g) || []).length;
+        if (punctuationCount > 0) {
+          score = Math.min(100, score + punctuationCount * 2);
+        }
+      } else if (question.question_type === 'multiple_choice') {
+        // Multiple choice: options are stored as strings in the options array
+        if (question.options && Array.isArray(question.options)) {
+          const idx = question.options.indexOf(val);
+          if (idx !== -1) {
+            // Assume options are ordered from least to most desirable
+            // Give full points for last option, scaled down for earlier options
+            const optionCount = question.options.length;
+            score = ((idx + 1) / optionCount) * 100;
+          } else {
+            // If value not in options, try parsing as number
+            const numVal = parseFloat(val);
+            score = isNaN(numVal) ? 50 : Math.min(100, numVal); // Default 50 if unparseable
+          }
+        } else {
+          const numVal = parseFloat(val);
+          score = isNaN(numVal) ? 50 : Math.min(100, numVal);
+        }
+      } else if (question.question_type === 'checkbox') {
+        // Checkbox: parse as JSON array and count selected items
+        try {
+          const selected = JSON.parse(val);
+          if (Array.isArray(selected) && selected.length > 0) {
+            const optionCount = question.options?.length || selected.length;
+            // Score based on percentage of options selected
+            // But penalize selecting too many or too few
+            const selectionRatio = selected.length / optionCount;
+            
+            // Optimal selection is 40-60% of options
+            if (selectionRatio >= 0.4 && selectionRatio <= 0.6) {
+              score = 100;
+            } else if (selectionRatio < 0.4) {
+              // Too few selected
+              score = (selectionRatio / 0.4) * 100;
+            } else {
+              // Too many selected
+              score = 100 - ((selectionRatio - 0.6) / 0.4) * 30; // Max 30 point penalty
+            }
+          } else {
+            score = 0;
+          }
+        } catch {
+          // If parsing fails, try numeric value
+          const numVal = parseFloat(val);
+          score = isNaN(numVal) ? 0 : Math.min(100, numVal);
+        }
+      } else {
+        // Default: try to parse as number
+        const numVal = parseFloat(val);
+        score = isNaN(numVal) ? 50 : Math.min(100, numVal);
+      }
+
+      totalWeightedScore += score * weight;
+      totalWeight += weight;
+    });
+
+    // Normalize to 0-100 range
+    const normalizedScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
+    return Math.round(normalizedScore * 100) / 100;
   }
 
   // ---------------------------------------------------------------------------
@@ -608,7 +778,7 @@ export class JobsService {
       .eq('applicant_id', applicantId)
       .maybeSingle();
 
-    if (existing) throw new ConflictException('You have already applied to this job');
+    if (existing) throw new ConflictException('You have already submitted an application for this role.');
 
     const application_id = crypto.randomUUID();
     const { data, error } = await supabase

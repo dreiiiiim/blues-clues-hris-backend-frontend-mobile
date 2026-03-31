@@ -334,6 +334,24 @@ export class ApplicantsService {
   }
 
   async uploadSfiaResume(applicantId: string, dto: UploadSfiaResumeDto) {
+    const supabase = this.supabaseService.getClient();
+
+    // 1. Check for duplicate application for this job
+    const { data: existingApp, error: checkError } = await supabase
+      .from('job_applications')
+      .select('application_id')
+      .eq('applicant_id', applicantId)
+      .eq('job_posting_id', dto.job_posting_id)
+      .maybeSingle();
+
+    if (checkError && checkError.code !== 'PGRST116') {
+      throw new InternalServerErrorException('Could not verify application status. Please try again.');
+    }
+
+    if (existingApp) {
+      throw new ConflictException('You have already submitted an application for this role.');
+    }
+
     const allowedMimeTypes = new Set([
       'application/pdf',
       'application/msword',
@@ -360,7 +378,6 @@ export class ApplicantsService {
 
     await this.ensureResumeBucket();
 
-    const supabase = this.supabaseService.getClient();
     const safeFileName = dto.file_name.replace(/[^a-zA-Z0-9._-]/g, '-');
     const storagePath = `${applicantId}/${dto.job_posting_id}/${Date.now()}-${safeFileName}`;
 
