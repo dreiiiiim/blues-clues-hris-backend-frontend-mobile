@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { requestEquipment, uploadDocument, confirmTask } from "@/lib/onboardingApi";
 import { CheckCircle, AlertCircle, Upload, FileText, Eye, MapPin, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -35,6 +36,9 @@ export function EquipmentRequest({ equipment, remarks, onUpdateEquipment }: Read
   const [deliveryMethod, setDeliveryMethod] = useState<"office" | "delivery">("office");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploadingProof, setUploadingProof] = useState<{ [key: string]: boolean }>({});
+  const [confirmingReceipt, setConfirmingReceipt] = useState<{ [key: string]: boolean }>({});
 
   const handleCheckboxChange = (onboardingItemId: string, checked: boolean) => {
     if (checked) {
@@ -60,77 +64,98 @@ export function EquipmentRequest({ equipment, remarks, onUpdateEquipment }: Read
     setDeliveryDialogOpen(true);
   };
 
-  const handleBulkSubmitRequest = () => {
+  const handleBulkSubmitRequest = async () => {
     if (deliveryMethod === "delivery" && !deliveryAddress.trim()) {
       alert("Please provide a delivery address");
       return;
     }
 
-    const updatedEquipment = equipment.map((item) => {
-      if (selectedItems.includes(item.onboarding_item_id) && item.is_requested) {
-        return {
-          ...item,
-          status: "for-review" as const,
-          delivery_method: deliveryMethod,
-        };
-      }
-      return item;
-    });
+    setSubmitting(true);
+    try {
+      const itemsToSubmit = equipment.filter(
+        item => selectedItems.includes(item.onboarding_item_id) && item.is_requested
+      );
 
-    onUpdateEquipment(updatedEquipment);
-    setDeliveryDialogOpen(false);
-    setDeliveryAddress("");
-    setSelectedItems([]);
+      await Promise.all(
+        itemsToSubmit.map(item =>
+          requestEquipment(item.onboarding_item_id, true, deliveryMethod)
+        )
+      );
+
+      const updatedEquipment = equipment.map((item) => {
+        if (selectedItems.includes(item.onboarding_item_id) && item.is_requested) {
+          return {
+            ...item,
+            status: "for-review" as const,
+            delivery_method: deliveryMethod,
+          };
+        }
+        return item;
+      });
+
+      onUpdateEquipment(updatedEquipment);
+      setDeliveryDialogOpen(false);
+      setDeliveryAddress("");
+      setSelectedItems([]);
+    } catch {
+      alert("Failed to submit equipment request. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleProofUpload = (onboardingItemId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProofUpload = async (onboardingItemId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const error = validateFileUtil(file, ALLOWED_FILE_TYPES, "Invalid file type. Only PDF, JPG, PNG, DOC, and DOCX files are allowed.");
     if (error) {
       setUploadErrors({ ...uploadErrors, [onboardingItemId]: error });
+      event.target.value = "";
       return;
     }
 
     setUploadErrors({ ...uploadErrors, [onboardingItemId]: "" });
-
-    const newFile: DocumentSubmission = {
-      submission_id: Date.now().toString(),
-      onboarding_item_id: onboardingItemId,
-      file_url: "",
-      file_name: file.name,
-      file_size_bytes: file.size,
-      file_type: file.type,
-      is_proof_of_receipt: true,
-      status: "uploaded",
-      uploaded_at: new Date().toISOString(),
-    };
-
-    const updatedEquipment = equipment.map((item) => {
-      if (item.onboarding_item_id === onboardingItemId) {
-        return {
-          ...item,
-          proof_of_receipt: [...(item.proof_of_receipt || []), newFile],
-        };
-      }
-      return item;
-    });
-
-    onUpdateEquipment(updatedEquipment);
+    setUploadingProof(prev => ({ ...prev, [onboardingItemId]: true }));
+    try {
+      const submission = await uploadDocument(onboardingItemId, file, true);
+      const updatedEquipment = equipment.map((item) => {
+        if (item.onboarding_item_id === onboardingItemId) {
+          return {
+            ...item,
+            proof_of_receipt: [...(item.proof_of_receipt || []), submission],
+          };
+        }
+        return item;
+      });
+      onUpdateEquipment(updatedEquipment);
+    } catch {
+      setUploadErrors(prev => ({ ...prev, [onboardingItemId]: "Upload failed. Please try again." }));
+    } finally {
+      setUploadingProof(prev => ({ ...prev, [onboardingItemId]: false }));
+      event.target.value = "";
+    }
   };
 
-  const handleConfirmReceipt = (onboardingItemId: string) => {
-    const updatedEquipment = equipment.map((item) => {
-      if (item.onboarding_item_id === onboardingItemId && (item.proof_of_receipt?.length || 0) > 0) {
-        return {
-          ...item,
-          status: "approved" as const,
-        };
-      }
-      return item;
-    });
-    onUpdateEquipment(updatedEquipment);
+  const handleConfirmReceipt = async (onboardingItemId: string) => {
+    setConfirmingReceipt(prev => ({ ...prev, [onboardingItemId]: true }));
+    try {
+      await confirmTask(onboardingItemId);
+      const updatedEquipment = equipment.map((item) => {
+        if (item.onboarding_item_id === onboardingItemId && (item.proof_of_receipt?.length || 0) > 0) {
+          return {
+            ...item,
+            status: "approved" as const,
+          };
+        }
+        return item;
+      });
+      onUpdateEquipment(updatedEquipment);
+    } catch {
+      alert("Failed to confirm receipt. Please try again.");
+    } finally {
+      setConfirmingReceipt(prev => ({ ...prev, [onboardingItemId]: false }));
+    }
   };
 
   const pendingSelectedCount = equipment.filter(
@@ -245,10 +270,11 @@ export function EquipmentRequest({ equipment, remarks, onUpdateEquipment }: Read
                         <Button
                           variant="outline"
                           size="sm"
+                          disabled={uploadingProof[item.onboarding_item_id]}
                           onClick={() => document.getElementById(`proof-${item.onboarding_item_id}`)?.click()}
                         >
                           <Upload className="size-3 mr-1" />
-                          Upload
+                          {uploadingProof[item.onboarding_item_id] ? "Uploading..." : "Upload"}
                         </Button>
                         <input
                           id={`proof-${item.onboarding_item_id}`}
@@ -277,8 +303,9 @@ export function EquipmentRequest({ equipment, remarks, onUpdateEquipment }: Read
                     onClick={() => handleConfirmReceipt(item.onboarding_item_id)}
                     size="sm"
                     variant="default"
+                    disabled={confirmingReceipt[item.onboarding_item_id]}
                   >
-                    Confirm Receipt
+                    {confirmingReceipt[item.onboarding_item_id] ? "Confirming..." : "Confirm Receipt"}
                   </Button>
                 )}
               </TableCell>
@@ -382,11 +409,11 @@ export function EquipmentRequest({ equipment, remarks, onUpdateEquipment }: Read
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeliveryDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setDeliveryDialogOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={handleBulkSubmitRequest}>
-              Confirm &amp; Submit
+            <Button onClick={handleBulkSubmitRequest} disabled={submitting}>
+              {submitting ? "Submitting..." : "Confirm & Submit"}
             </Button>
           </DialogFooter>
         </DialogContent>

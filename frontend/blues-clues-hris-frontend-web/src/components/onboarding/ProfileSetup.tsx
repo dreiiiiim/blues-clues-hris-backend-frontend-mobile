@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { saveProfile } from "@/lib/onboardingApi";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +36,7 @@ const emptyProfile: Omit<ProfileData, 'profile_id' | 'session_id' | 'status'> = 
 };
 
 export function ProfileSetup({ profile, sessionId, remarks, onUpdate }: Readonly<ProfileSetupProps>) {
+  const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState({
     first_name: profile?.first_name || "",
     last_name: profile?.last_name || "",
@@ -56,7 +58,7 @@ export function ProfileSetup({ profile, sessionId, remarks, onUpdate }: Readonly
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!formData.first_name || !formData.last_name || !formData.email_address || !formData.phone_number) {
       alert("Please fill in all required fields");
       return;
@@ -66,15 +68,16 @@ export function ProfileSetup({ profile, sessionId, remarks, onUpdate }: Readonly
       return;
     }
 
-    const updatedProfile: ProfileData = {
-      ...(profile || {}),
-      session_id: sessionId,
-      ...formData,
-      status: "submitted",
-    };
-
-    onUpdate(updatedProfile);
-    alert("Profile submitted successfully!");
+    setSaving(true);
+    try {
+      const result = await saveProfile(sessionId, formData);
+      onUpdate(result);
+      alert("Profile submitted successfully!");
+    } catch {
+      alert("Failed to save profile. Please try again.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const profileStatus = profile?.status || "pending";
@@ -283,9 +286,9 @@ export function ProfileSetup({ profile, sessionId, remarks, onUpdate }: Readonly
           </Card>
 
           {!isSubmitted && (
-            <Button onClick={handleSubmit} className="w-full">
+            <Button onClick={handleSubmit} className="w-full" disabled={saving}>
               <CheckCircle className="size-4 mr-2" />
-              Submit Profile
+              {saving ? "Saving..." : "Submit Profile"}
             </Button>
           )}
 

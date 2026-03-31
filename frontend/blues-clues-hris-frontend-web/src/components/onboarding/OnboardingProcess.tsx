@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { submitForReview } from "@/lib/onboardingApi";
 import { Clock, AlertCircle, CheckCircle, User as UserIcon, FileText, ClipboardList, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,7 @@ export function OnboardingProcess({
   userRole = "employee",
 }: Readonly<OnboardingProcessProps>) {
   const [daysRemaining, setDaysRemaining] = useState(0);
+  const [submittingForReview, setSubmittingForReview] = useState(false);
 
   const isEmployee = userRole === "employee";
   const documents = session.documents || [];
@@ -69,19 +71,26 @@ export function OnboardingProcess({
     onUpdateSession({ ...session, profile: profile });
   };
 
-  const handleSubmitForReview = () => {
+  const handleSubmitForReview = async () => {
     if (progress < 100) {
       alert("Please complete all required items before submitting for review");
       return;
     }
 
-    onUpdateSession({
-      ...session,
-      status: "for-review",
-    });
-
-    alert("Your onboarding has been submitted for final review!");
-    onComplete();
+    setSubmittingForReview(true);
+    try {
+      await submitForReview(session.session_id);
+      onUpdateSession({
+        ...session,
+        status: "for-review",
+      });
+      alert("Your onboarding has been submitted for final review!");
+      onComplete();
+    } catch {
+      alert("Failed to submit for review. Please try again.");
+    } finally {
+      setSubmittingForReview(false);
+    }
   };
 
   const getDeadlineAlert = () => {
@@ -285,9 +294,9 @@ export function OnboardingProcess({
                   <h3 className="font-semibold text-green-900">Ready to Submit</h3>
                   <p className="text-sm text-green-700">You've completed all requirements. Submit for final review.</p>
                 </div>
-                <Button onClick={handleSubmitForReview} className="bg-green-600 hover:bg-green-700">
+                <Button onClick={handleSubmitForReview} className="bg-green-600 hover:bg-green-700" disabled={submittingForReview}>
                   <CheckCircle className="size-4 mr-2" />
-                  Submit for Final Review
+                  {submittingForReview ? "Submitting..." : "Submit for Final Review"}
                 </Button>
               </div>
             </CardContent>

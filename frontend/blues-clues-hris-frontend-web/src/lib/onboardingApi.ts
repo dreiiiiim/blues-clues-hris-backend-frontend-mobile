@@ -61,6 +61,16 @@ export async function submitForReview(sessionId: string): Promise<any> {
   return res.json();
 }
 
+export async function requestEquipment(onboardingItemId: string, is_requested: boolean, delivery_method: 'office' | 'delivery'): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/applicant/items/${onboardingItemId}/request-equipment`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify({ is_requested, delivery_method }),
+  });
+  if (!res.ok) throw new Error('Failed to submit equipment request');
+  return res.json();
+}
+
 // ---- HR endpoints ----
 
 export async function getAllSessions(): Promise<OnboardingSessionSummary[]> {

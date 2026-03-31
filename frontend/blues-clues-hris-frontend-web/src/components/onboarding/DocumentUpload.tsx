@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { uploadDocument } from "@/lib/onboardingApi";
 import { AlertCircle, Upload, FileText, X, History, FileUp, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -27,6 +28,8 @@ const ALLOWED_FILE_TYPES = new Set(["application/pdf"]);
 
 export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<DocumentUploadProps>) {
   const [uploadErrors, setUploadErrors] = useState<{ [key: string]: string }>({});
+  const [pendingFiles, setPendingFiles] = useState<{ [key: string]: File }>({});
+  const [uploading, setUploading] = useState<{ [key: string]: boolean }>({});
 
   const handleFileUpload = (onboardingItemId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -41,8 +44,10 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
 
     setUploadErrors({ ...uploadErrors, [onboardingItemId]: "" });
 
-    const newSubmission: DocumentSubmission = {
-      submission_id: Date.now().toString(),
+    // Store the actual File object for API upload, show preview via file metadata
+    setPendingFiles(prev => ({ ...prev, [onboardingItemId]: file }));
+    const preview: DocumentSubmission = {
+      submission_id: `preview-${Date.now()}`,
       onboarding_item_id: onboardingItemId,
       file_url: "",
       file_name: file.name,
@@ -55,12 +60,7 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
 
     const updatedDocuments = documents.map((doc) => {
       if (doc.onboarding_item_id === onboardingItemId) {
-        return {
-          ...doc,
-          files: [newSubmission],
-          upload_history: [...doc.upload_history, newSubmission],
-          status: "pending" as const,
-        };
+        return { ...doc, files: [preview], status: "pending" as const };
       }
       return doc;
     });
@@ -70,32 +70,41 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
   };
 
   const handleCancelUpload = (onboardingItemId: string) => {
+    setPendingFiles(prev => { const n = { ...prev }; delete n[onboardingItemId]; return n; });
     const updatedDocuments = documents.map((doc) => {
       if (doc.onboarding_item_id === onboardingItemId) {
-        return {
-          ...doc,
-          files: [],
-          status: "pending" as const,
-        };
+        return { ...doc, files: [], status: "pending" as const };
       }
       return doc;
     });
-
     onUpdate(updatedDocuments);
   };
 
-  const handleSubmitForReview = (onboardingItemId: string) => {
-    const updatedDocuments = documents.map((doc) => {
-      if (doc.onboarding_item_id === onboardingItemId && doc.files.length > 0) {
-        return {
-          ...doc,
-          status: "for-review" as const,
-        };
-      }
-      return doc;
-    });
+  const handleSubmitForReview = async (onboardingItemId: string) => {
+    const file = pendingFiles[onboardingItemId];
+    if (!file) return;
 
-    onUpdate(updatedDocuments);
+    setUploading(prev => ({ ...prev, [onboardingItemId]: true }));
+    try {
+      const submission = await uploadDocument(onboardingItemId, file, false);
+      setPendingFiles(prev => { const n = { ...prev }; delete n[onboardingItemId]; return n; });
+      const updatedDocuments = documents.map((doc) => {
+        if (doc.onboarding_item_id === onboardingItemId) {
+          return {
+            ...doc,
+            files: [submission],
+            upload_history: [...doc.upload_history, submission],
+            status: "submitted" as const,
+          };
+        }
+        return doc;
+      });
+      onUpdate(updatedDocuments);
+    } catch {
+      setUploadErrors(prev => ({ ...prev, [onboardingItemId]: "Upload failed. Please try again." }));
+    } finally {
+      setUploading(prev => ({ ...prev, [onboardingItemId]: false }));
+    }
   };
 
   return (
@@ -167,6 +176,7 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
                         variant="outline"
                         size="sm"
                         onClick={() => handleCancelUpload(doc.onboarding_item_id)}
+                        disabled={uploading[doc.onboarding_item_id]}
                       >
                         <X className="size-3 mr-1" />
                         Cancel
@@ -175,8 +185,9 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
                         variant="default"
                         size="sm"
                         onClick={() => handleSubmitForReview(doc.onboarding_item_id)}
+                        disabled={uploading[doc.onboarding_item_id]}
                       >
-                        Submit
+                        {uploading[doc.onboarding_item_id] ? "Uploading..." : "Submit"}
                       </Button>
                     </>
                   )}

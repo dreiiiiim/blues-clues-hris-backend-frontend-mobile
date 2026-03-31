@@ -631,6 +631,26 @@ export class OnboardingService {
     return { message: 'Template assigned', session_id: sessionId };
   }
 
+  async requestEquipment(onboardingItemId: string, dto: { is_requested: boolean; delivery_method: 'office' | 'delivery' }) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: item, error } = await supabase
+      .from('onboarding_items')
+      .select('onboarding_item_id, session_id')
+      .eq('onboarding_item_id', onboardingItemId)
+      .single();
+
+    if (error || !item) throw new NotFoundException('Onboarding item not found.');
+
+    await supabase
+      .from('onboarding_items')
+      .update({ is_requested: dto.is_requested, delivery_method: dto.delivery_method, status: 'submitted' })
+      .eq('onboarding_item_id', onboardingItemId);
+
+    await this.recalculateProgress(item.session_id);
+    return { message: 'Equipment requested', onboarding_item_id: onboardingItemId };
+  }
+
   async getAllPositions() {
     const supabase = this.supabaseService.getClient();
 

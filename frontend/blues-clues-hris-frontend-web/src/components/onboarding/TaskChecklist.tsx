@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { confirmTask } from "@/lib/onboardingApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CheckCircle, Clock, AlertCircle, Video } from "lucide-react";
@@ -25,6 +26,7 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
   const [videoWatched, setVideoWatched] = useState(false);
   const [formData, setFormData] = useState<{ [key: string]: string }>({});
   const [acknowledged, setAcknowledged] = useState(false);
+  const [confirming, setConfirming] = useState(false);
 
   const isCompleted = (task: TaskItem) =>
     task.status === "confirmed" || task.status === "approved" || task.status === "for-review";
@@ -90,19 +92,23 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
     }
   };
 
-  const handleCompleteAndSubmit = () => {
-    if (selectedTask && (selectedTask.status === "pending" || selectedTask.status === "submitted")) {
+  const handleCompleteAndSubmit = async () => {
+    if (!selectedTask || !(selectedTask.status === "pending" || selectedTask.status === "submitted")) return;
+    setConfirming(true);
+    try {
+      await confirmTask(selectedTask.onboarding_item_id);
       const updatedTasks = tasks.map((task) => {
         if (task.onboarding_item_id === selectedTask.onboarding_item_id) {
-          return {
-            ...task,
-            status: "for-review" as const,
-          };
+          return { ...task, status: "confirmed" as const };
         }
         return task;
       });
       onUpdateTasks(updatedTasks);
       handleCloseDialog();
+    } catch {
+      alert("Failed to confirm task. Please try again.");
+    } finally {
+      setConfirming(false);
     }
   };
 
@@ -344,7 +350,7 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
           )}
 
           <DialogFooter>
-            <Button variant="outline" onClick={handleCloseDialog} size="sm">
+            <Button variant="outline" onClick={handleCloseDialog} size="sm" disabled={confirming}>
               Close
             </Button>
 
@@ -354,15 +360,15 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
                   <Button
                     onClick={handleAcknowledge}
                     size="sm"
-                    disabled={!hasScrolledToBottom && !!getContentText(selectedTask)}
+                    disabled={(!hasScrolledToBottom && !!getContentText(selectedTask)) || confirming}
                   >
-                    I Acknowledge &amp; Agree
+                    {confirming ? "Saving..." : "I Acknowledge & Agree"}
                   </Button>
                 )}
 
                 {selectedTask.type === "confirm" && videoWatched && (
-                  <Button onClick={handleCompleteAndSubmit} size="sm">
-                    Complete &amp; Submit
+                  <Button onClick={handleCompleteAndSubmit} size="sm" disabled={confirming}>
+                    {confirming ? "Saving..." : "Complete & Submit"}
                   </Button>
                 )}
 
@@ -370,15 +376,15 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
                   <Button
                     onClick={handleFormSubmit}
                     size="sm"
-                    disabled={!isFormComplete()}
+                    disabled={!isFormComplete() || confirming}
                   >
-                    Submit Form
+                    {confirming ? "Saving..." : "Submit Form"}
                   </Button>
                 )}
 
                 {selectedTask.type === "upload" && (
-                  <Button onClick={handleCompleteAndSubmit} size="sm">
-                    Confirm &amp; Submit
+                  <Button onClick={handleCompleteAndSubmit} size="sm" disabled={confirming}>
+                    {confirming ? "Saving..." : "Confirm & Submit"}
                   </Button>
                 )}
               </>

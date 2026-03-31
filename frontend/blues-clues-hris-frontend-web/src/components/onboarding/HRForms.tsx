@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { confirmTask } from "@/lib/onboardingApi";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -34,6 +35,7 @@ function getFormFields(form: HRFormItem): FormField[] {
 export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
   const [expandedForm, setExpandedForm] = useState<string | null>(null);
   const [formDataState, setFormDataState] = useState<Record<string, Record<string, any>>>({});
+  const [submitting, setSubmitting] = useState<Record<string, boolean>>({});
 
   const handleInputChange = (formId: string, field: string, value: any) => {
     setFormDataState(prev => ({
@@ -45,7 +47,7 @@ export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
     }));
   };
 
-  const handleSubmitForm = (form: HRFormItem) => {
+  const handleSubmitForm = async (form: HRFormItem) => {
     const formData = formDataState[form.onboarding_item_id] || {};
     const fields = getFormFields(form);
 
@@ -58,19 +60,26 @@ export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
       return;
     }
 
-    const updatedForms = forms.map(f => {
-      if (f.onboarding_item_id === form.onboarding_item_id) {
-        return {
-          ...f,
-          status: "submitted" as const,
-        };
-      }
-      return f;
-    });
-
-    onUpdate(updatedForms);
-    setExpandedForm(null);
-    alert(`${form.title} submitted successfully!`);
+    setSubmitting(prev => ({ ...prev, [form.onboarding_item_id]: true }));
+    try {
+      await confirmTask(form.onboarding_item_id);
+      const updatedForms = forms.map(f => {
+        if (f.onboarding_item_id === form.onboarding_item_id) {
+          return {
+            ...f,
+            status: "confirmed" as const,
+          };
+        }
+        return f;
+      });
+      onUpdate(updatedForms);
+      setExpandedForm(null);
+      alert(`${form.title} submitted successfully!`);
+    } catch {
+      alert("Failed to submit form. Please try again.");
+    } finally {
+      setSubmitting(prev => ({ ...prev, [form.onboarding_item_id]: false }));
+    }
   };
 
   const renderFormField = (form: HRFormItem, field: FormField) => {
@@ -190,9 +199,15 @@ export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
                     )}
 
                     {(form.status === "pending" || form.status === "rejected") && (
-                      <Button onClick={() => handleSubmitForm(form)} className="w-full">
+                      <Button
+                        onClick={() => handleSubmitForm(form)}
+                        className="w-full"
+                        disabled={submitting[form.onboarding_item_id]}
+                      >
                         <CheckCircle className="size-4 mr-2" />
-                        {form.status === "rejected" ? "Resubmit Form" : "Submit Form"}
+                        {submitting[form.onboarding_item_id]
+                          ? "Submitting..."
+                          : form.status === "rejected" ? "Resubmit Form" : "Submit Form"}
                       </Button>
                     )}
                   </CardContent>

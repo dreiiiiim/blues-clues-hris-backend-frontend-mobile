@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Put, Body, Param, Query,
+  Controller, Get, Post, Put, Patch, Body, Param, Query,
   UseGuards, UseInterceptors, UploadedFile, Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
@@ -67,5 +67,15 @@ export class ApplicantOnboardingController {
   @ApiOperation({ summary: 'Submit onboarding for HR review' })
   submitForReview(@Param('sessionId') sessionId: string) {
     return this.onboardingService.submitForReview(sessionId);
+  }
+
+  @Patch('items/:onboardingItemId/request-equipment')
+  @Roles(...ONBOARDING_USERS)
+  @ApiOperation({ summary: 'Submit equipment request with delivery preference' })
+  requestEquipment(
+    @Param('onboardingItemId') onboardingItemId: string,
+    @Body() body: { is_requested: boolean; delivery_method: 'office' | 'delivery' },
+  ) {
+    return this.onboardingService.requestEquipment(onboardingItemId, body);
   }
 }
