@@ -303,8 +303,8 @@ export class OnboardingService {
       .eq('session_id', sessionId)
       .maybeSingle();
 
+    let result: any;
     if (existing) {
-      // Update
       const { data, error } = await supabase
         .from('employee_staging')
         .update({ ...dto, status: 'submitted' })
@@ -312,9 +312,8 @@ export class OnboardingService {
         .select()
         .single();
       if (error) throw new BadRequestException(error.message);
-      return data;
+      result = data;
     } else {
-      // Insert
       const { data, error } = await supabase
         .from('employee_staging')
         .insert({
@@ -326,8 +325,25 @@ export class OnboardingService {
         .select()
         .single();
       if (error) throw new BadRequestException(error.message);
-      return data;
+      result = data;
     }
+
+    // Mark profile onboarding items as confirmed so they count toward progress
+    const { data: profileItems } = await supabase
+      .from('onboarding_items')
+      .select('onboarding_item_id, template_items!inner(tab_category)')
+      .eq('session_id', sessionId)
+      .eq('template_items.tab_category', 'profile');
+
+    if (profileItems && profileItems.length > 0) {
+      await supabase
+        .from('onboarding_items')
+        .update({ status: 'confirmed' })
+        .in('onboarding_item_id', profileItems.map(i => i.onboarding_item_id));
+    }
+
+    await this.recalculateProgress(sessionId);
+    return result;
   }
 
   async submitForReview(sessionId: string) {
@@ -716,6 +732,30 @@ export class OnboardingService {
       .single();
 
     if (error) throw new BadRequestException(error.message);
+
+    // Propagate to all active sessions using this template
+    const { data: activeSessions } = await supabase
+      .from('onboarding_sessions')
+      .select('session_id')
+      .eq('template_id', templateId)
+      .neq('status', 'approved');
+
+    if (activeSessions && activeSessions.length > 0) {
+      await supabase.from('onboarding_items').insert(
+        activeSessions.map(s => ({
+          onboarding_item_id: crypto.randomUUID(),
+          session_id: s.session_id,
+          template_item_id: data.item_id,
+          status: 'pending',
+          is_requested: null,
+          delivery_method: null,
+        }))
+      );
+      for (const s of activeSessions) {
+        await this.recalculateProgress(s.session_id);
+      }
+    }
+
     return data;
   }
 
@@ -730,6 +770,20 @@ export class OnboardingService {
       .single();
 
     if (error) throw new BadRequestException(error.message);
+
+    // If is_required changed, recalculate progress for all active sessions using this template
+    if (dto.is_required !== undefined) {
+      const { data: activeSessions } = await supabase
+        .from('onboarding_sessions')
+        .select('session_id')
+        .eq('template_id', data.template_id)
+        .neq('status', 'approved');
+
+      for (const s of activeSessions || []) {
+        await this.recalculateProgress(s.session_id);
+      }
+    }
+
     return data;
   }
 

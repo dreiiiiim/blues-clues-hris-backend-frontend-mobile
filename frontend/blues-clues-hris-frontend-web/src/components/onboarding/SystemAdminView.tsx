@@ -110,7 +110,7 @@ export default function SystemAdminView() {
     setShowNewPositionDialog(false);
   };
 
-  const typeForCategory: Record<string, string> = { documents: 'upload', tasks: 'task', equipment: 'equipment' };
+  const typeForCategory: Record<string, string> = { documents: 'upload', tasks: 'task', equipment: 'equipment', hr_forms: 'form' };
 
   const handleAddTemplateItem = async (tab_category: string) => {
     if (!selectedTemplate || !newItemTitle.trim()) return;
@@ -272,6 +272,7 @@ export default function SystemAdminView() {
                       <TableHead>Documents</TableHead>
                       <TableHead>Tasks</TableHead>
                       <TableHead>Equipment</TableHead>
+                      <TableHead>HR Forms</TableHead>
                       <TableHead>Deadline</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -295,6 +296,11 @@ export default function SystemAdminView() {
                         <TableCell>
                           <Badge variant="outline">
                             {template.template_items.filter(i => i.tab_category === "equipment").length}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">
+                            {template.template_items.filter(i => i.tab_category === "hr_forms").length}
                           </Badge>
                         </TableCell>
                         <TableCell>{template.default_deadline_days} days</TableCell>
@@ -388,14 +394,14 @@ export default function SystemAdminView() {
           <DialogHeader className="px-6 pt-6 pb-4 border-b">
             <DialogTitle>Template: {selectedTemplate?.name}</DialogTitle>
             <DialogDescription>
-              View documents, tasks, and equipment for this onboarding template
+              View and manage items for this onboarding template
             </DialogDescription>
           </DialogHeader>
 
           {selectedTemplate && (
             <div className="flex-1 overflow-y-auto px-6 py-4">
               <Tabs defaultValue="documents" onValueChange={() => setAddItemCategory(null)}>
-                <TabsList className="grid w-full grid-cols-3">
+                <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="documents">
                     <FileCheck className="size-4 mr-2" />
                     Documents ({selectedTemplate.template_items.filter(i => i.tab_category === "documents").length})
@@ -408,14 +414,21 @@ export default function SystemAdminView() {
                     <Package className="size-4 mr-2" />
                     Equipment ({selectedTemplate.template_items.filter(i => i.tab_category === "equipment").length})
                   </TabsTrigger>
+                  <TabsTrigger value="hr_forms">
+                    <ClipboardList className="size-4 mr-2" />
+                    HR Forms ({selectedTemplate.template_items.filter(i => i.tab_category === "hr_forms").length})
+                  </TabsTrigger>
                 </TabsList>
 
-                {(["documents", "tasks", "equipment"] as const).map((cat) => (
+                {(["documents", "tasks", "equipment", "hr_forms"] as const).map((cat) => {
+                  const labelMap: Record<string, string> = { documents: "Document", tasks: "Task", equipment: "Equipment", hr_forms: "HR Form" };
+                  const hasDescription = cat !== "documents";
+                  return (
                   <TabsContent key={cat} value={cat} className="mt-4 space-y-3">
                     <div className="flex justify-end">
                       <Button size="sm" variant="outline" onClick={() => { setAddItemCategory(cat); setNewItemTitle(""); setNewItemDescription(""); setNewItemRequired(false); }}>
                         <Plus className="size-3 mr-1" />
-                        Add {cat === "documents" ? "Document" : cat === "tasks" ? "Task" : "Equipment"}
+                        Add {labelMap[cat]}
                       </Button>
                     </div>
 
@@ -423,7 +436,7 @@ export default function SystemAdminView() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Name</TableHead>
-                          {cat !== "documents" && <TableHead>Description</TableHead>}
+                          {hasDescription && <TableHead>Description</TableHead>}
                           <TableHead className="w-[120px]">Required</TableHead>
                         </TableRow>
                       </TableHeader>
@@ -431,7 +444,7 @@ export default function SystemAdminView() {
                         {selectedTemplate.template_items.filter(i => i.tab_category === cat).map((item) => (
                           <TableRow key={item.item_id}>
                             <TableCell className="font-medium">{item.title}</TableCell>
-                            {cat !== "documents" && <TableCell className="text-sm text-slate-600">{item.description ?? "—"}</TableCell>}
+                            {hasDescription && <TableCell className="text-sm text-slate-600">{item.description ?? "—"}</TableCell>}
                             <TableCell>
                               <div className="flex items-center gap-2">
                                 <Checkbox
@@ -446,8 +459,8 @@ export default function SystemAdminView() {
                         ))}
                         {selectedTemplate.template_items.filter(i => i.tab_category === cat).length === 0 && (
                           <TableRow>
-                            <TableCell colSpan={cat !== "documents" ? 3 : 2} className="text-center py-4 text-slate-500">
-                              No {cat} yet
+                            <TableCell colSpan={hasDescription ? 3 : 2} className="text-center py-4 text-slate-500">
+                              No {labelMap[cat].toLowerCase()}s yet
                             </TableCell>
                           </TableRow>
                         )}
@@ -456,7 +469,7 @@ export default function SystemAdminView() {
 
                     {addItemCategory === cat && (
                       <div className="border rounded-lg p-4 space-y-3 bg-slate-50">
-                        <p className="text-sm font-medium">New {cat === "documents" ? "Document" : cat === "tasks" ? "Task" : "Equipment"}</p>
+                        <p className="text-sm font-medium">New {labelMap[cat]}</p>
                         <div className="space-y-1">
                           <Label>Title *</Label>
                           <Input
@@ -465,7 +478,7 @@ export default function SystemAdminView() {
                             onChange={(e) => setNewItemTitle(e.target.value)}
                           />
                         </div>
-                        {cat !== "documents" && (
+                        {hasDescription && (
                           <div className="space-y-1">
                             <Label>Description</Label>
                             <Textarea
@@ -495,7 +508,8 @@ export default function SystemAdminView() {
                       </div>
                     )}
                   </TabsContent>
-                ))}
+                  );
+                })}
               </Tabs>
             </div>
           )}

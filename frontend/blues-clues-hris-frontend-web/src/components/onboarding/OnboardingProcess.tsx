@@ -73,7 +73,11 @@ export function OnboardingProcess({
   };
 
   const handleUpdateProfile = (profile: ProfileData) => {
-    onUpdateSession({ ...session, profile: profile });
+    onUpdateSession({
+      ...session,
+      profile: profile,
+      profile_items: session.profile_items.map(item => ({ ...item, status: 'confirmed' as const })),
+    });
   };
 
   const handleSubmitForReview = async () => {
@@ -134,7 +138,7 @@ export function OnboardingProcess({
     ...documents.filter(d => d.status === "approved"),
     ...tasks.filter(t => t.status === "approved" || t.status === "confirmed"),
     ...equipment.filter(e => e.status === "approved"),
-    ...hrForms.filter(f => f.status === "approved"),
+    ...hrForms.filter(f => f.status === "approved" || f.status === "confirmed"),
     ...welcomeItems.filter(w => w.status === "confirmed"),
     ...profileItems.filter(p => p.status === "confirmed"),
   ].length + (session.profile?.status === "approved" ? 1 : 0);
@@ -143,7 +147,7 @@ export function OnboardingProcess({
     ...documents.filter(d => d.status === "for-review"),
     ...displayTasks.filter(t => t.status === "for-review"),
     ...equipment.filter(e => e.status === "for-review"),
-    ...(isEmployee ? [] : hrForms.filter(f => f.status === "for-review")),
+    ...hrForms.filter(f => f.status === "for-review"),
   ].length;
 
   const remainingCount = [
@@ -151,7 +155,7 @@ export function OnboardingProcess({
     ...documents.filter(d => d.status === "pending" || d.status === "rejected"),
     ...displayTasks.filter(t => t.status === "pending" || t.status === "rejected"),
     ...equipment.filter(e => e.status === "pending" || e.status === "rejected"),
-    ...(isEmployee ? [] : hrForms.filter(f => f.status === "pending" || f.status === "rejected")),
+    ...hrForms.filter(f => f.status === "pending" || f.status === "rejected"),
   ].filter(Boolean).length;
 
   return (
@@ -219,7 +223,7 @@ export function OnboardingProcess({
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="profile" className="w-full">
-              <TabsList className={`grid w-full ${isEmployee ? "grid-cols-4" : "grid-cols-5"}`}>
+              <TabsList className="grid w-full grid-cols-5">
                 <TabsTrigger value="profile" className="flex items-center gap-2">
                   <UserIcon className="size-4" />
                   Profile
@@ -228,12 +232,10 @@ export function OnboardingProcess({
                   <FileText className="size-4" />
                   Documents
                 </TabsTrigger>
-                {!isEmployee && (
-                  <TabsTrigger value="forms" className="flex items-center gap-2">
-                    <ClipboardList className="size-4" />
-                    HR Forms
-                  </TabsTrigger>
-                )}
+                <TabsTrigger value="forms" className="flex items-center gap-2">
+                  <ClipboardList className="size-4" />
+                  HR Forms
+                </TabsTrigger>
                 <TabsTrigger value="tasks" className="flex items-center gap-2">
                   <CheckCircle className="size-4" />
                   Tasks
@@ -261,15 +263,13 @@ export function OnboardingProcess({
                 />
               </TabsContent>
 
-              {!isEmployee && (
-                <TabsContent value="forms">
-                  <HRForms
-                    forms={hrForms}
-                    remarks={session.remarks.filter(r => r.tab_tag === "Forms")}
-                    onUpdate={handleUpdateHRForms}
-                  />
-                </TabsContent>
-              )}
+              <TabsContent value="forms">
+                <HRForms
+                  forms={hrForms}
+                  remarks={session.remarks.filter(r => r.tab_tag === "Forms")}
+                  onUpdate={handleUpdateHRForms}
+                />
+              </TabsContent>
 
               <TabsContent value="tasks">
                 <TaskChecklist

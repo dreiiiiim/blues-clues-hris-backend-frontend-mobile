@@ -6,7 +6,7 @@ import { OnboardingProcess } from "@/components/onboarding/OnboardingProcess";
 import { ReviewScreen } from "@/components/onboarding/ReviewScreen";
 import { CompletedScreen } from "@/components/onboarding/CompletedScreen";
 import { OnboardingSession } from "@/types/onboarding.types";
-import { getMySession } from "@/lib/onboardingApi";
+import { getMySession, confirmTask } from "@/lib/onboardingApi";
 
 type OnboardingStage = "welcome" | "onboarding" | "review" | "completion";
 
@@ -30,7 +30,15 @@ export default function EmployeeOnboardingPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleStart = () => {
+  const handleStart = async () => {
+    if (session?.welcome && session.welcome.length > 0) {
+      const pending = session.welcome.filter(w => w.status === 'pending');
+      await Promise.all(pending.map(w => confirmTask(w.onboarding_item_id)));
+      setSession(prev => prev ? {
+        ...prev,
+        welcome: prev.welcome.map(w => ({ ...w, status: 'confirmed' as const })),
+      } : prev);
+    }
     setStage("onboarding");
   };
 

@@ -44,9 +44,10 @@ const TYPE_MAP: Record<string, string> = {
   documents: "upload",
   tasks: "task",
   equipment: "equipment",
+  hr_forms: "form",
 };
 
-const CATEGORIES = ["documents", "tasks", "equipment"] as const;
+const CATEGORIES = ["documents", "tasks", "equipment", "hr_forms"] as const;
 type Category = typeof CATEGORIES[number];
 
 export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
@@ -229,7 +230,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
                       {CATEGORIES.map(cat => (
                         <View key={cat} style={styles.itemChip}>
                           <Text style={styles.itemChipNum}>{items.filter(i => i.tab_category === cat).length}</Text>
-                          <Text style={styles.itemChipLabel}>{cat === "documents" ? "Docs" : cat === "tasks" ? "Tasks" : "Equip"}</Text>
+                          <Text style={styles.itemChipLabel}>{cat === "documents" ? "Docs" : cat === "tasks" ? "Tasks" : cat === "equipment" ? "Equip" : "HR"}</Text>
                         </View>
                       ))}
                     </View>
@@ -249,7 +250,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
                             onPress={() => setActiveCategory(cat)}
                           >
                             <Text style={[styles.catTabText, activeCategory === cat && styles.catTabTextActive]}>
-                              {cat === "documents" ? "Documents" : cat === "tasks" ? "Tasks" : "Equipment"}
+                              {cat === "documents" ? "Docs" : cat === "tasks" ? "Tasks" : cat === "equipment" ? "Equip" : "HR Forms"}
                             </Text>
                           </TouchableOpacity>
                         ))}
@@ -284,7 +285,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
                         onPress={() => openAddModal(template.template_id, activeCategory)}
                       >
                         <Text style={styles.addItemBtnText}>
-                          + Add {activeCategory === "documents" ? "Document" : activeCategory === "tasks" ? "Task" : "Equipment"}
+                          + Add {activeCategory === "documents" ? "Document" : activeCategory === "tasks" ? "Task" : activeCategory === "equipment" ? "Equipment" : "HR Form"}
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -301,7 +302,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
             <Text style={styles.modalTitle}>
-              Add {addCategory === "documents" ? "Document" : addCategory === "tasks" ? "Task" : "Equipment"}
+              Add {addCategory === "documents" ? "Document" : addCategory === "tasks" ? "Task" : addCategory === "equipment" ? "Equipment" : "HR Form"}
             </Text>
 
             <Text style={styles.fieldLabel}>Title *</Text>
