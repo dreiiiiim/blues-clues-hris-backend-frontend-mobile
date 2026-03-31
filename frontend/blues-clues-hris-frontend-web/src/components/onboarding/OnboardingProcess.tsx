@@ -49,7 +49,7 @@ export function OnboardingProcess({
     setDaysRemaining(diffDays);
   }, [session.deadline_date]);
 
-  const allItems = [...documents, ...tasks, ...equipment, ...hrForms, ...profileItems, ...welcomeItems];
+  const allItems = [...documents, ...displayTasks, ...equipment, ...hrForms, ...profileItems];
   const requiredItems = allItems.filter(i => i.is_required);
   const completedItems = requiredItems.filter(i => ['approved', 'confirmed', 'issued'].includes(i.status));
   const progress = requiredItems.length > 0
@@ -139,7 +139,6 @@ export function OnboardingProcess({
     ...displayTasks.filter(t => t.status === "approved" || t.status === "confirmed"),
     ...equipment.filter(e => e.status === "approved" || e.status === "issued"),
     ...hrForms.filter(f => f.status === "approved" || f.status === "confirmed"),
-    ...welcomeItems.filter(w => w.status === "confirmed"),
     ...profileItems.filter(p => p.status === "confirmed"),
   ].length;
 

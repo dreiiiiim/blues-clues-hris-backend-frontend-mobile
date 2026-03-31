@@ -7,12 +7,65 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { Eye, Users, FileCheck, ListChecks, Package, Search, Calendar, TrendingUp, Download, MessageSquare, CheckCircle, XCircle, FileText } from "lucide-react";
+import { Eye, Users, FileCheck, ListChecks, Package, Search, Calendar, TrendingUp, Download, MessageSquare, CheckCircle, XCircle, FileText, AlertCircle } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import type { OnboardingStatus, ItemStatus, OnboardingSessionSummary, OnboardingSession } from "@/types/onboarding.types";
-import { getAllSessions, getSessionById, updateItemStatus, addRemark, approveSession } from "@/lib/onboardingApi";
+import type { OnboardingStatus, ItemStatus, OnboardingSessionSummary, OnboardingSession, Remark } from "@/types/onboarding.types";
+import { getAllSessions, getSessionById, updateItemStatus, addRemark, approveSession, updateSessionDeadline } from "@/lib/onboardingApi";
+
+function RemarkSection({
+  remarks,
+  value,
+  onChange,
+  onAdd,
+  inputId,
+}: {
+  remarks: Remark[];
+  value: string;
+  onChange: (v: string) => void;
+  onAdd: () => void;
+  inputId: string;
+}) {
+  return (
+    <div className="mt-6 space-y-3">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">HR Remarks</p>
+      {remarks.length > 0 ? (
+        <div className="space-y-2">
+          {remarks.map((r) => (
+            <div key={r.remark_id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-slate-600">{r.author}</span>
+                <span className="text-xs text-slate-400">{new Date(r.created_at).toLocaleDateString()}</span>
+              </div>
+              <p className="text-sm text-slate-700">{r.remark_text}</p>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-sm text-slate-400 italic">No remarks yet.</p>
+      )}
+      <div className="flex gap-2 pt-1">
+        <Textarea
+          id={inputId}
+          placeholder="Add a remark..."
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          rows={2}
+          className="resize-none text-sm"
+        />
+        <Button
+          size="sm"
+          className="self-end shrink-0"
+          onClick={onAdd}
+          disabled={!value.trim()}
+        >
+          <MessageSquare className="size-3.5 mr-1.5" />Add
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 export default function HROnboardingOfficerView() {
   const [sessions, setSessions] = useState<OnboardingSessionSummary[]>([]);
@@ -22,6 +75,8 @@ export default function HROnboardingOfficerView() {
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [remarks, setRemarks] = useState<Record<string, string>>({});
+  const [editingDeadline, setEditingDeadline] = useState(false);
+  const [deadlineInput, setDeadlineInput] = useState("");
 
   useEffect(() => {
     getAllSessions().then(setSessions).catch(console.error);
@@ -38,6 +93,7 @@ export default function HROnboardingOfficerView() {
 
   const handleViewSession = async (summary: OnboardingSessionSummary) => {
     setLoadingSession(true);
+    setEditingDeadline(false);
     try {
       const full = await getSessionById(summary.session_id);
       setSelectedSession(full);
@@ -83,6 +139,17 @@ export default function HROnboardingOfficerView() {
     try {
       await addRemark(selectedSession.session_id, tabTag, remarks[tabTag].trim());
       setRemarks(prev => ({ ...prev, [tabTag]: "" }));
+      await refreshSession(selectedSession.session_id);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleUpdateDeadline = async () => {
+    if (!selectedSession || !deadlineInput) return;
+    try {
+      await updateSessionDeadline(selectedSession.session_id, deadlineInput);
+      setEditingDeadline(false);
       await refreshSession(selectedSession.session_id);
     } catch (err) {
       console.error(err);
@@ -365,28 +432,56 @@ export default function HROnboardingOfficerView() {
                     <CardTitle className="text-lg">Profile Summary</CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="grid grid-cols-3 gap-x-8 gap-y-4">
-                      <div>
+                    <div className="grid grid-cols-2 gap-x-8 gap-y-5">
+                      <div className="min-w-0">
                         <p className="text-sm text-slate-500 mb-1">Name</p>
-                        <p className="font-semibold">{selectedSession.employee_name ?? "—"}</p>
+                        <p className="font-semibold truncate">{selectedSession.employee_name ?? "—"}</p>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm text-slate-500 mb-1">Position</p>
-                        <p className="font-semibold">{selectedSession.assigned_position}</p>
+                        <p className="font-semibold truncate">{selectedSession.assigned_position}</p>
                       </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm text-slate-500 mb-1">Department</p>
-                        <p className="font-semibold">{selectedSession.assigned_department}</p>
+                        <p className="font-semibold truncate">{selectedSession.assigned_department}</p>
                       </div>
-                      <div>
-                        <p className="text-sm text-slate-500 mb-1">Deadline</p>
-                        <p className="font-semibold">{new Date(selectedSession.deadline_date).toLocaleDateString()}</p>
-                      </div>
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-sm text-slate-500 mb-1">Status</p>
                         <div className="mt-1">{getStatusBadge(selectedSession.status)}</div>
                       </div>
-                      <div>
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-500 mb-1">Deadline</p>
+                        {editingDeadline ? (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Input
+                              type="date"
+                              value={deadlineInput}
+                              onChange={(e) => setDeadlineInput(e.target.value)}
+                              className="h-8 text-sm w-36"
+                            />
+                            <Button size="sm" className="h-8" onClick={handleUpdateDeadline}>Save</Button>
+                            <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditingDeadline(false)}>Cancel</Button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-2">
+                            <p className="font-semibold">{new Date(selectedSession.deadline_date).toLocaleDateString()}</p>
+                            {selectedSession.status !== "approved" && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                className="h-6 px-2 text-xs text-slate-500"
+                                onClick={() => {
+                                  setDeadlineInput(selectedSession.deadline_date.slice(0, 10));
+                                  setEditingDeadline(true);
+                                }}
+                              >
+                                Edit
+                              </Button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0">
                         <p className="text-sm text-slate-500 mb-1">Overall Progress</p>
                         <div className="flex items-center gap-2 mt-1">
                           <Progress value={selectedSession.progress_percentage} className="flex-1" />
@@ -396,6 +491,19 @@ export default function HROnboardingOfficerView() {
                     </div>
                   </CardContent>
                 </Card>
+
+                {/* Overdue Warning */}
+                {selectedSession.status === "overdue" && (
+                  <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+                    <AlertCircle className="size-5 text-red-600 shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <p className="font-semibold text-red-900">This onboarding is overdue</p>
+                      <p className="text-sm text-red-700 mt-0.5">
+                        The deadline has passed. Consider extending the deadline above or following up with the employee.
+                      </p>
+                    </div>
+                  </div>
+                )}
 
                 {/* Approve Onboarding */}
                 {selectedSession.status === "for-review" && (
@@ -415,412 +523,235 @@ export default function HROnboardingOfficerView() {
                   </CardHeader>
                   <CardContent>
                     <Tabs defaultValue="profile">
-                      <TabsList className="grid w-full grid-cols-5 h-auto">
-                        <TabsTrigger value="profile" className="flex flex-col items-center gap-1 py-2 text-xs">
-                          <Users className="size-4" />
-                          Profile
+                      <TabsList className="flex flex-wrap h-auto w-full gap-1 justify-start p-1">
+                        <TabsTrigger value="profile" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
+                          <Users className="size-4 shrink-0" />Profile
                         </TabsTrigger>
-                        <TabsTrigger value="documents" className="flex flex-col items-center gap-1 py-2 text-xs">
-                          <FileCheck className="size-4" />
-                          Documents
+                        <TabsTrigger value="documents" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
+                          <FileCheck className="size-4 shrink-0" />Documents
                         </TabsTrigger>
-                        <TabsTrigger value="forms" className="flex flex-col items-center gap-1 py-2 text-xs">
-                          <FileText className="size-4" />
-                          HR Forms
+                        <TabsTrigger value="forms" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
+                          <FileText className="size-4 shrink-0" />HR Forms
                         </TabsTrigger>
-                        <TabsTrigger value="tasks" className="flex flex-col items-center gap-1 py-2 text-xs">
-                          <ListChecks className="size-4" />
-                          Tasks
+                        <TabsTrigger value="tasks" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
+                          <ListChecks className="size-4 shrink-0" />Tasks
                         </TabsTrigger>
-                        <TabsTrigger value="equipment" className="flex flex-col items-center gap-1 py-2 text-xs">
-                          <Package className="size-4" />
-                          Equipment
+                        <TabsTrigger value="equipment" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
+                          <Package className="size-4 shrink-0" />Equipment
                         </TabsTrigger>
                       </TabsList>
 
                       {/* Profile Tab */}
-                      <TabsContent value="profile" className="space-y-4 mt-4">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h3 className="font-semibold">Employee Profile</h3>
-                              <p className="text-sm text-slate-600">Review employee profile information</p>
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className={selectedSession.profile ? "bg-teal-100 text-teal-800" : "bg-slate-100 text-slate-700"}
-                            >
-                              {selectedSession.profile
-                                ? <><CheckCircle className="size-3 mr-1 inline" />Complete</>
-                                : "Incomplete"}
-                            </Badge>
-                          </div>
-
+                      <TabsContent value="profile" className="mt-6">
+                        <div className="space-y-6">
                           {selectedSession.profile ? (
-                            <Card className="bg-slate-50">
-                              <CardContent className="pt-6">
-                                <div className="grid grid-cols-2 gap-4">
-                                  <div>
-                                    <span className="text-xs text-slate-600">Full Name</span>
-                                    <p className="font-medium">{selectedSession.profile.first_name} {selectedSession.profile.last_name}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs text-slate-600">Email</span>
-                                    <p className="font-medium">{selectedSession.profile.email_address}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs text-slate-600">Phone</span>
-                                    <p className="font-medium">{selectedSession.profile.phone_number}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs text-slate-600">Date of Birth</span>
-                                    <p className="font-medium">{selectedSession.profile.date_of_birth}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs text-slate-600">Address</span>
-                                    <p className="font-medium">{selectedSession.profile.complete_address}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs text-slate-600">Civil Status</span>
-                                    <p className="font-medium">{selectedSession.profile.civil_status}</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs text-slate-600">Emergency Contact</span>
-                                    <p className="font-medium">{selectedSession.profile.contact_name} ({selectedSession.profile.relationship})</p>
-                                  </div>
-                                  <div>
-                                    <span className="text-xs text-slate-600">Emergency Phone</span>
-                                    <p className="font-medium">{selectedSession.profile.emergency_phone_number}</p>
-                                  </div>
+                            <div className="grid grid-cols-2 gap-x-12 gap-y-5">
+                              {[
+                                { label: "Full Name", value: `${selectedSession.profile.first_name} ${selectedSession.profile.last_name}` },
+                                { label: "Email", value: selectedSession.profile.email_address, breakAll: true },
+                                { label: "Phone", value: selectedSession.profile.phone_number },
+                                { label: "Date of Birth", value: selectedSession.profile.date_of_birth },
+                                { label: "Civil Status", value: selectedSession.profile.civil_status },
+                                { label: "Address", value: selectedSession.profile.complete_address },
+                                { label: "Emergency Contact", value: `${selectedSession.profile.contact_name} (${selectedSession.profile.relationship})` },
+                                { label: "Emergency Phone", value: selectedSession.profile.emergency_phone_number },
+                              ].map(({ label, value, breakAll }) => (
+                                <div key={label} className="min-w-0">
+                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">{label}</p>
+                                  <p className={`text-sm text-slate-800 ${breakAll ? "break-all" : ""}`}>{value || "—"}</p>
                                 </div>
-                              </CardContent>
-                            </Card>
+                              ))}
+                            </div>
                           ) : (
-                            <Card className="bg-slate-50">
-                              <CardContent className="pt-6 text-center text-sm text-slate-500">
-                                Employee has not submitted profile information yet.
-                              </CardContent>
-                            </Card>
+                            <p className="text-sm text-slate-500 py-6 text-center">Employee has not submitted profile information yet.</p>
                           )}
 
-                          {selectedSession.remarks.filter(r => r.tab_tag === "Profile").map(r => (
-                            <Card key={r.remark_id} className="bg-yellow-50 border-yellow-200">
-                              <CardContent className="pt-4 text-sm">
-                                <span className="font-semibold">{r.author}:</span> {r.remark_text}
-                                <span className="text-xs text-slate-500 ml-2">{new Date(r.created_at).toLocaleDateString()}</span>
-                              </CardContent>
-                            </Card>
-                          ))}
-
-                          <Card className="bg-blue-50 border-blue-200">
-                            <CardContent className="pt-4">
-                              <div className="space-y-2">
-                                <label htmlFor="remark-profile" className="text-sm font-medium text-blue-900">Add Remark for Profile</label>
-                                <div className="flex gap-2">
-                                  <Textarea
-                                    id="remark-profile"
-                                    placeholder="Add a remark for the profile..."
-                                    value={remarks["Profile"] || ""}
-                                    onChange={(e) => setRemarks(prev => ({ ...prev, Profile: e.target.value }))}
-                                    className="bg-white"
-                                  />
-                                  <Button variant="default" onClick={() => handleAddRemark("Profile")} className="bg-blue-600 hover:bg-blue-700">
-                                    <MessageSquare className="size-4 mr-2" />Add
-                                  </Button>
-                                </div>
-                              </div>
-                            </CardContent>
-                          </Card>
+                          <RemarkSection
+                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Profile")}
+                            value={remarks["Profile"] || ""}
+                            onChange={(v) => setRemarks(prev => ({ ...prev, Profile: v }))}
+                            onAdd={() => handleAddRemark("Profile")}
+                            inputId="remark-profile"
+                          />
                         </div>
                       </TabsContent>
 
                       {/* Documents Tab */}
-                      <TabsContent value="documents" className="space-y-4 mt-4">
+                      <TabsContent value="documents" className="mt-6">
                         <div className="space-y-3">
                           {selectedSession.documents.map((doc) => (
-                            <Card key={doc.onboarding_item_id} className="border-l-4 border-l-blue-500">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h4 className="font-semibold">{doc.title}</h4>
-                                    {doc.files[0] && (
-                                      <p className="text-xs text-orange-600 mt-1">
-                                        Uploaded: {new Date(doc.files[0].uploaded_at).toLocaleDateString()}
-                                      </p>
-                                    )}
-                                  </div>
-                                  {getItemStatusBadge(doc.status)}
+                            <div key={doc.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
+                              <div className="flex items-start justify-between px-5 py-4 bg-white">
+                                <div className="space-y-0.5 min-w-0 pr-4">
+                                  <p className="font-semibold text-slate-800">{doc.title}</p>
+                                  {doc.files[0]
+                                    ? <p className="text-xs text-slate-500">Uploaded {new Date(doc.files[0].uploaded_at).toLocaleDateString()}</p>
+                                    : <p className="text-xs text-slate-400">No file uploaded</p>
+                                  }
                                 </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {doc.files[0] ? (
-                                  <div className="p-3 bg-slate-50 rounded-lg border">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <FileText className="size-4 text-blue-600" />
-                                        <span className="text-sm font-medium">{doc.files[0].file_name}</span>
-                                      </div>
-                                      <Button variant="outline" size="sm" asChild>
+                                {getItemStatusBadge(doc.status)}
+                              </div>
+                              {(doc.files[0] || (doc.status === "submitted" || doc.status === "for-review")) && (
+                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+                                  {doc.files[0] ? (
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <FileText className="size-4 text-slate-400 shrink-0" />
+                                      <span className="text-sm text-slate-600 truncate">{doc.files[0].file_name}</span>
+                                      <Button variant="outline" size="sm" asChild className="shrink-0">
                                         <a href={doc.files[0].file_url} target="_blank" rel="noreferrer">
                                           <Download className="size-3 mr-1" />View
                                         </a>
                                       </Button>
                                     </div>
-                                  </div>
-                                ) : (
-                                  <div className="p-3 bg-slate-50 rounded-lg border text-center text-sm text-slate-500">
-                                    No file uploaded
-                                  </div>
-                                )}
-                                {(doc.status === "submitted" || doc.status === "for-review") && (
-                                  <div className="flex gap-2">
-                                    <Button size="sm" variant="default" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove(doc.onboarding_item_id)}>
-                                      <CheckCircle className="size-3 mr-1" />Approve
-                                    </Button>
-                                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => handleReject(doc.onboarding_item_id)}>
-                                      <XCircle className="size-3 mr-1" />Reject
-                                    </Button>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-
-                        {selectedSession.remarks.filter(r => r.tab_tag === "Documents").map(r => (
-                          <Card key={r.remark_id} className="bg-yellow-50 border-yellow-200">
-                            <CardContent className="pt-4 text-sm">
-                              <span className="font-semibold">{r.author}:</span> {r.remark_text}
-                              <span className="text-xs text-slate-500 ml-2">{new Date(r.created_at).toLocaleDateString()}</span>
-                            </CardContent>
-                          </Card>
-                        ))}
-
-                        <Card className="bg-blue-50 border-blue-200">
-                          <CardContent className="pt-4">
-                            <div className="space-y-2">
-                              <label htmlFor="remark-documents" className="text-sm font-medium text-blue-900">Add General Remark for Documents</label>
-                              <div className="flex gap-2">
-                                <Textarea
-                                  id="remark-documents"
-                                  placeholder="Add a general remark for all documents..."
-                                  value={remarks["Documents"] || ""}
-                                  onChange={(e) => setRemarks(prev => ({ ...prev, Documents: e.target.value }))}
-                                  className="bg-white"
-                                />
-                                <Button variant="default" onClick={() => handleAddRemark("Documents")} className="bg-blue-600 hover:bg-blue-700">
-                                  <MessageSquare className="size-4 mr-2" />Add
-                                </Button>
-                              </div>
+                                  ) : <span />}
+                                  {(doc.status === "submitted" || doc.status === "for-review") && (
+                                    <div className="flex gap-2 shrink-0">
+                                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(doc.onboarding_item_id)}>
+                                        <CheckCircle className="size-3.5 mr-1.5" />Approve
+                                      </Button>
+                                      <Button size="sm" variant="destructive" onClick={() => handleReject(doc.onboarding_item_id)}>
+                                        <XCircle className="size-3.5 mr-1.5" />Reject
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          </CardContent>
-                        </Card>
+                          ))}
+
+                          <RemarkSection
+                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Documents")}
+                            value={remarks["Documents"] || ""}
+                            onChange={(v) => setRemarks(prev => ({ ...prev, Documents: v }))}
+                            onAdd={() => handleAddRemark("Documents")}
+                            inputId="remark-documents"
+                          />
+                        </div>
                       </TabsContent>
 
                       {/* HR Forms Tab */}
-                      <TabsContent value="forms" className="space-y-4 mt-4">
+                      <TabsContent value="forms" className="mt-6">
                         <div className="space-y-3">
                           {selectedSession.hr_forms.map((form) => (
-                            <Card key={form.onboarding_item_id} className="border-l-4 border-l-blue-500">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h4 className="font-semibold">{form.title}</h4>
-                                    {form.description && <p className="text-xs text-slate-600 mt-1">{form.description}</p>}
-                                  </div>
-                                  {getItemStatusBadge(form.status)}
+                            <div key={form.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
+                              <div className="flex items-start justify-between px-5 py-4 bg-white">
+                                <div className="space-y-0.5 min-w-0 pr-4">
+                                  <p className="font-semibold text-slate-800">{form.title}</p>
+                                  {form.description && <p className="text-xs text-slate-500">{form.description}</p>}
                                 </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {form.status === "for-review" && (
-                                  <div className="flex gap-2">
-                                    <Button size="sm" variant="default" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove(form.onboarding_item_id)}>
-                                      <CheckCircle className="size-3 mr-1" />Approve
-                                    </Button>
-                                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => handleReject(form.onboarding_item_id)}>
-                                      <XCircle className="size-3 mr-1" />Reject
-                                    </Button>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-
-                        {selectedSession.remarks.filter(r => r.tab_tag === "Forms").map(r => (
-                          <Card key={r.remark_id} className="bg-yellow-50 border-yellow-200">
-                            <CardContent className="pt-4 text-sm">
-                              <span className="font-semibold">{r.author}:</span> {r.remark_text}
-                              <span className="text-xs text-slate-500 ml-2">{new Date(r.created_at).toLocaleDateString()}</span>
-                            </CardContent>
-                          </Card>
-                        ))}
-
-                        <Card className="bg-blue-50 border-blue-200">
-                          <CardContent className="pt-4">
-                            <div className="space-y-2">
-                              <label htmlFor="remark-forms" className="text-sm font-medium text-blue-900">Add General Remark for HR Forms</label>
-                              <div className="flex gap-2">
-                                <Textarea
-                                  id="remark-forms"
-                                  placeholder="Add a general remark for all HR forms..."
-                                  value={remarks["Forms"] || ""}
-                                  onChange={(e) => setRemarks(prev => ({ ...prev, Forms: e.target.value }))}
-                                  className="bg-white"
-                                />
-                                <Button variant="default" onClick={() => handleAddRemark("Forms")} className="bg-blue-600 hover:bg-blue-700">
-                                  <MessageSquare className="size-4 mr-2" />Add
-                                </Button>
+                                {getItemStatusBadge(form.status)}
                               </div>
+                              {form.status === "for-review" && (
+                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(form.onboarding_item_id)}>
+                                    <CheckCircle className="size-3.5 mr-1.5" />Approve
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={() => handleReject(form.onboarding_item_id)}>
+                                    <XCircle className="size-3.5 mr-1.5" />Reject
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-                          </CardContent>
-                        </Card>
+                          ))}
+
+                          <RemarkSection
+                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Forms")}
+                            value={remarks["Forms"] || ""}
+                            onChange={(v) => setRemarks(prev => ({ ...prev, Forms: v }))}
+                            onAdd={() => handleAddRemark("Forms")}
+                            inputId="remark-forms"
+                          />
+                        </div>
                       </TabsContent>
 
                       {/* Tasks Tab */}
-                      <TabsContent value="tasks" className="space-y-4 mt-4">
+                      <TabsContent value="tasks" className="mt-6">
                         <div className="space-y-3">
                           {selectedSession.tasks.map((task) => (
-                            <Card key={task.onboarding_item_id} className="border-l-4 border-l-blue-500">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h4 className="font-semibold">{task.title}</h4>
-                                    {task.description && <p className="text-xs text-slate-600 mt-1">{task.description}</p>}
-                                  </div>
-                                  {getItemStatusBadge(task.status)}
+                            <div key={task.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
+                              <div className="flex items-start justify-between px-5 py-4 bg-white">
+                                <div className="space-y-0.5 min-w-0 pr-4">
+                                  <p className="font-semibold text-slate-800">{task.title}</p>
+                                  {task.description && <p className="text-xs text-slate-500">{task.description}</p>}
                                 </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {task.status === "for-review" && (
-                                  <div className="flex gap-2">
-                                    <Button size="sm" variant="default" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove(task.onboarding_item_id)}>
-                                      <CheckCircle className="size-3 mr-1" />Approve
-                                    </Button>
-                                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => handleReject(task.onboarding_item_id)}>
-                                      <XCircle className="size-3 mr-1" />Reject
-                                    </Button>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-
-                        {selectedSession.remarks.filter(r => r.tab_tag === "Tasks").map(r => (
-                          <Card key={r.remark_id} className="bg-yellow-50 border-yellow-200">
-                            <CardContent className="pt-4 text-sm">
-                              <span className="font-semibold">{r.author}:</span> {r.remark_text}
-                              <span className="text-xs text-slate-500 ml-2">{new Date(r.created_at).toLocaleDateString()}</span>
-                            </CardContent>
-                          </Card>
-                        ))}
-
-                        <Card className="bg-green-50 border-green-200">
-                          <CardContent className="pt-4">
-                            <div className="space-y-2">
-                              <label htmlFor="remark-tasks" className="text-sm font-medium text-green-900">Add General Remark for Tasks</label>
-                              <div className="flex gap-2">
-                                <Textarea
-                                  id="remark-tasks"
-                                  placeholder="Add a general remark for all tasks..."
-                                  value={remarks["Tasks"] || ""}
-                                  onChange={(e) => setRemarks(prev => ({ ...prev, Tasks: e.target.value }))}
-                                  className="bg-white"
-                                />
-                                <Button variant="default" onClick={() => handleAddRemark("Tasks")} className="bg-green-600 hover:bg-green-700">
-                                  <MessageSquare className="size-4 mr-2" />Add
-                                </Button>
+                                {getItemStatusBadge(task.status)}
                               </div>
+                              {task.status === "for-review" && (
+                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
+                                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(task.onboarding_item_id)}>
+                                    <CheckCircle className="size-3.5 mr-1.5" />Approve
+                                  </Button>
+                                  <Button size="sm" variant="destructive" onClick={() => handleReject(task.onboarding_item_id)}>
+                                    <XCircle className="size-3.5 mr-1.5" />Reject
+                                  </Button>
+                                </div>
+                              )}
                             </div>
-                          </CardContent>
-                        </Card>
+                          ))}
+
+                          <RemarkSection
+                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Tasks")}
+                            value={remarks["Tasks"] || ""}
+                            onChange={(v) => setRemarks(prev => ({ ...prev, Tasks: v }))}
+                            onAdd={() => handleAddRemark("Tasks")}
+                            inputId="remark-tasks"
+                          />
+                        </div>
                       </TabsContent>
 
                       {/* Equipment Tab */}
-                      <TabsContent value="equipment" className="space-y-4 mt-4">
+                      <TabsContent value="equipment" className="mt-6">
                         <div className="space-y-3">
                           {selectedSession.equipment.map((equip) => (
-                            <Card key={equip.onboarding_item_id} className="border-l-4 border-l-blue-500">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h4 className="font-semibold">{equip.title}</h4>
-                                    {equip.description && <p className="text-xs text-slate-600 mt-1">{equip.description}</p>}
-                                    {equip.delivery_method && (
-                                      <p className="text-xs text-purple-600 mt-1">
-                                        Delivery: {equip.delivery_method === 'office' ? 'Office Pickup' : 'Delivery'}
-                                        {equip.delivery_method === 'delivery' && equip.delivery_address && (
-                                          <span className="block text-purple-500">Address: {equip.delivery_address}</span>
-                                        )}
-                                      </p>
-                                    )}
-                                  </div>
-                                  {getItemStatusBadge(equip.status)}
+                            <div key={equip.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
+                              <div className="flex items-start justify-between px-5 py-4 bg-white">
+                                <div className="space-y-0.5 min-w-0 pr-4">
+                                  <p className="font-semibold text-slate-800">{equip.title}</p>
+                                  {equip.description && <p className="text-xs text-slate-500">{equip.description}</p>}
+                                  {equip.delivery_method && (
+                                    <p className="text-xs text-purple-600">
+                                      {equip.delivery_method === "office" ? "Office Pickup" : `Delivery${equip.delivery_address ? ` — ${equip.delivery_address}` : ""}`}
+                                    </p>
+                                  )}
                                 </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {equip.proof_of_receipt[0] && (
-                                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <FileText className="size-4 text-purple-600" />
-                                        <div>
-                                          <p className="text-sm font-medium text-purple-900">Proof of Receipt</p>
-                                          <p className="text-xs text-purple-700">{equip.proof_of_receipt[0].file_name}</p>
-                                        </div>
-                                      </div>
-                                      <Button variant="outline" size="sm" asChild>
+                                {getItemStatusBadge(equip.status)}
+                              </div>
+                              {(equip.proof_of_receipt[0] || (equip.status === "submitted" || equip.status === "for-review")) && (
+                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+                                  {equip.proof_of_receipt[0] ? (
+                                    <div className="flex items-center gap-2 min-w-0">
+                                      <FileText className="size-4 text-purple-500 shrink-0" />
+                                      <span className="text-sm text-slate-600 truncate">{equip.proof_of_receipt[0].file_name}</span>
+                                      <Button variant="outline" size="sm" asChild className="shrink-0">
                                         <a href={equip.proof_of_receipt[0].file_url} target="_blank" rel="noreferrer">
                                           <Download className="size-3 mr-1" />View
                                         </a>
                                       </Button>
                                     </div>
-                                  </div>
-                                )}
-                                {(equip.status === "submitted" || equip.status === "for-review") && (
-                                  <div className="flex gap-2">
-                                    <Button size="sm" variant="default" className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={() => handleIssue(equip.onboarding_item_id)}>
-                                      <CheckCircle className="size-3 mr-1" />Issue Equipment
-                                    </Button>
-                                    <Button size="sm" variant="destructive" className="flex-1" onClick={() => handleReject(equip.onboarding_item_id)}>
-                                      <XCircle className="size-3 mr-1" />Reject
-                                    </Button>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-
-                        {selectedSession.remarks.filter(r => r.tab_tag === "Equipment").map(r => (
-                          <Card key={r.remark_id} className="bg-yellow-50 border-yellow-200">
-                            <CardContent className="pt-4 text-sm">
-                              <span className="font-semibold">{r.author}:</span> {r.remark_text}
-                              <span className="text-xs text-slate-500 ml-2">{new Date(r.created_at).toLocaleDateString()}</span>
-                            </CardContent>
-                          </Card>
-                        ))}
-
-                        <Card className="bg-purple-50 border-purple-200">
-                          <CardContent className="pt-4">
-                            <div className="space-y-2">
-                              <label htmlFor="remark-equipment" className="text-sm font-medium text-purple-900">Add General Remark for Equipment</label>
-                              <div className="flex gap-2">
-                                <Textarea
-                                  id="remark-equipment"
-                                  placeholder="Add a general remark for all equipment..."
-                                  value={remarks["Equipment"] || ""}
-                                  onChange={(e) => setRemarks(prev => ({ ...prev, Equipment: e.target.value }))}
-                                  className="bg-white"
-                                />
-                                <Button variant="default" onClick={() => handleAddRemark("Equipment")} className="bg-purple-600 hover:bg-purple-700">
-                                  <MessageSquare className="size-4 mr-2" />Add
-                                </Button>
-                              </div>
+                                  ) : <span />}
+                                  {(equip.status === "submitted" || equip.status === "for-review") && (
+                                    <div className="flex gap-2 shrink-0">
+                                      <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleIssue(equip.onboarding_item_id)}>
+                                        <CheckCircle className="size-3.5 mr-1.5" />Issue
+                                      </Button>
+                                      <Button size="sm" variant="destructive" onClick={() => handleReject(equip.onboarding_item_id)}>
+                                        <XCircle className="size-3.5 mr-1.5" />Reject
+                                      </Button>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          </CardContent>
-                        </Card>
+                          ))}
+
+                          <RemarkSection
+                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Equipment")}
+                            value={remarks["Equipment"] || ""}
+                            onChange={(v) => setRemarks(prev => ({ ...prev, Equipment: v }))}
+                            onAdd={() => handleAddRemark("Equipment")}
+                            inputId="remark-equipment"
+                          />
+                        </div>
                       </TabsContent>
                     </Tabs>
                   </CardContent>

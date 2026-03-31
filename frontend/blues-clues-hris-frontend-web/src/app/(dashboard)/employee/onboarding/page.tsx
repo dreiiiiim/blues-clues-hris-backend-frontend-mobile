@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { WelcomeScreen } from "@/components/onboarding/WelcomeScreen";
 import { OnboardingProcess } from "@/components/onboarding/OnboardingProcess";
 import { ReviewScreen } from "@/components/onboarding/ReviewScreen";
@@ -11,6 +12,7 @@ import { getMySession, confirmTask } from "@/lib/onboardingApi";
 type OnboardingStage = "welcome" | "onboarding" | "review" | "completion";
 
 export default function EmployeeOnboardingPage() {
+  const router = useRouter();
   const [stage, setStage] = useState<OnboardingStage>("welcome");
   const [session, setSession] = useState<OnboardingSession | null>(null);
   const [loading, setLoading] = useState(true);
@@ -22,7 +24,7 @@ export default function EmployeeOnboardingPage() {
         setSession(data);
         if (data?.status === "for-review") setStage("review");
         else if (data?.status === "approved") setStage("completion");
-        else if (data && (data.status === "in-progress" || data.progress_percentage > 0)) setStage("onboarding");
+        else if (data && (data.status === "in-progress" || data.status === "overdue" || data.progress_percentage > 0)) setStage("onboarding");
       })
       .catch(() => {
         setError("Failed to load onboarding data.");
@@ -48,6 +50,11 @@ export default function EmployeeOnboardingPage() {
 
   const handleUpdateSession = (updatedSession: OnboardingSession) => {
     setSession(updatedSession);
+  };
+
+  const handleGoToDashboard = () => {
+    localStorage.setItem("onboarding_dismissed", "true");
+    router.push("/employee");
   };
 
   if (loading) {
@@ -87,7 +94,10 @@ export default function EmployeeOnboardingPage() {
       {stage === "review" && <ReviewScreen />}
 
       {stage === "completion" && (
-        <CompletedScreen approvalDate={session.completed_at || new Date().toISOString()} />
+        <CompletedScreen
+          approvalDate={session.completed_at || new Date().toISOString()}
+          onGoToDashboard={handleGoToDashboard}
+        />
       )}
     </div>
   );

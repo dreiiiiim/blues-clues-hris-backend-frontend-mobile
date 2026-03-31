@@ -110,6 +110,22 @@ export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
               <option value="Separated">Separated</option>
             </>
           )}
+          {field.label === "Tax Status" && (
+            <>
+              <option value="S">S – Single</option>
+              <option value="S1">S1 – Single, 1 dependent</option>
+              <option value="S2">S2 – Single, 2 dependents</option>
+              <option value="S3">S3 – Single, 3 dependents</option>
+              <option value="S4">S4 – Single, 4+ dependents</option>
+              <option value="ME">ME – Married Employee</option>
+              <option value="ME1">ME1 – Married, 1 dependent</option>
+              <option value="ME2">ME2 – Married, 2 dependents</option>
+              <option value="ME3">ME3 – Married, 3 dependents</option>
+              <option value="ME4">ME4 – Married, 4+ dependents</option>
+              <option value="HF">HF – Head of Family</option>
+              <option value="Z">Z – Zero Exemption</option>
+            </>
+          )}
         </select>
       );
     }

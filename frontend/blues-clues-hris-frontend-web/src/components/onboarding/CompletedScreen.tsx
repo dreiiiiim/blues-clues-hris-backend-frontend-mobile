@@ -4,9 +4,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 interface CompletedScreenProps {
   readonly approvalDate: string | Date;
+  readonly onGoToDashboard?: () => void;
 }
 
-export function CompletedScreen({ approvalDate }: CompletedScreenProps) {
+export function CompletedScreen({ approvalDate, onGoToDashboard }: CompletedScreenProps) {
   const date = typeof approvalDate === 'string' ? new Date(approvalDate) : approvalDate;
 
   return (
@@ -65,7 +66,7 @@ export function CompletedScreen({ approvalDate }: CompletedScreenProps) {
               <Download className="size-4 mr-2" />
               Download Documents
             </Button>
-            <Button variant="outline" className="flex-1">
+            <Button variant="outline" className="flex-1" onClick={onGoToDashboard}>
               <Home className="size-4 mr-2" />
               Go to Dashboard
             </Button>

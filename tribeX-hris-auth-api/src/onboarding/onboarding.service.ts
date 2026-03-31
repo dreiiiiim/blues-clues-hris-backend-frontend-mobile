@@ -799,6 +799,20 @@ export class OnboardingService {
     return data;
   }
 
+  async updateSessionDeadline(sessionId: string, deadlineDate: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { error } = await supabase
+      .from('onboarding_sessions')
+      .update({ deadline_date: deadlineDate })
+      .eq('session_id', sessionId);
+
+    if (error) throw new BadRequestException(error.message);
+
+    await this.recalculateProgress(sessionId);
+    return { session_id: sessionId, deadline_date: deadlineDate };
+  }
+
   // =========================================================
   // SHARED HELPERS
   // =========================================================
@@ -810,13 +824,15 @@ export class OnboardingService {
       .from('onboarding_items')
       .select(`
         status,
-        template_items!inner ( is_required )
+        template_items!inner ( is_required, tab_category )
       `)
       .eq('session_id', sessionId);
 
     if (!items || items.length === 0) return;
 
-    const required = items.filter((i: any) => i.template_items.is_required);
+    // Exclude welcome items — they auto-confirm on start and shouldn't affect progress
+    const trackable = items.filter((i: any) => i.template_items.tab_category !== 'welcome');
+    const required = trackable.filter((i: any) => i.template_items.is_required);
     const completed = required.filter((i: any) =>
       ['approved', 'confirmed', 'issued'].includes(i.status)
     );
@@ -825,9 +841,28 @@ export class OnboardingService {
       ? Math.round((completed.length / required.length) * 100)
       : 0;
 
+    const { data: session } = await supabase
+      .from('onboarding_sessions')
+      .select('status, deadline_date')
+      .eq('session_id', sessionId)
+      .single();
+
+    const update: Record<string, any> = { progress_percentage: percentage };
+
+    if (session && !['for-review', 'approved'].includes(session.status)) {
+      const isOverdue = new Date(session.deadline_date) < new Date();
+      if (isOverdue) {
+        update.status = 'overdue';
+      } else if (percentage > 0) {
+        update.status = 'in-progress';
+      } else {
+        update.status = 'not-started';
+      }
+    }
+
     await supabase
       .from('onboarding_sessions')
-      .update({ progress_percentage: percentage })
+      .update(update)
       .eq('session_id', sessionId);
   }
 }

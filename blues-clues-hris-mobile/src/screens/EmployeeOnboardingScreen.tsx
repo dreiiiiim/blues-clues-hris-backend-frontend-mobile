@@ -34,6 +34,7 @@ type OnboardingSession = {
   status: string;
   progress_percentage: number;
   deadline_date: string;
+  completed_at?: string | null;
   documents: OnboardingItem[];
   tasks: OnboardingItem[];
   equipment: OnboardingItem[];
@@ -47,6 +48,7 @@ function statusColor(status: string) {
   if (status === "for-review" || status === "submitted") return "#B45309";
   if (status === "rejected") return "#B91C1C";
   if (status === "issued") return "#7C3AED";
+  if (status === "overdue") return "#B91C1C";
   return "#64748B";
 }
 
@@ -91,15 +93,22 @@ export const EmployeeOnboardingScreen = ({ route, navigation }: any) => {
     { key: "forms", label: "HR Forms" },
   ];
 
+  // Exclude video tasks from the displayed list (they don't count toward progress)
+  const displayTasks = (onboarding?.tasks ?? []).filter(t => t.type !== "video");
+
   const activeItems: OnboardingItem[] = onboarding
     ? activeTab === "documents"
       ? (onboarding.documents || [])
       : activeTab === "tasks"
-      ? (onboarding.tasks || [])
+      ? displayTasks
       : activeTab === "equipment"
       ? (onboarding.equipment || [])
       : (onboarding.hr_forms || [])
     : [];
+
+  const isOverdue = onboarding?.status === "overdue";
+  const isApproved = onboarding?.status === "approved";
+  const isForReview = onboarding?.status === "for-review";
 
   return (
     <SafeAreaView style={styles.container}>
@@ -156,14 +165,26 @@ export const EmployeeOnboardingScreen = ({ route, navigation }: any) => {
                 <View style={styles.card}>
                   <View style={styles.progressRow}>
                     <Text style={styles.progressLabel}>Overall Progress</Text>
-                    <Text style={styles.progressPct}>{onboarding.progress_percentage}%</Text>
+                    <Text style={[styles.progressPct, isOverdue && { color: "#B91C1C" }]}>
+                      {onboarding.progress_percentage}%
+                    </Text>
                   </View>
                   <View style={styles.progressBarBg}>
-                    <View style={[styles.progressBarFill, { width: `${onboarding.progress_percentage}%` as any }]} />
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        { width: `${onboarding.progress_percentage}%` as any },
+                        isOverdue && { backgroundColor: "#B91C1C" },
+                        isApproved && { backgroundColor: "#15803D" },
+                      ]}
+                    />
                   </View>
                   <View style={styles.metaRow}>
                     <Text style={styles.metaText}>
-                      Status: <Text style={{ color: statusColor(onboarding.status), fontWeight: "600" }}>{statusLabel(onboarding.status)}</Text>
+                      Status:{" "}
+                      <Text style={{ color: statusColor(onboarding.status), fontWeight: "600" }}>
+                        {statusLabel(onboarding.status)}
+                      </Text>
                     </Text>
                     <Text style={styles.metaText}>
                       Deadline: {new Date(onboarding.deadline_date).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
@@ -171,42 +192,78 @@ export const EmployeeOnboardingScreen = ({ route, navigation }: any) => {
                   </View>
                 </View>
 
-                {/* Tabs */}
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRow}>
-                  {tabs.map(tab => (
-                    <Pressable
-                      key={tab.key}
-                      onPress={() => setActiveTab(tab.key)}
-                      style={[styles.tab, activeTab === tab.key && styles.activeTab]}
-                    >
-                      <Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>
-                        {tab.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
+                {/* Overdue Warning */}
+                {isOverdue && (
+                  <View style={styles.overdueBox}>
+                    <Text style={styles.overdueTitle}>Your onboarding is overdue</Text>
+                    <Text style={styles.overdueText}>
+                      The deadline has passed. Please complete your remaining items and contact your HR officer if you need an extension.
+                    </Text>
+                  </View>
+                )}
 
-                {/* Items List */}
-                {activeItems.length === 0 ? (
-                  <Text style={styles.emptyText}>No items in this category.</Text>
+                {/* For Review notice */}
+                {isForReview && (
+                  <View style={styles.reviewBox}>
+                    <Text style={styles.reviewTitle}>Under Review</Text>
+                    <Text style={styles.reviewText}>
+                      Your onboarding has been submitted and is awaiting HR approval. No further action needed.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Approved / Completion State */}
+                {isApproved ? (
+                  <View style={styles.completionBox}>
+                    <Text style={styles.completionIcon}>✓</Text>
+                    <Text style={styles.completionTitle}>Onboarding Complete!</Text>
+                    <Text style={styles.completionText}>
+                      Your onboarding has been approved.
+                      {onboarding.completed_at
+                        ? ` Completed on ${new Date(onboarding.completed_at).toLocaleDateString("en-PH", { month: "long", day: "numeric", year: "numeric" })}.`
+                        : ""}
+                    </Text>
+                  </View>
                 ) : (
-                  activeItems.map(item => (
-                    <View key={item.onboarding_item_id} style={styles.itemCard}>
-                      <View style={styles.itemHeader}>
-                        <Text style={styles.itemTitle}>
-                          {item.title}{item.is_required ? " *" : ""}
-                        </Text>
-                        <View style={[styles.statusPill, { backgroundColor: statusColor(item.status) + "20", borderColor: statusColor(item.status) }]}>
-                          <Text style={[styles.statusPillText, { color: statusColor(item.status) }]}>
-                            {statusLabel(item.status)}
+                  <>
+                    {/* Tabs */}
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabRow}>
+                      {tabs.map(tab => (
+                        <Pressable
+                          key={tab.key}
+                          onPress={() => setActiveTab(tab.key)}
+                          style={[styles.tab, activeTab === tab.key && styles.activeTab]}
+                        >
+                          <Text style={[styles.tabText, activeTab === tab.key && styles.activeTabText]}>
+                            {tab.label}
                           </Text>
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+
+                    {/* Items List */}
+                    {activeItems.length === 0 ? (
+                      <Text style={styles.emptyText}>No items in this category.</Text>
+                    ) : (
+                      activeItems.map(item => (
+                        <View key={item.onboarding_item_id} style={styles.itemCard}>
+                          <View style={styles.itemHeader}>
+                            <Text style={styles.itemTitle}>
+                              {item.title}{item.is_required ? " *" : ""}
+                            </Text>
+                            <View style={[styles.statusPill, { backgroundColor: statusColor(item.status) + "20", borderColor: statusColor(item.status) }]}>
+                              <Text style={[styles.statusPillText, { color: statusColor(item.status) }]}>
+                                {statusLabel(item.status)}
+                              </Text>
+                            </View>
+                          </View>
+                          {item.description && (
+                            <Text style={styles.itemDesc}>{item.description}</Text>
+                          )}
                         </View>
-                      </View>
-                      {item.description && (
-                        <Text style={styles.itemDesc}>{item.description}</Text>
-                      )}
-                    </View>
-                  ))
+                      ))
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -238,6 +295,16 @@ const styles = StyleSheet.create({
   progressBarFill: { height: 8, backgroundColor: "#1E40AF", borderRadius: 4 },
   metaRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 8 },
   metaText: { fontSize: 12, color: "#64748B" },
+  overdueBox: { backgroundColor: "#FEF2F2", borderRadius: 10, padding: 14, borderWidth: 1, borderColor: "#FECACA" },
+  overdueTitle: { fontSize: 14, fontWeight: "700", color: "#991B1B", marginBottom: 4 },
+  overdueText: { fontSize: 13, color: "#B91C1C", lineHeight: 18 },
+  reviewBox: { backgroundColor: "#FFFBEB", borderRadius: 10, padding: 14, borderWidth: 1, borderColor: "#FCD34D" },
+  reviewTitle: { fontSize: 14, fontWeight: "700", color: "#92400E", marginBottom: 4 },
+  reviewText: { fontSize: 13, color: "#B45309", lineHeight: 18 },
+  completionBox: { backgroundColor: "#F0FDF4", borderRadius: 16, padding: 32, alignItems: "center", borderWidth: 1, borderColor: "#BBF7D0" },
+  completionIcon: { fontSize: 40, color: "#15803D", marginBottom: 12 },
+  completionTitle: { fontSize: 20, fontWeight: "800", color: "#14532D", marginBottom: 8 },
+  completionText: { fontSize: 14, color: "#166534", textAlign: "center", lineHeight: 20 },
   tabRow: { flexDirection: "row", marginBottom: 4 },
   tab: { paddingHorizontal: 16, paddingVertical: 8, marginRight: 8, borderRadius: 20, backgroundColor: "#F1F5F9" },
   activeTab: { backgroundColor: "#1E40AF" },

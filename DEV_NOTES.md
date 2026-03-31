@@ -163,7 +163,7 @@ user_profile
 
 #### `OnboardingProcess.tsx`
 - All session array accesses use defensive `|| []` defaults
-- `approvedCount` now includes `welcomeItems` (confirmed) and `profileItems` (confirmed)
+- `approvedCount` includes `profileItems` (confirmed) — **note: `welcomeItems` were later removed from this count** (see Sprint 3 continued section below)
 
 #### `SystemAdminView.tsx`
 - Removed all static hardcoded `initialDepartments` and `initialPositions`
@@ -245,3 +245,110 @@ Files are stored in a `pendingFiles: { [id]: File }` state before upload. The ta
 
 #### `EquipmentRequest` parallel requests
 The bulk submit dialog fires one `requestEquipment()` call per selected item using `Promise.all`. If any call fails the whole batch throws and the user is prompted to retry.
+
+---
+
+## Sprint 3 — Onboarding Module (Progress Tracking, HR Officer Overhaul, Post-Completion Flow)
+
+### What Was Accomplished
+
+#### Backend (`tribeX-hris-auth-api`)
+
+**`recalculateProgress` now sets session status automatically**
+- After any item status change, the session `status` is updated alongside `progress_percentage`
+- Logic: if `deadline_date < now` → `overdue`; else if `percentage > 0` → `in-progress`; else → `not-started`
+- Statuses `for-review` and `approved` are never overwritten by this logic
+- `welcome` category items are now **excluded** from the count — they auto-confirm on Start and should not affect progress
+
+**New: `updateSessionDeadline(sessionId, deadlineDate)`**
+- Updates `deadline_date` on `onboarding_sessions`, then calls `recalculateProgress` (which may flip status to/from `overdue`)
+- Exposed via `PATCH /onboarding/hr/sessions/:sessionId/deadline`
+- DTO: `update-deadline.dto.ts` with `@IsDateString()` validation
+
+**New file: `dto/update-deadline.dto.ts`**
+```ts
+export class UpdateDeadlineDto {
+  @IsDateString()
+  deadline_date: string;
+}
+```
+
+#### Web Frontend (`frontend/blues-clues-hris-frontend-web`)
+
+**Critical bug fix: `tabs.tsx`**
+- `TabsContent` was missing `data-[state=inactive]:hidden` — all tab panels were rendering simultaneously and stacking on top of each other
+- Fixed className: `"outline-none data-[state=inactive]:hidden"`
+- This was a global bug affecting every `<Tabs>` usage in the app
+
+**`HRForms.tsx` — BIR TIN Registration tax status**
+- Added all valid PH tax status codes to the Tax Status select field:
+  `S, S1–S4` (Single), `ME, ME1–ME4` (Married Employee), `HF` (Head of Family), `Z` (Zero exemption)
+
+**`onboardingApi.ts`**
+- Added `updateSessionDeadline(sessionId, deadline_date)` → `PATCH /onboarding/hr/sessions/:sessionId/deadline`
+
+**`employee/onboarding/page.tsx`**
+- `overdue` session status now routes to the onboarding stage (same as `in-progress`)
+- `handleGoToDashboard` sets `localStorage.setItem("onboarding_dismissed", "true")` and navigates to `/employee`
+- `CompletedScreen` receives `onGoToDashboard` prop wired to the above
+
+**Post-completion / dismissed flow**
+- After clicking "Go to Dashboard" on the CompletedScreen, `onboarding_dismissed = true` is stored in `localStorage`
+- `Sidebar.tsx`: on mount, reads the flag; if set, verifies session is still `approved` via `getMySession()` — if not, clears the flag; if yes, swaps Onboarding → Offboarding in the employee menu
+- `employee/page.tsx` (dashboard): same flag check; hides the Onboarding Progress card and adjusts grid when dismissed
+- `employee/offboarding/page.tsx`: placeholder page ("Offboarding coming soon")
+- If the session is ever reset, the flag is cleared automatically on next load — onboarding tab and widget reappear
+
+**`OnboardingProcess.tsx` — progress counter fixes**
+- `welcomeItems` removed from `allItems` progress calculation — welcome auto-confirm no longer inflates the counter
+- `welcomeItems` removed from `approvedCount` — "Approved" counter no longer ticks up on session start
+- `displayTasks` (video tasks excluded) used consistently in `approvedCount` and `remainingCount`
+
+**`HROnboardingOfficerView.tsx` — full overhaul**
+- Tab triggers switched from `grid-cols-5` → `flex flex-wrap h-auto` — tabs wrap naturally when more items are added to a template; no clipping at any screen width
+- Tab content redesigned: flat bordered `div` rows (title + status on top row, file info + actions on bottom row) replacing nested `Card/CardHeader/CardContent`
+- Profile tab: 2-col grid with `text-xs uppercase tracking-wide` labels
+- New `RemarkSection` component: renders existing remarks as a thread + `Textarea` + Add button; used on all 5 tabs (Profile, Documents, HR Forms, Tasks, Equipment)
+- Deadline editing: inline date input + Save/Cancel directly in the Profile Summary card; hidden when status is `approved`
+- Overdue warning banner: red alert with `AlertCircle` shown above the checklist when `status === 'overdue'`
+- Approve Onboarding button shown when `status === 'for-review'`
+- `updateSessionDeadline` wired to the new deadline edit UI
+
+#### Mobile (`blues-clues-hris-mobile`)
+
+**`EmployeeOnboardingScreen.tsx`**
+- `overdue` status now renders red (was defaulting to grey `#64748B`)
+- Overdue warning banner shown when `status === 'overdue'`
+- Amber "Under Review" notice when `status === 'for-review'`
+- Green completion card when `status === 'approved'` — replaces the tab/item list entirely
+- Video tasks (`type === 'video'`) excluded from displayed task list via `displayTasks` filter
+
+**`HROfficerOnboardingScreen.tsx` — full rewrite**
+- Added 4th stat card: **Overdue** (red border, red count when > 0)
+- Session cards show days-remaining / days-overdue label per entry
+- Overdue sessions have a red-tinted card border
+- All session cards are now tappable — opens a full-screen detail Modal containing:
+  - Employee name + position in a dark blue header
+  - Progress bar + status badge + deadline (with inline edit: type date → Save/Cancel)
+  - Overdue warning banner (when applicable)
+  - "Approve Onboarding" button (when `for-review`)
+  - Horizontal scrolling tab bar: Profile / Docs / Forms / Tasks / Equip
+  - Per-item Approve / Issue / Reject action buttons
+  - Remarks thread + add-remark TextInput per tab
+- All API calls: `GET /hr/sessions/:id`, `PATCH /hr/items/:id`, `POST /hr/remarks`, `PATCH /hr/sessions/:id/deadline`, `POST /hr/sessions/:id/approve`
+
+---
+
+### Known Notes / Gotchas
+
+#### Welcome items and progress
+`welcome` category items (e.g. "Welcome [Name]!") auto-confirm when the employee clicks **Start** on the welcome screen. They are intentionally **excluded** from `recalculateProgress` on the backend and from the `allItems` / `approvedCount` calculation in `OnboardingProcess.tsx`. Do not re-add them — it causes a confusing "1 Approved" on a fresh session with 0% visible progress.
+
+#### `onboarding_dismissed` localStorage flag
+Set to `"true"` when an approved employee clicks "Go to Dashboard". Both `Sidebar.tsx` and `employee/page.tsx` verify the flag against live session status on mount — if the session is no longer `approved` (e.g. reset by HR), the flag is cleared automatically. Do not rely on this flag being persistent across resets.
+
+#### HR deadline edit reflects immediately
+Changing the deadline via `PATCH /hr/sessions/:id/deadline` calls `recalculateProgress` server-side, which may change the session status (e.g. extending an overdue deadline back to `in-progress`). Both web and mobile re-fetch the full session after save to stay in sync.
+
+#### Tab wrapping (HR Officer web view)
+`TabsList` in `HROnboardingOfficerView.tsx` uses `flex flex-wrap h-auto` — tabs wrap to additional rows if more tab categories are added in the future. The 5 current tabs (Profile, Documents, HR Forms, Tasks, Equipment) fit comfortably in one row.

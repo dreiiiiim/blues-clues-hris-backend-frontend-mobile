@@ -50,11 +50,21 @@ export default function EmployeeDashboardPage() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [session, setSession] = useState<OnboardingSession | null>(null);
   const [loading, setLoading] = useState(true);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   useEffect(() => {
     setUser(getUserInfo());
     getMySession()
-      .then(setSession)
+      .then((data) => {
+        setSession(data);
+        const dismissed = localStorage.getItem("onboarding_dismissed") === "true";
+        if (dismissed && data?.status !== "approved") {
+          localStorage.removeItem("onboarding_dismissed");
+          setOnboardingDismissed(false);
+        } else {
+          setOnboardingDismissed(dismissed);
+        }
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -104,7 +114,7 @@ export default function EmployeeDashboardPage() {
         </div>
       </section>
 
-      <div className="grid gap-6 md:grid-cols-[1fr_1.5fr] items-start">
+      <div className={`grid gap-6 items-start ${onboardingDismissed ? "" : "md:grid-cols-[1fr_1.5fr]"}`}>
         <Card className="border-border/70 shadow-sm rounded-2xl bg-card overflow-hidden">
           <CardHeader className="pb-4 bg-[linear-gradient(155deg,rgba(37,99,235,0.07),rgba(15,23,42,0.00))] border-b border-border">
             <div className="flex items-center gap-3">
@@ -126,7 +136,7 @@ export default function EmployeeDashboardPage() {
           </CardContent>
         </Card>
 
-        <Card className="border-border/70 shadow-sm rounded-2xl bg-card overflow-hidden">
+        {!onboardingDismissed && <Card className="border-border/70 shadow-sm rounded-2xl bg-card overflow-hidden">
           <CardHeader className="pb-3 bg-[linear-gradient(155deg,rgba(37,99,235,0.07),rgba(15,23,42,0.00))] border-b border-border">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-3">
@@ -152,7 +162,7 @@ export default function EmployeeDashboardPage() {
               <ChecklistItem key={item.title} item={item} />
             ))}
           </CardContent>
-        </Card>
+        </Card>}
       </div>
     </div>
   );

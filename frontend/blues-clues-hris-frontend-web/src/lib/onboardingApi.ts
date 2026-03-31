@@ -105,6 +105,16 @@ export async function addRemark(session_id: string, tab_tag: string, remark_text
   return res.json();
 }
 
+export async function updateSessionDeadline(sessionId: string, deadline_date: string): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/hr/sessions/${sessionId}/deadline`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify({ deadline_date }),
+  });
+  if (!res.ok) throw new Error('Failed to update deadline');
+  return res.json();
+}
+
 export async function approveSession(sessionId: string): Promise<any> {
   const res = await fetch(`${API_BASE_URL}/onboarding/hr/sessions/${sessionId}/approve`, {
     method: 'POST',

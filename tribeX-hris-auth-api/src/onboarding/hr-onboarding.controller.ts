@@ -3,6 +3,7 @@ import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OnboardingService } from './onboarding.service';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { AddRemarkDto } from './dto/add-remark.dto';
+import { UpdateDeadlineDto } from './dto/update-deadline.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -46,6 +47,13 @@ export class HrOnboardingController {
   @ApiOperation({ summary: 'Add a remark to an onboarding session' })
   addRemark(@Body() dto: AddRemarkDto, @Req() req: any) {
     return this.onboardingService.addRemark(dto, req.user.sub_userid);
+  }
+
+  @Patch('sessions/:sessionId/deadline')
+  @Roles(...HR_ONLY)
+  @ApiOperation({ summary: 'Update the deadline of an onboarding session' })
+  updateDeadline(@Param('sessionId') sessionId: string, @Body() dto: UpdateDeadlineDto) {
+    return this.onboardingService.updateSessionDeadline(sessionId, dto.deadline_date);
   }
 
   @Post('sessions/:sessionId/approve')

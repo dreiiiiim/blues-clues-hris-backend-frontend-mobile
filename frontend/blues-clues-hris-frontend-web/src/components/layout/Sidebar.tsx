@@ -22,6 +22,8 @@ import {
   ScrollText,
 } from "lucide-react";
 
+import { getMySession } from "@/lib/onboardingApi";
+
 import {
   AlertDialog,
   AlertDialogAction,
@@ -91,9 +93,22 @@ export function Sidebar({ persona = "applicant" }: { readonly persona?: PersonaT
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);
+  const [onboardingDismissed, setOnboardingDismissed] = useState(false);
 
   useEffect(() => {
     setUser(getUserInfo());
+    const dismissed = localStorage.getItem("onboarding_dismissed") === "true";
+    if (!dismissed) return;
+    getMySession()
+      .then((session) => {
+        if (session?.status !== "approved") {
+          localStorage.removeItem("onboarding_dismissed");
+          setOnboardingDismissed(false);
+        } else {
+          setOnboardingDismissed(true);
+        }
+      })
+      .catch(() => setOnboardingDismissed(dismissed));
   }, []);
 
   const handleLogout = async () => {
@@ -119,7 +134,12 @@ export function Sidebar({ persona = "applicant" }: { readonly persona?: PersonaT
     }`;
   };
 
-  const currentMenu = MENU_CONFIG[persona] || [];
+  const currentMenu = (MENU_CONFIG[persona] || []).map(item => {
+    if (persona === "employee" && item.href === "/employee/onboarding" && onboardingDismissed) {
+      return { name: "Offboarding", href: "/employee/offboarding", icon: item.icon };
+    }
+    return item;
+  });
 
   return (
     <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen shrink-0 border-r border-sidebar-border">
