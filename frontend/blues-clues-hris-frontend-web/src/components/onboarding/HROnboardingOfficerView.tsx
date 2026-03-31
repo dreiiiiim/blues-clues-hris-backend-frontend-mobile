@@ -41,10 +41,38 @@ interface HREquipmentItem {
   hrRemarks?: string;
 }
 
+interface EmployeeProfileData {
+  firstName: string;
+  middleName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  address: string;
+  dateOfBirth: string;
+  placeOfBirth: string;
+  nationality: string;
+  civilStatus: string;
+  emergencyContactName: string;
+  emergencyContactRelationship: string;
+  emergencyContactPhone: string;
+  emergencyContactEmail: string;
+  status: ItemStatus;
+}
+
+interface HRRemark {
+  id: string;
+  author: string;
+  category: string;
+  timestamp: Date;
+  text: string;
+}
+
 interface EmployeeDetails {
+  profile: EmployeeProfileData;
   documents: HRDocumentItem[];
   tasks: HRTaskItem[];
   equipment: HREquipmentItem[];
+  remarks: Record<string, HRRemark[]>;
 }
 
 interface Employee {
@@ -67,6 +95,21 @@ interface Employee {
 // Mock detailed employee data
 const employeeDetails: Record<string, EmployeeDetails> = {
   "emp-1": {
+    profile: {
+      firstName: "Maria", middleName: "-", lastName: "Santos",
+      email: "maria.santos@company.com", phone: "+63 917 123 4567",
+      address: "123 Makati Avenue, Makati City, Metro Manila",
+      dateOfBirth: "15/05/1995", placeOfBirth: "Manila, Philippines",
+      nationality: "Filipino", civilStatus: "Single",
+      emergencyContactName: "Maria Garcia", emergencyContactRelationship: "Mother",
+      emergencyContactPhone: "+63 917 987 6543", emergencyContactEmail: "maria.garcia@email.com",
+      status: "approved",
+    },
+    remarks: {
+      documents: [{ id: "r1", author: "HR Onboarding Officer", category: "Documents", timestamp: new Date("2026-03-20T10:30:00"), text: "Please ensure the BIR form is properly filled out and signed." }],
+      tasks: [{ id: "r2", author: "HR Onboarding Officer", category: "Tasks", timestamp: new Date("2026-03-21T11:00:00"), text: "Please ensure you read the entire handbook before acknowledging." }],
+      equipment: [{ id: "r3", author: "HR Onboarding Officer", category: "Equipment", timestamp: new Date("2026-03-21T14:00:00"), text: "Your laptop has been issued. Please upload proof of receipt and confirm once received." }],
+    },
     documents: [
       { id: "doc-1", name: "Birth Certificate (PSA)", status: "approved", fileName: "birth_cert_santos.pdf", uploadedDate: new Date("2026-03-16"), hrRemarks: "Verified and approved" },
       { id: "doc-2", name: "NBI Clearance", status: "approved", fileName: "nbi_clearance.pdf", uploadedDate: new Date("2026-03-16"), hrRemarks: "Valid until 2027" },
@@ -88,6 +131,17 @@ const employeeDetails: Record<string, EmployeeDetails> = {
     ],
   },
   "emp-2": {
+    profile: {
+      firstName: "Juan", middleName: "D.", lastName: "Dela Cruz",
+      email: "juan.delacruz@company.com", phone: "+63 918 234 5678",
+      address: "456 BGC Avenue, Taguig City, Metro Manila",
+      dateOfBirth: "22/08/1990", placeOfBirth: "Taguig, Philippines",
+      nationality: "Filipino", civilStatus: "Married",
+      emergencyContactName: "Rosa Dela Cruz", emergencyContactRelationship: "Spouse",
+      emergencyContactPhone: "+63 918 876 5432", emergencyContactEmail: "rosa.delacruz@email.com",
+      status: "for-review",
+    },
+    remarks: { documents: [], tasks: [], equipment: [] },
     documents: [
       { id: "doc-1", name: "Birth Certificate (PSA)", status: "approved", fileName: "birth_cert_delaCruz.pdf", uploadedDate: new Date("2026-03-18"), hrRemarks: "Approved" },
       { id: "doc-2", name: "NBI Clearance", status: "approved", fileName: "nbi_clearance.pdf", uploadedDate: new Date("2026-03-18"), hrRemarks: "Valid" },
@@ -109,6 +163,17 @@ const employeeDetails: Record<string, EmployeeDetails> = {
     ],
   },
   "emp-3": {
+    profile: {
+      firstName: "Ana", middleName: "-", lastName: "Reyes",
+      email: "ana.reyes@company.com", phone: "+63 919 345 6789",
+      address: "789 Ortigas Center, Pasig City, Metro Manila",
+      dateOfBirth: "10/03/1998", placeOfBirth: "Pasig, Philippines",
+      nationality: "Filipino", civilStatus: "Single",
+      emergencyContactName: "Ben Reyes", emergencyContactRelationship: "Father",
+      emergencyContactPhone: "+63 919 654 3210", emergencyContactEmail: "ben.reyes@email.com",
+      status: "submitted",
+    },
+    remarks: { documents: [], tasks: [], equipment: [] },
     documents: [
       { id: "doc-1", name: "Birth Certificate (PSA)", status: "submitted", fileName: "birth_cert_reyes.pdf", uploadedDate: new Date("2026-03-20") },
       { id: "doc-2", name: "NBI Clearance", status: "submitted", fileName: "nbi_clearance.pdf", uploadedDate: new Date("2026-03-20") },
@@ -492,7 +557,7 @@ export default function HROnboardingOfficerView() {
 
       {/* Employee Detail Modal */}
       <Dialog open={!!selectedEmployee} onOpenChange={(open) => !open && setSelectedEmployee(null)}>
-        <DialogContent className="max-w-[98vw] w-full max-h-[95vh] flex flex-col p-0">
+        <DialogContent className="w-[95vw] sm:max-w-215 max-h-[95vh] flex flex-col p-0">
           <DialogHeader className="px-6 pt-6 pb-4 border-b">
             <DialogTitle className="text-xl">Employee Onboarding Details</DialogTitle>
             <DialogDescription className="text-sm">
@@ -501,8 +566,8 @@ export default function HROnboardingOfficerView() {
           </DialogHeader>
           
           {selectedEmployee && (
-            <div className="flex-1 overflow-y-auto px-8 py-6">
-              <div className="space-y-6 pb-4">
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              <div className="space-y-4 pb-4">
                 {/* Profile Summary */}
                 <Card>
                   <CardHeader className="pb-4">
@@ -557,24 +622,20 @@ export default function HROnboardingOfficerView() {
                   </CardHeader>
                   <CardContent>
                     <Tabs defaultValue="profile">
-                      <TabsList className="grid w-full grid-cols-5 h-auto">
-                        <TabsTrigger value="profile" className="flex flex-col items-center gap-1 py-2 text-xs">
+                      <TabsList className="grid w-full grid-cols-4 h-auto">
+                        <TabsTrigger value="profile" className="flex items-center gap-2 py-2 text-xs">
                           <Users className="size-4" />
                           Profile
                         </TabsTrigger>
-                        <TabsTrigger value="documents" className="flex flex-col items-center gap-1 py-2 text-xs">
+                        <TabsTrigger value="documents" className="flex items-center gap-2 py-2 text-xs">
                           <FileCheck className="size-4" />
                           Documents
                         </TabsTrigger>
-                        <TabsTrigger value="forms" className="flex flex-col items-center gap-1 py-2 text-xs">
-                          <FileText className="size-4" />
-                          HR Forms
-                        </TabsTrigger>
-                        <TabsTrigger value="tasks" className="flex flex-col items-center gap-1 py-2 text-xs">
+                        <TabsTrigger value="tasks" className="flex items-center gap-2 py-2 text-xs">
                           <ListChecks className="size-4" />
                           Tasks
                         </TabsTrigger>
-                        <TabsTrigger value="equipment" className="flex flex-col items-center gap-1 py-2 text-xs">
+                        <TabsTrigger value="equipment" className="flex items-center gap-2 py-2 text-xs">
                           <Package className="size-4" />
                           Equipment
                         </TabsTrigger>
@@ -582,356 +643,391 @@ export default function HROnboardingOfficerView() {
 
                       {/* Profile Tab */}
                       <TabsContent value="profile" className="space-y-4 mt-4">
-                        <div className="space-y-4">
-                          <div className="flex items-center justify-between">
-                            <div>
-                              <h3 className="font-semibold">Employee Profile</h3>
-                              <p className="text-sm text-slate-600">Review employee profile information</p>
-                            </div>
-                            <Badge variant="outline" className="bg-teal-100 text-teal-800">
-                              <CheckCircle className="size-3 mr-1" />
-                              Complete
-                            </Badge>
-                          </div>
-
-                          <Card className="bg-slate-50">
-                            <CardContent className="pt-6">
-                              <div className="grid grid-cols-2 gap-4">
+                        {(() => {
+                          const profile = employeeDetails[selectedEmployee.id]?.profile;
+                          return (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
                                 <div>
-                                  <span className="text-xs text-slate-600">Full Name</span>
-                                  <p className="font-medium">{selectedEmployee.name}</p>
+                                  <h3 className="font-semibold">Create Your Profile</h3>
+                                  <p className="text-sm text-slate-600">Complete your profile information</p>
                                 </div>
-                                <div>
-                                  <span className="text-xs text-slate-600">Position</span>
-                                  <p className="font-medium">{selectedEmployee.position}</p>
-                                </div>
-                                <div>
-                                  <span className="text-xs text-slate-600">Department</span>
-                                  <p className="font-medium">{selectedEmployee.department}</p>
-                                </div>
-                                <div>
-                                  <span className="text-xs text-slate-600">Start Date</span>
-                                  <p className="font-medium">{selectedEmployee.startDate.toLocaleDateString()}</p>
-                                </div>
+                                {profile && getItemStatusBadge(profile.status)}
                               </div>
-                            </CardContent>
-                          </Card>
-                        </div>
+
+                              {/* Personal Information */}
+                              <Card>
+                                <CardContent className="pt-4 space-y-4">
+                                  <div>
+                                    <p className="font-medium text-sm">Personal Information</p>
+                                    <p className="text-xs text-slate-500">Enter your complete personal details</p>
+                                  </div>
+                                  {profile ? (
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-3 gap-3">
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">First Name <span className="text-red-500">*</span></p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.firstName}</div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Middle Name</p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.middleName}</div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Last Name <span className="text-red-500">*</span></p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.lastName}</div>
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Email Address <span className="text-red-500">*</span></p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.email}</div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Phone Number <span className="text-red-500">*</span></p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.phone}</div>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs text-slate-500 mb-1">Complete Address <span className="text-red-500">*</span></p>
+                                        <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.address}</div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Date of Birth</p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.dateOfBirth}</div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Place of Birth</p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.placeOfBirth}</div>
+                                        </div>
+                                      </div>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Nationality</p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.nationality}</div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Civil Status</p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.civilStatus}</div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <p className="text-sm text-slate-400">No profile data available.</p>
+                                  )}
+                                </CardContent>
+                              </Card>
+
+                              {/* Emergency Contact */}
+                              {profile && (
+                                <Card>
+                                  <CardContent className="pt-4 space-y-4">
+                                    <div>
+                                      <p className="font-medium text-sm">Emergency Contact Information</p>
+                                      <p className="text-xs text-slate-500">Enter your emergency contact details</p>
+                                    </div>
+                                    <div className="space-y-3">
+                                      <div className="grid grid-cols-3 gap-3">
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Name <span className="text-red-500">*</span></p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.emergencyContactName}</div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Relationship <span className="text-red-500">*</span></p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.emergencyContactRelationship}</div>
+                                        </div>
+                                        <div>
+                                          <p className="text-xs text-slate-500 mb-1">Phone Number <span className="text-red-500">*</span></p>
+                                          <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.emergencyContactPhone}</div>
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <p className="text-xs text-slate-500 mb-1">Email Address</p>
+                                        <div className="border rounded px-3 py-1.5 text-sm bg-slate-50">{profile.emergencyContactEmail}</div>
+                                      </div>
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              )}
+
+                              {/* Approve / Reject Profile */}
+                              <div className="flex gap-3">
+                                <Button className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove("profile")}>
+                                  <CheckCircle className="size-4 mr-2" />Approve Profile
+                                </Button>
+                                <Button className="flex-1 bg-red-600 hover:bg-red-700" onClick={() => handleReject("profile")}>
+                                  <XCircle className="size-4 mr-2" />Reject Profile
+                                </Button>
+                              </div>
+                            </div>
+                          );
+                        })()}
                       </TabsContent>
 
                       {/* Documents Tab */}
                       <TabsContent value="documents" className="space-y-4 mt-4">
-                        <div className="space-y-3">
-                          {employeeDetails[selectedEmployee.id]?.documents.map((doc) => (
-                            <Card key={doc.id} className="border-l-4 border-l-blue-500">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h4 className="font-semibold">{doc.name}</h4>
-                                    {doc.uploadedDate && (
-                                      <p className="text-xs text-orange-600 mt-1">
-                                        Uploaded: {doc.uploadedDate.toLocaleDateString()}
-                                      </p>
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-slate-50">
+                              <TableHead>Document</TableHead>
+                              <TableHead>Current File</TableHead>
+                              <TableHead className="w-28">Status</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {employeeDetails[selectedEmployee.id]?.documents.map((doc) => (
+                              <TableRow key={doc.id}>
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-medium text-sm">{doc.name}</span>
+                                    {(doc.status === "pending" || doc.status === "rejected") && (
+                                      <span className="text-red-600 font-bold text-xs ml-0.5">*</span>
                                     )}
                                   </div>
-                                  {getItemStatusBadge(doc.status)}
-                                </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {/* Current File */}
-                                {doc.fileName ? (
-                                  <div className="p-3 bg-slate-50 rounded-lg border">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <FileText className="size-4 text-blue-600" />
-                                        <span className="text-sm font-medium">{doc.fileName}</span>
-                                      </div>
-                                      <Button variant="outline" size="sm">
-                                        <Download className="size-3 mr-1" />
-                                        View
-                                      </Button>
+                                </TableCell>
+                                <TableCell>
+                                  {doc.fileName ? (
+                                    <div className="flex items-center gap-1.5">
+                                      <FileText className="size-3 text-slate-500 shrink-0" />
+                                      <span className="text-xs text-slate-700">{doc.fileName}</span>
                                     </div>
+                                  ) : (
+                                    <span className="text-xs text-slate-400">No file uploaded</span>
+                                  )}
+                                </TableCell>
+                                <TableCell>{getItemStatusBadge(doc.status)}</TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    {doc.status === "for-review" && (
+                                      <>
+                                        <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700 text-xs px-2" onClick={() => handleApprove(doc.id)}>
+                                          <CheckCircle className="size-3 mr-1" />Approve
+                                        </Button>
+                                        <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => handleReject(doc.id)}>
+                                          <XCircle className="size-3 mr-1" />Reject
+                                        </Button>
+                                      </>
+                                    )}
+                                    {doc.fileName && (
+                                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleApprove(doc.id)}>
+                                        <Download className="size-4 text-slate-600" />
+                                      </Button>
+                                    )}
                                   </div>
-                                ) : (
-                                  <div className="p-3 bg-slate-50 rounded-lg border text-center text-sm text-slate-500">
-                                    No file uploaded
-                                  </div>
-                                )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
 
-                                {/* Action Buttons */}
-                                {doc.status === "for-review" && (
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      className="flex-1 bg-green-600 hover:bg-green-700"
-                                      onClick={() => handleApprove(doc.id)}
-                                    >
-                                      <CheckCircle className="size-3 mr-1" />
-                                      Approve
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="destructive"
-                                      className="flex-1"
-                                      onClick={() => handleReject(doc.id)}
-                                    >
-                                      <XCircle className="size-3 mr-1" />
-                                      Reject
-                                    </Button>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-
-                        {/* Add General Remark */}
-                        <Card className="bg-blue-50 border-blue-200">
-                          <CardContent className="pt-4">
-                            <div className="space-y-2">
-                              <label htmlFor="remark-documents-general" className="text-sm font-medium text-blue-900">
-                                Add General Remark for Documents
-                              </label>
-                              <div className="flex gap-2">
-                                <Textarea
-                                  id="remark-documents-general"
-                                  placeholder="Add a general remark for all documents..."
-                                  value={remarks["documents-general"] || ""}
-                                  onChange={(e) => setRemarks(prev => ({ ...prev, "documents-general": e.target.value }))}
-                                  className="bg-white"
-                                />
-                                <Button
-                                  variant="default"
-                                  onClick={() => handleAddRemark("documents")}
-                                  className="bg-blue-600 hover:bg-blue-700"
-                                >
-                                  <MessageSquare className="size-4 mr-2" />
-                                  Add
-                                </Button>
+                        {/* Remarks & Feedback */}
+                        <div className="border rounded-lg p-4 space-y-3">
+                          <h4 className="font-medium flex items-center gap-2 text-sm">
+                            <MessageSquare className="size-4" />
+                            Remarks &amp; Feedback
+                          </h4>
+                          {employeeDetails[selectedEmployee.id]?.remarks.documents?.map((r) => (
+                            <div key={r.id} className="border rounded-lg p-3 bg-white space-y-1">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold">{r.author}</span>
+                                  <Badge variant="outline" className="text-xs px-1.5 py-0">{r.category}</Badge>
+                                </div>
+                                <span className="text-xs text-slate-400">{r.timestamp.toLocaleString()}</span>
                               </div>
+                              <p className="text-sm text-slate-600">{r.text}</p>
                             </div>
-                          </CardContent>
-                        </Card>
-                      </TabsContent>
+                          ))}
+                          <Textarea
+                            id="remark-documents-general"
+                            placeholder="Add a remark for this section..."
+                            value={remarks["documents-general"] || ""}
+                            onChange={(e) => setRemarks(prev => ({ ...prev, "documents-general": e.target.value }))}
+                            className="text-sm bg-slate-50"
+                            rows={2}
+                          />
+                          <Button size="sm" onClick={() => handleAddRemark("documents")} className="bg-blue-600 hover:bg-blue-700">
+                            <MessageSquare className="size-3 mr-1" />Add Remark
+                          </Button>
+                        </div>
 
-                      {/* HR Forms Tab */}
-                      <TabsContent value="forms" className="space-y-4 mt-4">
-                        <div className="space-y-3">
-                          <Card className="border-l-4 border-l-blue-500">
-                            <CardHeader className="pb-3">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <h4 className="font-semibold">Personal Information Form</h4>
-                                  <p className="text-xs text-slate-600 mt-1">Complete personal and emergency contact details</p>
-                                </div>
-                                <Badge variant="outline" className="bg-slate-100 text-slate-700">
-                                  <CheckCircle className="size-3 mr-1" />
-                                  Incomplete
-                                </Badge>
-                              </div>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-slate-500">No submission yet</p>
-                            </CardContent>
-                          </Card>
-
-                          <Card className="border-l-4 border-l-blue-500">
-                            <CardHeader className="pb-3">
-                              <div className="flex items-start justify-between">
-                                <div>
-                                  <h4 className="font-semibold">BIR Form 2316</h4>
-                                  <p className="text-xs text-slate-600 mt-1">Tax withholding information</p>
-                                </div>
-                                <Badge variant="outline" className="bg-slate-100 text-slate-700">
-                                  <CheckCircle className="size-3 mr-1" />
-                                  Incomplete
-                                </Badge>
-                              </div>
-                            </CardHeader>
-                            <CardContent>
-                              <p className="text-sm text-slate-500">No submission yet</p>
-                            </CardContent>
-                          </Card>
+                        {/* Info card */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-xs text-blue-800">
+                          <strong>File Requirements:</strong> PDF format only. Maximum file size: 10MB. Only one file per document.
                         </div>
                       </TabsContent>
+
 
                       {/* Tasks Tab */}
                       <TabsContent value="tasks" className="space-y-4 mt-4">
-                        <div className="space-y-3">
-                          {employeeDetails[selectedEmployee.id]?.tasks.map((task) => (
-                            <Card key={task.id} className="border-l-4 border-l-blue-500">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h4 className="font-semibold">{task.name}</h4>
-                                    <p className="text-xs text-slate-600 mt-1">{task.description}</p>
-                                    {task.completedDate && (
-                                      <p className="text-xs text-green-600 mt-1">
-                                        Completed: {task.completedDate.toLocaleDateString()}
-                                      </p>
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-slate-50">
+                              <TableHead>Task</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead className="w-32">Status</TableHead>
+                              <TableHead className="w-36">Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {employeeDetails[selectedEmployee.id]?.tasks.map((task) => (
+                              <TableRow key={task.id}>
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    {task.status === "approved" ? (
+                                      <CheckCircle className="size-4 text-green-600 shrink-0" />
+                                    ) : (
+                                      (task.status === "pending" || task.status === "rejected") && (
+                                        <span className="text-red-600 font-bold text-xs">*</span>
+                                      )
                                     )}
+                                    <span className="font-medium text-sm">{task.name}</span>
                                   </div>
-                                  {getItemStatusBadge(task.status)}
-                                </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {/* Action Buttons */}
-                                {task.status === "for-review" && (
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      className="flex-1 bg-green-600 hover:bg-green-700"
-                                      onClick={() => handleApprove(task.id)}
-                                    >
-                                      <CheckCircle className="size-3 mr-1" />
-                                      Approve
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="destructive"
-                                      className="flex-1"
-                                      onClick={() => handleReject(task.id)}
-                                    >
-                                      <XCircle className="size-3 mr-1" />
-                                      Reject
-                                    </Button>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
+                                </TableCell>
+                                <TableCell>
+                                  <span className="text-sm text-slate-600">{task.description}</span>
+                                </TableCell>
+                                <TableCell>{getItemStatusBadge(task.status)}</TableCell>
+                                <TableCell>
+                                  {task.status === "for-review" && (
+                                    <div className="flex gap-1">
+                                      <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700 text-xs px-2" onClick={() => handleApprove(task.id)}>
+                                        <CheckCircle className="size-3 mr-1" />Approve
+                                      </Button>
+                                      <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => handleReject(task.id)}>
+                                        <XCircle className="size-3 mr-1" />Reject
+                                      </Button>
+                                    </div>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
 
-                        {/* Add General Remark */}
-                        <Card className="bg-green-50 border-green-200">
-                          <CardContent className="pt-4">
-                            <div className="space-y-2">
-                              <label htmlFor="remark-tasks-general" className="text-sm font-medium text-green-900">
-                                Add General Remark for Tasks
-                              </label>
-                              <div className="flex gap-2">
-                                <Textarea
-                                  id="remark-tasks-general"
-                                  placeholder="Add a general remark for all tasks..."
-                                  value={remarks["tasks-general"] || ""}
-                                  onChange={(e) => setRemarks(prev => ({ ...prev, "tasks-general": e.target.value }))}
-                                  className="bg-white"
-                                />
-                                <Button
-                                  variant="default"
-                                  onClick={() => handleAddRemark("tasks")}
-                                  className="bg-green-600 hover:bg-green-700"
-                                >
-                                  <MessageSquare className="size-4 mr-2" />
-                                  Add
-                                </Button>
+                        {/* Remarks & Feedback */}
+                        <div className="border rounded-lg p-4 space-y-3">
+                          <h4 className="font-medium flex items-center gap-2 text-sm">
+                            <MessageSquare className="size-4" />
+                            Remarks &amp; Feedback
+                          </h4>
+                          {employeeDetails[selectedEmployee.id]?.remarks.tasks?.map((r) => (
+                            <div key={r.id} className="border rounded-lg p-3 bg-white space-y-1">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold">{r.author}</span>
+                                  <Badge variant="outline" className="text-xs px-1.5 py-0">{r.category}</Badge>
+                                </div>
+                                <span className="text-xs text-slate-400">{r.timestamp.toLocaleString()}</span>
                               </div>
+                              <p className="text-sm text-slate-600">{r.text}</p>
                             </div>
-                          </CardContent>
-                        </Card>
+                          ))}
+                          <Textarea
+                            id="remark-tasks-general"
+                            placeholder="Add a remark for this section..."
+                            value={remarks["tasks-general"] || ""}
+                            onChange={(e) => setRemarks(prev => ({ ...prev, "tasks-general": e.target.value }))}
+                            className="text-sm bg-slate-50"
+                            rows={2}
+                          />
+                          <Button size="sm" onClick={() => handleAddRemark("tasks")} className="bg-blue-600 hover:bg-blue-700">
+                            <MessageSquare className="size-3 mr-1" />Add Remark
+                          </Button>
+                        </div>
                       </TabsContent>
 
                       {/* Equipment Tab */}
                       <TabsContent value="equipment" className="space-y-4 mt-4">
-                        <div className="space-y-3">
-                          {employeeDetails[selectedEmployee.id]?.equipment.map((equip) => (
-                            <Card key={equip.id} className="border-l-4 border-l-blue-500">
-                              <CardHeader className="pb-3">
-                                <div className="flex items-start justify-between">
-                                  <div>
-                                    <h4 className="font-semibold">{equip.name}</h4>
-                                    <p className="text-xs text-slate-600 mt-1">{equip.category}</p>
-                                    {equip.requestedDate && (
-                                      <p className="text-xs text-orange-600 mt-1">
-                                        Requested: {equip.requestedDate.toLocaleDateString()}
-                                      </p>
-                                    )}
-                                    {equip.issuedDate && (
-                                      <p className="text-xs text-purple-600 mt-1">
-                                        Issued: {equip.issuedDate.toLocaleDateString()}
-                                      </p>
-                                    )}
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="bg-slate-50">
+                              <TableHead className="w-8"></TableHead>
+                              <TableHead>Equipment</TableHead>
+                              <TableHead>Description</TableHead>
+                              <TableHead>Delivery Method</TableHead>
+                              <TableHead className="w-28">Status</TableHead>
+                              <TableHead>Proof of Receipt</TableHead>
+                              <TableHead>Actions</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {employeeDetails[selectedEmployee.id]?.equipment.map((equip) => (
+                              <TableRow key={equip.id}>
+                                <TableCell>
+                                  {equip.status === "approved" ? (
+                                    <CheckCircle className="size-4 text-green-600" />
+                                  ) : (
+                                    <div className="size-4 border-2 border-slate-300 rounded" />
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <div className="flex items-center gap-1">
+                                    <span className="font-medium text-sm">{equip.name}</span>
+                                    {equip.status !== "approved" && <span className="text-red-500 text-xs font-bold">*</span>}
                                   </div>
-                                  {getItemStatusBadge(equip.status)}
-                                </div>
-                              </CardHeader>
-                              <CardContent className="space-y-3">
-                                {/* Proof of Receipt */}
-                                {equip.proofOfReceipt && (
-                                  <div className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                                    <div className="flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <FileText className="size-4 text-purple-600" />
-                                        <div>
-                                          <p className="text-sm font-medium text-purple-900">Proof of Receipt</p>
-                                          <p className="text-xs text-purple-700">{equip.proofOfReceipt}</p>
-                                        </div>
-                                      </div>
-                                      <Button variant="outline" size="sm">
-                                        <Download className="size-3 mr-1" />
-                                        View
+                                </TableCell>
+                                <TableCell>
+                                  <span className="text-sm text-slate-600">{equip.category}</span>
+                                </TableCell>
+                                <TableCell>
+                                  <span className="text-sm text-slate-500">-</span>
+                                </TableCell>
+                                <TableCell>{getItemStatusBadge(equip.status)}</TableCell>
+                                <TableCell>
+                                  <Button variant="outline" size="sm" className="h-7 text-xs px-2 gap-1">
+                                    <Download className="size-3" />Upload
+                                  </Button>
+                                </TableCell>
+                                <TableCell>
+                                  {(equip.status === "for-review" || equip.status === "issued") && (
+                                    <div className="flex gap-1">
+                                      <Button size="sm" className="h-7 bg-green-600 hover:bg-green-700 text-xs px-2" onClick={() => handleApprove(equip.id)}>
+                                        <CheckCircle className="size-3 mr-1" />Approve
+                                      </Button>
+                                      <Button size="sm" variant="destructive" className="h-7 text-xs px-2" onClick={() => handleReject(equip.id)}>
+                                        <XCircle className="size-3 mr-1" />Reject
                                       </Button>
                                     </div>
-                                  </div>
-                                )}
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
 
-                                {/* Action Buttons */}
-                                {equip.status === "for-review" && (
-                                  <div className="flex gap-2">
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      className="flex-1 bg-green-600 hover:bg-green-700"
-                                      onClick={() => handleApprove(equip.id)}
-                                    >
-                                      <CheckCircle className="size-3 mr-1" />
-                                      Approve
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="destructive"
-                                      className="flex-1"
-                                      onClick={() => handleReject(equip.id)}
-                                    >
-                                      <XCircle className="size-3 mr-1" />
-                                      Reject
-                                    </Button>
-                                  </div>
-                                )}
-                              </CardContent>
-                            </Card>
-                          ))}
-                        </div>
-
-                        {/* Add General Remark */}
-                        <Card className="bg-purple-50 border-purple-200">
-                          <CardContent className="pt-4">
-                            <div className="space-y-2">
-                              <label htmlFor="remark-equipment-general" className="text-sm font-medium text-purple-900">
-                                Add General Remark for Equipment
-                              </label>
-                              <div className="flex gap-2">
-                                <Textarea
-                                  id="remark-equipment-general"
-                                  placeholder="Add a general remark for all equipment..."
-                                  value={remarks["equipment-general"] || ""}
-                                  onChange={(e) => setRemarks(prev => ({ ...prev, "equipment-general": e.target.value }))}
-                                  className="bg-white"
-                                />
-                                <Button
-                                  variant="default"
-                                  onClick={() => handleAddRemark("equipment")}
-                                  className="bg-purple-600 hover:bg-purple-700"
-                                >
-                                  <MessageSquare className="size-4 mr-2" />
-                                  Add
-                                </Button>
+                        {/* Remarks & Feedback */}
+                        <div className="border rounded-lg p-4 space-y-3">
+                          <h4 className="font-medium flex items-center gap-2 text-sm">
+                            <MessageSquare className="size-4" />
+                            Remarks &amp; Feedback
+                          </h4>
+                          {employeeDetails[selectedEmployee.id]?.remarks.equipment?.map((r) => (
+                            <div key={r.id} className="border rounded-lg p-3 bg-white space-y-1">
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-sm font-semibold">{r.author}</span>
+                                  <Badge variant="outline" className="text-xs px-1.5 py-0">{r.category}</Badge>
+                                </div>
+                                <span className="text-xs text-slate-400">{r.timestamp.toLocaleString()}</span>
                               </div>
+                              <p className="text-sm text-slate-600">{r.text}</p>
                             </div>
-                          </CardContent>
-                        </Card>
+                          ))}
+                          <Textarea
+                            id="remark-equipment-general"
+                            placeholder="Add a remark for this section..."
+                            value={remarks["equipment-general"] || ""}
+                            onChange={(e) => setRemarks(prev => ({ ...prev, "equipment-general": e.target.value }))}
+                            className="text-sm bg-slate-50"
+                            rows={2}
+                          />
+                          <Button size="sm" onClick={() => handleAddRemark("equipment")} className="bg-blue-600 hover:bg-blue-700">
+                            <MessageSquare className="size-3 mr-1" />Add Remark
+                          </Button>
+                        </div>
                       </TabsContent>
                     </Tabs>
                   </CardContent>
