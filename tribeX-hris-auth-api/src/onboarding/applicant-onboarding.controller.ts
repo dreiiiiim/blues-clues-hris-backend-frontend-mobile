@@ -3,6 +3,7 @@ import {
   UseGuards, UseInterceptors, UploadedFile, Req,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ApiTags, ApiOperation, ApiConsumes, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { OnboardingService } from './onboarding.service';
 import { UploadDocumentDto } from './dto/upload-document.dto';
@@ -32,7 +33,7 @@ export class ApplicantOnboardingController {
   @ApiOperation({ summary: 'Upload a document or equipment receipt photo' })
   @ApiConsumes('multipart/form-data')
   @ApiQuery({ name: 'isProofOfReceipt', required: false, type: Boolean })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
   uploadDocument(
     @Body() dto: UploadDocumentDto,
     @UploadedFile() file: Express.Multer.File,

@@ -68,6 +68,16 @@ export default function HROnboardingOfficerView() {
     }
   };
 
+  const handleIssue = async (onboardingItemId: string) => {
+    if (!selectedSession) return;
+    try {
+      await updateItemStatus(onboardingItemId, "issued");
+      await refreshSession(selectedSession.session_id);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const handleAddRemark = async (tabTag: "Documents" | "Tasks" | "Equipment" | "Profile" | "Forms") => {
     if (!selectedSession || !remarks[tabTag]?.trim()) return;
     try {
@@ -562,7 +572,7 @@ export default function HROnboardingOfficerView() {
                                     No file uploaded
                                   </div>
                                 )}
-                                {doc.status === "for-review" && (
+                                {(doc.status === "submitted" || doc.status === "for-review") && (
                                   <div className="flex gap-2">
                                     <Button size="sm" variant="default" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove(doc.onboarding_item_id)}>
                                       <CheckCircle className="size-3 mr-1" />Approve
@@ -763,10 +773,10 @@ export default function HROnboardingOfficerView() {
                                     </div>
                                   </div>
                                 )}
-                                {equip.status === "for-review" && (
+                                {(equip.status === "submitted" || equip.status === "for-review") && (
                                   <div className="flex gap-2">
-                                    <Button size="sm" variant="default" className="flex-1 bg-green-600 hover:bg-green-700" onClick={() => handleApprove(equip.onboarding_item_id)}>
-                                      <CheckCircle className="size-3 mr-1" />Approve
+                                    <Button size="sm" variant="default" className="flex-1 bg-purple-600 hover:bg-purple-700" onClick={() => handleIssue(equip.onboarding_item_id)}>
+                                      <CheckCircle className="size-3 mr-1" />Issue Equipment
                                     </Button>
                                     <Button size="sm" variant="destructive" className="flex-1" onClick={() => handleReject(equip.onboarding_item_id)}>
                                       <XCircle className="size-3 mr-1" />Reject
