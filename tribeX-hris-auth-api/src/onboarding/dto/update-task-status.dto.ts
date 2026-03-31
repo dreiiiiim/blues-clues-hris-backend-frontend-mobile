@@ -20,4 +20,9 @@ export class UpdateTaskStatusDto {
   @ApiProperty({ enum: ItemStatusEnum })
   @IsEnum(ItemStatusEnum)
   status: ItemStatusEnum;
+
+  @ApiProperty({ required: false, description: 'Tab tag for the remark (e.g. Documents, Tasks, Equipment)' })
+  @IsString()
+  @IsOptional()
+  tab_tag?: string;
 }

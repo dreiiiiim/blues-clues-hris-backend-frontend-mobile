@@ -404,7 +404,7 @@ export class OnboardingService {
     return this.getMySession(session.account_id);
   }
 
-  async updateItemStatus(onboardingItemId: string, dto: UpdateTaskStatusDto) {
+  async updateItemStatus(onboardingItemId: string, dto: UpdateTaskStatusDto, authorId?: string) {
     const supabase = this.supabaseService.getClient();
 
     const { data: item, error } = await supabase
@@ -425,8 +425,8 @@ export class OnboardingService {
       await supabase.from('onboarding_remarks').insert({
         remark_id: crypto.randomUUID(),
         session_id: item.session_id,
-        author_id: '00000000-0000-0000-0000-000000000000', // Will be replaced with req.user.sub_userid from controller
-        tab_tag: 'Documents', // Default, controller should pass the correct tab_tag
+        author_id: authorId ?? crypto.randomUUID(),
+        tab_tag: dto.tab_tag ?? 'Documents',
         remark_text: dto.remarks,
         created_at: new Date().toISOString(),
       });

@@ -36,8 +36,9 @@ export class HrOnboardingController {
   updateItemStatus(
     @Param('onboardingItemId') onboardingItemId: string,
     @Body() dto: UpdateTaskStatusDto,
+    @Req() req: any,
   ) {
-    return this.onboardingService.updateItemStatus(onboardingItemId, dto);
+    return this.onboardingService.updateItemStatus(onboardingItemId, dto, req.user.sub_userid);
   }
 
   @Post('remarks')
