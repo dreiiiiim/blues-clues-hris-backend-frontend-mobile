@@ -196,3 +196,52 @@ In `onboarding.service.ts`, any loop that builds an `enriched` array must be exp
 ```ts
 const enriched: any[] = [];
 ```
+
+---
+
+## Sprint 3 — Onboarding Module (Full API Wiring, Mock Data Removal)
+
+### What Was Accomplished
+
+All employee-facing onboarding actions are now fully wired to the live Supabase API. No mock data remains anywhere in the onboarding module.
+
+#### Components Wired
+
+| Component | Action | API Call |
+|-----------|--------|----------|
+| `ProfileSetup.tsx` | Submit profile | `saveProfile(sessionId, formData)` |
+| `DocumentUpload.tsx` | Submit file | `uploadDocument(onboardingItemId, file, false)` |
+| `TaskChecklist.tsx` | Acknowledge / confirm / form submit | `confirmTask(onboardingItemId)` |
+| `EquipmentRequest.tsx` | Bulk equipment request | `requestEquipment(id, true, deliveryMethod)` — called in parallel for each selected item |
+| `EquipmentRequest.tsx` | Upload proof of receipt | `uploadDocument(id, file, true)` |
+| `EquipmentRequest.tsx` | Confirm receipt | `confirmTask(onboardingItemId)` |
+| `HRForms.tsx` | Submit HR form | `confirmTask(onboardingItemId)` |
+| `OnboardingProcess.tsx` | Final submit for review | `submitForReview(sessionId)` |
+
+#### Backend Changes
+
+- `onboarding.service.ts`: Added `requestEquipment()` method — updates `is_requested`, `delivery_method`, and `status` on `onboarding_items`, then recalculates session progress
+- `applicant-onboarding.controller.ts`: Added `PATCH /onboarding/applicant/items/:onboardingItemId/request-equipment` endpoint
+- `update-task-status.dto.ts`: Added optional `tab_tag?: string` field to remove hardcoded `'Documents'` fallback
+- `hr-onboarding.controller.ts`: `updateItemStatus` now passes `req.user.sub_userid` as `authorId` instead of a hardcoded UUID
+
+#### Frontend API (`onboardingApi.ts`)
+
+- Added `requestEquipment(onboardingItemId, is_requested, delivery_method)`
+- Added `getAllPositions()`, `createPosition()`, `getDepartments()`
+
+#### Deleted
+
+- `frontend/blues-clues-hris-frontend-web/src/data/mockData.ts` — 284-line dead file, no longer imported anywhere
+
+### Loading / Disabled States
+
+All wired actions disable their buttons and show loading text while the API call is in-flight (e.g. "Saving...", "Uploading...", "Submitting...") to prevent double-submits.
+
+### Known Notes
+
+#### `DocumentUpload` pending file pattern
+Files are stored in a `pendingFiles: { [id]: File }` state before upload. The table shows a preview immediately on file select, but the actual upload to Supabase only happens when the user clicks "Submit". Cancel clears both the preview and the pending file.
+
+#### `EquipmentRequest` parallel requests
+The bulk submit dialog fires one `requestEquipment()` call per selected item using `Promise.all`. If any call fails the whole batch throws and the user is prompted to retry.
