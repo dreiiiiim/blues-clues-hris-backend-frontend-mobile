@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsUUID, IsEnum } from 'class-validator';
+import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
 
 export enum TabTagEnum {
   DOCUMENTS = 'Documents',
@@ -10,7 +10,7 @@ export enum TabTagEnum {
 }
 
 export class AddRemarkDto {
-  @ApiProperty() @IsUUID()
+  @ApiProperty() @IsString() @IsNotEmpty()
   session_id: string;
 
   @ApiProperty({ enum: TabTagEnum })
