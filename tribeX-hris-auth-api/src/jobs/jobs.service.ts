@@ -14,6 +14,7 @@ import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { ApplicationQuestionDto } from './dto/create-questions.dto';
+import { ApplicationResumeUploadDto } from './dto/application-resume-upload.dto';
 import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { ManualRankingItemDto } from './dto/save-manual-ranking.dto';
 
@@ -323,7 +324,17 @@ export class JobsService {
       .order('applied_at', { ascending: false });
 
     if (error) throw new InternalServerErrorException(error.message);
-    return data ?? [];
+
+    const applications = data ?? [];
+    return Promise.all(
+      applications.map(async (application: any) => ({
+        ...application,
+        resume_upload: await this.getLatestResumeUpload(
+          application.applicant_id,
+          jobPostingId,
+        ),
+      })),
+    );
   }
 
   async getRankedCandidates(
@@ -464,7 +475,7 @@ export class JobsService {
     const { data: app, error } = await supabase
       .from('job_applications')
       .select(`
-        application_id, status, applied_at, job_posting_id,
+        application_id, applicant_id, status, applied_at, job_posting_id,
         applicant_profile (first_name, last_name, email, phone_number, applicant_code)
       `)
       .eq('application_id', applicationId)
@@ -486,7 +497,11 @@ export class JobsService {
       .eq('application_id', applicationId)
       .order('application_questions(sort_order)');
 
-    return { ...app, answers: answers ?? [] };
+    return {
+      ...app,
+      answers: answers ?? [],
+      resume_upload: await this.getLatestResumeUpload(app.applicant_id, app.job_posting_id),
+    };
   }
 
   async updateApplicationStatus(applicationId: string, status: string, companyId: string) {
@@ -610,6 +625,14 @@ export class JobsService {
 
     if (error) throw new InternalServerErrorException(error.message);
 
+    await this.ensureSfiaApplicationRow({
+      applicationId: application_id,
+      applicantId,
+      jobPostingId,
+      status: 'submitted',
+      appliedAt: data.applied_at,
+    });
+
     // Save answers if provided
     if (dto.answers && dto.answers.length > 0) {
       const answerRows = dto.answers.map((a) => ({
@@ -625,7 +648,16 @@ export class JobsService {
       }
     }
 
-    return data;
+    return {
+      ...data,
+      resume_upload: dto.resume_storage_path && dto.resume_file_name
+        ? {
+            file_name: dto.resume_file_name,
+            storage_path: dto.resume_storage_path,
+            signed_url: '',
+          }
+        : await this.getLatestResumeUpload(applicantId, jobPostingId),
+    };
   }
 
   async getMyApplicationDetail(applicationId: string, applicantId: string) {
@@ -634,7 +666,7 @@ export class JobsService {
     const { data: app, error } = await supabase
       .from('job_applications')
       .select(`
-        application_id, status, applied_at, job_posting_id,
+        application_id, applicant_id, status, applied_at, job_posting_id,
         applicant_profile (first_name, last_name, email, phone_number, applicant_code),
         job_postings (title, description, location, employment_type, salary_range, status, posted_at, closes_at)
       `)
@@ -654,7 +686,11 @@ export class JobsService {
       .eq('application_id', applicationId)
       .order('application_questions(sort_order)');
 
-    return { ...app, answers: answers ?? [] };
+    return {
+      ...app,
+      answers: answers ?? [],
+      resume_upload: await this.getLatestResumeUpload(app.applicant_id, app.job_posting_id),
+    };
   }
 
   async getMyApplications(applicantId: string) {
@@ -892,6 +928,85 @@ export class JobsService {
         `Unable to cache sfia_match_percentage for application ${applicationId}: ${error.message}`,
       );
     }
+  }
+
+  private async ensureSfiaApplicationRow(params: {
+    applicationId: string;
+    applicantId: string;
+    jobPostingId: string;
+    status: string;
+    appliedAt: string;
+  }) {
+    const supabase = this.supabaseService.getClient();
+
+    const { error } = await supabase.from('job_application_sfia').upsert(
+      {
+        application_id: params.applicationId,
+        job_posting_id: params.jobPostingId,
+        applicant_id: params.applicantId,
+        status: params.status,
+        application_timestamp: params.appliedAt,
+        ranking_mode: 'SFIA',
+      },
+      {
+        onConflict: 'application_id',
+      },
+    );
+
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'job_application_sfia');
+      this.logger.warn(
+        `Unable to mirror application ${params.applicationId} to job_application_sfia: ${error.message}`,
+      );
+    }
+  }
+
+  private async getLatestResumeUpload(
+    applicantId: string,
+    jobPostingId: string,
+  ): Promise<ApplicationResumeUploadDto | null> {
+    const supabase = this.supabaseService.getClient();
+    const folder = `${applicantId}/${jobPostingId}`;
+
+    const { data: files, error } = await supabase.storage
+      .from('sfia-resumes')
+      .list(folder, {
+        limit: 20,
+        sortBy: { column: 'name', order: 'desc' },
+      });
+
+    if (error) {
+      if (error.message.toLowerCase().includes('bucket')) return null;
+      this.logger.warn(
+        `Unable to inspect SFIA resume storage for ${folder}: ${error.message}`,
+      );
+      return null;
+    }
+
+    const latest = files?.find((file) => file.name);
+    if (!latest) return null;
+
+    const storagePath = `${folder}/${latest.name}`;
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from('sfia-resumes')
+      .createSignedUrl(storagePath, 60 * 60);
+
+    if (signedError) {
+      this.logger.warn(
+        `Unable to sign SFIA resume ${storagePath}: ${signedError.message}`,
+      );
+      return {
+        file_name: latest.name,
+        storage_path: storagePath,
+        signed_url: '',
+      };
+    }
+
+    return {
+      file_name: latest.name,
+      storage_path: storagePath,
+      signed_url: signedData.signedUrl,
+    };
   }
 
   private readFirstValue(

@@ -19,7 +19,9 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApplicantsService } from './applicants.service';
 import { CreateApplicantDto } from './dto/create-applicant.dto';
 import { ApplicantLoginDto } from './dto/applicant-login.dto';
+import { UploadSfiaResumeDto } from './dto/upload-sfia-resume.dto';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApplicantJwtAuthGuard } from '../auth/applicant-jwt-auth.guard';
 
 const APPLICANT_COOKIE = 'applicant_refresh_token';
 
@@ -108,5 +110,13 @@ export class ApplicantsController {
   @ApiOperation({ summary: 'Resend verification email to an unverified applicant' })
   resendVerification(@Body() body: { email: string }) {
     return this.applicantsService.resendVerification(body.email);
+  }
+
+  @Post('sfia-upload')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Applicant: Upload SFIA resume for a specific job posting' })
+  uploadSfiaResume(@Body() dto: UploadSfiaResumeDto, @Req() req: any) {
+    return this.applicantsService.uploadSfiaResume(req.user.sub_userid, dto);
   }
 }

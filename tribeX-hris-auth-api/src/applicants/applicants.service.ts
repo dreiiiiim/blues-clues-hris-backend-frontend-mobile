@@ -13,6 +13,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
 import { CreateApplicantDto } from './dto/create-applicant.dto';
 import { ApplicantLoginDto } from './dto/applicant-login.dto';
+import { UploadSfiaResumeDto } from './dto/upload-sfia-resume.dto';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'node:crypto';
 
@@ -22,6 +23,8 @@ function sha256(input: string) {
 
 @Injectable()
 export class ApplicantsService {
+  private readonly sfiaResumeBucket = 'sfia-resumes';
+
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly mailService: MailService,
@@ -327,6 +330,89 @@ export class ApplicantsService {
           });
         }
       } catch { /* best-effort */ }
+    }
+  }
+
+  async uploadSfiaResume(applicantId: string, dto: UploadSfiaResumeDto) {
+    const allowedMimeTypes = new Set([
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ]);
+
+    if (!allowedMimeTypes.has(dto.mime_type)) {
+      throw new BadRequestException('Only PDF, DOC, and DOCX files are supported.');
+    }
+
+    const payload = dto.content_base64.includes(',')
+      ? dto.content_base64.split(',', 2)[1]
+      : dto.content_base64;
+
+    const fileBuffer = Buffer.from(payload, 'base64');
+    if (!fileBuffer.length) {
+      throw new BadRequestException('Uploaded file is empty.');
+    }
+
+    const maxBytes = 10 * 1024 * 1024;
+    if (fileBuffer.length > maxBytes) {
+      throw new BadRequestException('Resume file must be 10MB or smaller.');
+    }
+
+    await this.ensureResumeBucket();
+
+    const supabase = this.supabaseService.getClient();
+    const safeFileName = dto.file_name.replace(/[^a-zA-Z0-9._-]/g, '-');
+    const storagePath = `${applicantId}/${dto.job_posting_id}/${Date.now()}-${safeFileName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(this.sfiaResumeBucket)
+      .upload(storagePath, fileBuffer, {
+        contentType: dto.mime_type,
+        upsert: false,
+      });
+
+    if (uploadError) {
+      throw new InternalServerErrorException(uploadError.message);
+    }
+
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from(this.sfiaResumeBucket)
+      .createSignedUrl(storagePath, 60 * 60);
+
+    if (signedError) {
+      throw new InternalServerErrorException(signedError.message);
+    }
+
+    return {
+      file_name: dto.file_name,
+      storage_path: storagePath,
+      signed_url: signedData.signedUrl,
+    };
+  }
+
+  private async ensureResumeBucket() {
+    const supabase = this.supabaseService.getClient();
+    const { data: buckets, error } = await supabase.storage.listBuckets();
+
+    if (error) {
+      throw new InternalServerErrorException(error.message);
+    }
+
+    const exists = buckets?.some((bucket) => bucket.name === this.sfiaResumeBucket);
+    if (exists) return;
+
+    const { error: createError } = await supabase.storage.createBucket(this.sfiaResumeBucket, {
+      public: false,
+      fileSizeLimit: 10 * 1024 * 1024,
+      allowedMimeTypes: [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ],
+    });
+
+    if (createError && !createError.message.toLowerCase().includes('already')) {
+      throw new InternalServerErrorException(createError.message);
     }
   }
 }

@@ -11,7 +11,7 @@ import {
   Sparkles, TrendingUp, Users, ChevronRight, Check,
 } from "lucide-react";
 import {
-  getApplicantJobs, applyToJob, getMyApplications, getJobQuestions,
+  getApplicantJobs, applyToJob, getMyApplications, getJobQuestions, uploadApplicantSfiaResume,
   type JobPosting, type ApplicationQuestion,
 } from "@/lib/authApi";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
@@ -52,6 +52,7 @@ function ApplicationForm({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
 
   const jwt = parseJwt(getAccessToken() ?? "");
   const userInfo = getUserInfo();
@@ -98,6 +99,18 @@ function ApplicationForm({
     }
     setSubmitting(true);
     try {
+      let resumeUpload:
+        | { file_name: string; storage_path: string }
+        | undefined;
+
+      if (resumeFile) {
+        const uploaded = await uploadApplicantSfiaResume(job.job_posting_id, resumeFile);
+        resumeUpload = {
+          file_name: uploaded.file_name,
+          storage_path: uploaded.storage_path,
+        };
+      }
+
       const answerPayload = questions.map((q) => {
         let answer_value = answers[q.question_id] ?? "";
         if (q.question_type === "multiple_choice" && answer_value !== "") {
@@ -113,7 +126,20 @@ function ApplicationForm({
         return { question_id: q.question_id, answer_value };
       }).filter((a) => a.answer_value !== "");
 
-      await applyToJob(job.job_posting_id, answerPayload.length ? { answers: answerPayload } : undefined);
+      await applyToJob(
+        job.job_posting_id,
+        answerPayload.length || resumeUpload
+          ? {
+              ...(answerPayload.length ? { answers: answerPayload } : {}),
+              ...(resumeUpload
+                ? {
+                    resume_file_name: resumeUpload.file_name,
+                    resume_storage_path: resumeUpload.storage_path,
+                  }
+                : {}),
+            }
+          : undefined,
+      );
       toast.success("Application submitted!");
       onApplied();
     } catch (err: any) {
@@ -187,6 +213,29 @@ function ApplicationForm({
               </div>
             )}
             <p className="text-[10px] text-muted-foreground/50 mt-2">Pulled from your account profile.</p>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">SFIA Resume Upload</p>
+            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs text-muted-foreground font-medium">Resume File</label>
+                <Input
+                  type="file"
+                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
+                  className="h-10 cursor-pointer"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Upload a PDF, DOC, or DOCX resume for SFIA processing. This upload is optional for now.
+              </p>
+              {resumeFile && (
+                <p className="text-[11px] font-medium text-foreground">
+                  Selected: {resumeFile.name}
+                </p>
+              )}
+            </div>
           </div>
 
           {loading ? (

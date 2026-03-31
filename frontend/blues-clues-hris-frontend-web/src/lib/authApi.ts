@@ -182,7 +182,11 @@ export async function getJobQuestions(jobPostingId: string): Promise<Application
 
 export async function applyToJob(
   jobPostingId: string,
-  dto?: { answers?: { question_id: string; answer_value?: string }[] },
+  dto?: {
+    answers?: { question_id: string; answer_value?: string }[];
+    resume_storage_path?: string;
+    resume_file_name?: string;
+  },
 ) {
   const res = await authFetch(`${API_BASE_URL}/jobs/${jobPostingId}/apply`, {
     method: "POST",
@@ -192,6 +196,34 @@ export async function applyToJob(
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || "Failed to apply");
   return data;
+}
+
+export async function uploadApplicantSfiaResume(jobPostingId: string, file: File) {
+  const content_base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
+  const res = await authFetch(`${API_BASE_URL}/applicants/sfia-upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_posting_id: jobPostingId,
+      file_name: file.name,
+      mime_type: file.type || "application/octet-stream",
+      content_base64,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Failed to upload resume");
+  return data as {
+    file_name: string;
+    storage_path: string;
+    signed_url: string;
+  };
 }
 
 export async function getApplicationDetail(applicationId: string): Promise<ApplicationDetail> {
@@ -274,6 +306,11 @@ export type ApplicationDetail = {
       sort_order: number;
     };
   }[];
+  resume_upload?: {
+    file_name: string;
+    storage_path: string;
+    signed_url: string;
+  } | null;
 };
 
 // ---------------------------------------------------------------------------
