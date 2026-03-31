@@ -24,7 +24,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
 import type { OnboardingTemplate, JobPosition, Department } from "@/types/onboarding.types";
-import { getAllTemplates, createTemplate, getAllPositions, createPosition, getDepartments } from "@/lib/onboardingApi";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { getAllTemplates, createTemplate, getAllPositions, createPosition, getDepartments, addTemplateItem, updateTemplateItem } from "@/lib/onboardingApi";
 
 export default function SystemAdminView() {
   const [templates, setTemplates] = useState<OnboardingTemplate[]>([]);
@@ -40,6 +42,14 @@ export default function SystemAdminView() {
   const [newTemplatePosition, setNewTemplatePosition] = useState("");
   const [newTemplateDeadline, setNewTemplateDeadline] = useState("7");
   const [creatingTemplate, setCreatingTemplate] = useState(false);
+
+  // Template item editing states
+  const [addItemCategory, setAddItemCategory] = useState<string | null>(null);
+  const [newItemTitle, setNewItemTitle] = useState("");
+  const [newItemDescription, setNewItemDescription] = useState("");
+  const [newItemRequired, setNewItemRequired] = useState(false);
+  const [savingNewItem, setSavingNewItem] = useState(false);
+  const [togglingItemId, setTogglingItemId] = useState<string | null>(null);
 
   // New department/position states
   const [showNewDepartmentDialog, setShowNewDepartmentDialog] = useState(false);
@@ -98,6 +108,50 @@ export default function SystemAdminView() {
     setNewPositionTitle("");
     setNewPositionDepartment("");
     setShowNewPositionDialog(false);
+  };
+
+  const typeForCategory: Record<string, string> = { documents: 'upload', tasks: 'task', equipment: 'equipment' };
+
+  const handleAddTemplateItem = async (tab_category: string) => {
+    if (!selectedTemplate || !newItemTitle.trim()) return;
+    setSavingNewItem(true);
+    try {
+      const item = await addTemplateItem(selectedTemplate.template_id, {
+        type: typeForCategory[tab_category] ?? tab_category,
+        tab_category,
+        title: newItemTitle.trim(),
+        description: newItemDescription.trim() || undefined,
+        is_required: newItemRequired,
+      });
+      const addItem = (t: typeof selectedTemplate) => ({ ...t, template_items: [...t.template_items, item] });
+      setSelectedTemplate(prev => prev ? addItem(prev) : prev);
+      setTemplates(prev => prev.map(t => t.template_id === selectedTemplate.template_id ? addItem(t) : t));
+      setNewItemTitle("");
+      setNewItemDescription("");
+      setNewItemRequired(false);
+      setAddItemCategory(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingNewItem(false);
+    }
+  };
+
+  const handleToggleRequired = async (itemId: string, currentValue: boolean) => {
+    if (!selectedTemplate) return;
+    setTogglingItemId(itemId);
+    try {
+      await updateTemplateItem(itemId, { is_required: !currentValue });
+      const toggle = (items: typeof selectedTemplate.template_items) =>
+        items.map(i => i.item_id === itemId ? { ...i, is_required: !currentValue } : i);
+      setSelectedTemplate(prev => prev ? { ...prev, template_items: toggle(prev.template_items) } : prev);
+      setTemplates(prev => prev.map(t => t.template_id === selectedTemplate.template_id
+        ? { ...t, template_items: toggle(t.template_items) } : t));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTogglingItemId(null);
+    }
   };
 
   const filteredTemplates = templates.filter(t =>
@@ -340,7 +394,7 @@ export default function SystemAdminView() {
 
           {selectedTemplate && (
             <div className="flex-1 overflow-y-auto px-6 py-4">
-              <Tabs defaultValue="documents">
+              <Tabs defaultValue="documents" onValueChange={() => setAddItemCategory(null)}>
                 <TabsList className="grid w-full grid-cols-3">
                   <TabsTrigger value="documents">
                     <FileCheck className="size-4 mr-2" />
@@ -356,91 +410,92 @@ export default function SystemAdminView() {
                   </TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="documents" className="mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Document Name</TableHead>
-                        <TableHead>Required</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedTemplate.template_items.filter(i => i.tab_category === "documents").map((item) => (
-                        <TableRow key={item.item_id}>
-                          <TableCell className="font-medium">{item.title}</TableCell>
-                          <TableCell>
-                            <Badge variant={item.is_required ? "default" : "secondary"}>
-                              {item.is_required ? "Required" : "Optional"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {selectedTemplate.template_items.filter(i => i.tab_category === "documents").length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={2} className="text-center py-4 text-slate-500">No documents</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </TabsContent>
+                {(["documents", "tasks", "equipment"] as const).map((cat) => (
+                  <TabsContent key={cat} value={cat} className="mt-4 space-y-3">
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="outline" onClick={() => { setAddItemCategory(cat); setNewItemTitle(""); setNewItemDescription(""); setNewItemRequired(false); }}>
+                        <Plus className="size-3 mr-1" />
+                        Add {cat === "documents" ? "Document" : cat === "tasks" ? "Task" : "Equipment"}
+                      </Button>
+                    </div>
 
-                <TabsContent value="tasks" className="mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Task Name</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Required</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedTemplate.template_items.filter(i => i.tab_category === "tasks").map((item) => (
-                        <TableRow key={item.item_id}>
-                          <TableCell className="font-medium">{item.title}</TableCell>
-                          <TableCell className="text-sm text-slate-600">{item.description ?? "—"}</TableCell>
-                          <TableCell>
-                            <Badge variant={item.is_required ? "default" : "secondary"}>
-                              {item.is_required ? "Required" : "Optional"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {selectedTemplate.template_items.filter(i => i.tab_category === "tasks").length === 0 && (
+                    <Table>
+                      <TableHeader>
                         <TableRow>
-                          <TableCell colSpan={3} className="text-center py-4 text-slate-500">No tasks</TableCell>
+                          <TableHead>Name</TableHead>
+                          {cat !== "documents" && <TableHead>Description</TableHead>}
+                          <TableHead className="w-[120px]">Required</TableHead>
                         </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </TabsContent>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedTemplate.template_items.filter(i => i.tab_category === cat).map((item) => (
+                          <TableRow key={item.item_id}>
+                            <TableCell className="font-medium">{item.title}</TableCell>
+                            {cat !== "documents" && <TableCell className="text-sm text-slate-600">{item.description ?? "—"}</TableCell>}
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  checked={item.is_required}
+                                  disabled={togglingItemId === item.item_id}
+                                  onCheckedChange={() => handleToggleRequired(item.item_id, item.is_required)}
+                                />
+                                <span className="text-sm text-slate-600">{item.is_required ? "Required" : "Optional"}</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {selectedTemplate.template_items.filter(i => i.tab_category === cat).length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={cat !== "documents" ? 3 : 2} className="text-center py-4 text-slate-500">
+                              No {cat} yet
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
 
-                <TabsContent value="equipment" className="mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Equipment Name</TableHead>
-                        <TableHead>Required</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedTemplate.template_items.filter(i => i.tab_category === "equipment").map((item) => (
-                        <TableRow key={item.item_id}>
-                          <TableCell className="font-medium">{item.title}</TableCell>
-                          <TableCell>
-                            <Badge variant={item.is_required ? "default" : "secondary"}>
-                              {item.is_required ? "Required" : "Optional"}
-                            </Badge>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                      {selectedTemplate.template_items.filter(i => i.tab_category === "equipment").length === 0 && (
-                        <TableRow>
-                          <TableCell colSpan={2} className="text-center py-4 text-slate-500">No equipment</TableCell>
-                        </TableRow>
-                      )}
-                    </TableBody>
-                  </Table>
-                </TabsContent>
+                    {addItemCategory === cat && (
+                      <div className="border rounded-lg p-4 space-y-3 bg-slate-50">
+                        <p className="text-sm font-medium">New {cat === "documents" ? "Document" : cat === "tasks" ? "Task" : "Equipment"}</p>
+                        <div className="space-y-1">
+                          <Label>Title *</Label>
+                          <Input
+                            placeholder="Enter title..."
+                            value={newItemTitle}
+                            onChange={(e) => setNewItemTitle(e.target.value)}
+                          />
+                        </div>
+                        {cat !== "documents" && (
+                          <div className="space-y-1">
+                            <Label>Description</Label>
+                            <Textarea
+                              placeholder="Optional description..."
+                              value={newItemDescription}
+                              onChange={(e) => setNewItemDescription(e.target.value)}
+                              rows={2}
+                              className="resize-none"
+                            />
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="new-item-required"
+                            checked={newItemRequired}
+                            onCheckedChange={(v) => setNewItemRequired(v as boolean)}
+                          />
+                          <Label htmlFor="new-item-required">Required</Label>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <Button variant="outline" size="sm" onClick={() => setAddItemCategory(null)}>Cancel</Button>
+                          <Button size="sm" onClick={() => handleAddTemplateItem(cat)} disabled={savingNewItem || !newItemTitle.trim()}>
+                            <Save className="size-3 mr-1" />
+                            {savingNewItem ? "Saving..." : "Save"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </TabsContent>
+                ))}
               </Tabs>
             </div>
           )}

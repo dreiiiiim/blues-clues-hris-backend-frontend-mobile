@@ -75,7 +75,7 @@ export class ApplicantOnboardingController {
   @ApiOperation({ summary: 'Submit equipment request with delivery preference' })
   requestEquipment(
     @Param('onboardingItemId') onboardingItemId: string,
-    @Body() body: { is_requested: boolean; delivery_method: 'office' | 'delivery' },
+    @Body() body: { is_requested: boolean; delivery_method: 'office' | 'delivery'; delivery_address?: string },
   ) {
     return this.onboardingService.requestEquipment(onboardingItemId, body);
   }

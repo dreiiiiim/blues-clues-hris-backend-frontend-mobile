@@ -1,10 +1,14 @@
+"use client";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Modal,
   SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
+  TouchableOpacity,
   View,
   useWindowDimensions,
 } from "react-native";
@@ -20,6 +24,7 @@ type TemplateItem = {
   type: string;
   tab_category: string;
   title: string;
+  description?: string;
   is_required: boolean;
 };
 
@@ -35,6 +40,15 @@ type OnboardingTemplate = {
   department_name?: string | null;
 };
 
+const TYPE_MAP: Record<string, string> = {
+  documents: "upload",
+  tasks: "task",
+  equipment: "equipment",
+};
+
+const CATEGORIES = ["documents", "tasks", "equipment"] as const;
+type Category = typeof CATEGORIES[number];
+
 export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
   const session: UserSession = route.params.session;
   const { width } = useWindowDimensions();
@@ -44,13 +58,95 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Expand/collapse per template
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [activeCategory, setActiveCategory] = useState<Category>("documents");
+
+  // Toggle required
+  const [togglingItemId, setTogglingItemId] = useState<string | null>(null);
+
+  // Add item modal
+  const [addModal, setAddModal] = useState(false);
+  const [addingTemplateId, setAddingTemplateId] = useState<string | null>(null);
+  const [addCategory, setAddCategory] = useState<Category>("documents");
+  const [newTitle, setNewTitle] = useState("");
+  const [newDescription, setNewDescription] = useState("");
+  const [newRequired, setNewRequired] = useState(false);
+  const [savingItem, setSavingItem] = useState(false);
+
   useEffect(() => {
+    fetchTemplates();
+  }, []);
+
+  const fetchTemplates = () => {
+    setLoading(true);
     authFetch(`${API_BASE_URL}/onboarding/system-admin/templates`)
       .then(res => res.json())
       .then(data => setTemplates(Array.isArray(data) ? data : []))
       .catch(() => setError("Failed to load templates."))
       .finally(() => setLoading(false));
-  }, []);
+  };
+
+  const handleToggleRequired = async (templateId: string, itemId: string, current: boolean) => {
+    setTogglingItemId(itemId);
+    try {
+      await authFetch(`${API_BASE_URL}/onboarding/system-admin/template-items/${itemId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_required: !current }),
+      });
+      setTemplates(prev => prev.map(t => t.template_id !== templateId ? t : {
+        ...t,
+        template_items: t.template_items.map(i =>
+          i.item_id === itemId ? { ...i, is_required: !current } : i
+        ),
+      }));
+    } catch {
+      // silently fail — item stays as-is
+    } finally {
+      setTogglingItemId(null);
+    }
+  };
+
+  const openAddModal = (templateId: string, category: Category) => {
+    setAddingTemplateId(templateId);
+    setAddCategory(category);
+    setNewTitle("");
+    setNewDescription("");
+    setNewRequired(false);
+    setAddModal(true);
+  };
+
+  const handleSaveItem = async () => {
+    if (!addingTemplateId || !newTitle.trim()) return;
+    setSavingItem(true);
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/onboarding/system-admin/templates/${addingTemplateId}/items`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: TYPE_MAP[addCategory],
+            tab_category: addCategory,
+            title: newTitle.trim(),
+            description: newDescription.trim() || undefined,
+            is_required: newRequired,
+          }),
+        }
+      );
+      const item: TemplateItem = await res.json();
+      setTemplates(prev => prev.map(t => t.template_id !== addingTemplateId ? t : {
+        ...t,
+        template_items: [...t.template_items, item],
+      }));
+      setAddModal(false);
+    } catch {
+      // silently fail
+    } finally {
+      setSavingItem(false);
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -107,66 +203,155 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
             )}
 
             {!loading && !error && templates.length === 0 && (
-              <Text style={styles.emptyText}>No templates found. Create one from the web admin panel.</Text>
+              <Text style={styles.emptyText}>No templates found.</Text>
             )}
 
             {templates.map(template => {
               const items = template.template_items || [];
-              const docCount = items.filter(i => i.tab_category === "documents").length;
-              const taskCount = items.filter(i => i.tab_category === "tasks").length;
-              const equipCount = items.filter(i => i.tab_category === "equipment").length;
-              const formCount = items.filter(i => i.tab_category === "hr_forms").length;
-              const profileCount = items.filter(i => i.tab_category === "profile").length;
-              const welcomeCount = items.filter(i => i.tab_category === "welcome").length;
+              const isExpanded = expandedId === template.template_id;
+              const visibleItems = items.filter(i => i.tab_category === activeCategory);
+
               return (
                 <View key={template.template_id} style={styles.templateCard}>
-                  <Text style={styles.templateName}>{template.name}</Text>
-                  <Text style={styles.templateMeta}>
-                    {template.position_name ?? template.position_id} • {template.department_name ?? template.department_id}
-                  </Text>
-                  <Text style={styles.templateMeta}>
-                    Deadline: {template.default_deadline_days} days
-                  </Text>
-                  <Text style={styles.templateCreated}>
-                    Created: {new Date(template.created_at).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })}
-                  </Text>
+                  {/* Header row */}
+                  <TouchableOpacity
+                    onPress={() => setExpandedId(isExpanded ? null : template.template_id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.templateName}>{template.name}</Text>
+                    <Text style={styles.templateMeta}>
+                      {template.position_name ?? template.position_id} • {template.department_name ?? template.department_id}
+                    </Text>
+                    <Text style={styles.templateMeta}>Deadline: {template.default_deadline_days} days</Text>
 
-                  <View style={styles.itemsSummary}>
-                    <View style={styles.itemChip}>
-                      <Text style={styles.itemChipNum}>{docCount}</Text>
-                      <Text style={styles.itemChipLabel}>Docs</Text>
+                    {/* Item count chips */}
+                    <View style={styles.itemsSummary}>
+                      {CATEGORIES.map(cat => (
+                        <View key={cat} style={styles.itemChip}>
+                          <Text style={styles.itemChipNum}>{items.filter(i => i.tab_category === cat).length}</Text>
+                          <Text style={styles.itemChipLabel}>{cat === "documents" ? "Docs" : cat === "tasks" ? "Tasks" : "Equip"}</Text>
+                        </View>
+                      ))}
                     </View>
-                    <View style={styles.itemChip}>
-                      <Text style={styles.itemChipNum}>{taskCount}</Text>
-                      <Text style={styles.itemChipLabel}>Tasks</Text>
-                    </View>
-                    <View style={styles.itemChip}>
-                      <Text style={styles.itemChipNum}>{equipCount}</Text>
-                      <Text style={styles.itemChipLabel}>Equipment</Text>
-                    </View>
-                    <View style={styles.itemChip}>
-                      <Text style={styles.itemChipNum}>{formCount}</Text>
-                      <Text style={styles.itemChipLabel}>Forms</Text>
-                    </View>
-                    {profileCount > 0 && (
-                      <View style={styles.itemChip}>
-                        <Text style={styles.itemChipNum}>{profileCount}</Text>
-                        <Text style={styles.itemChipLabel}>Profile</Text>
+
+                    <Text style={styles.expandHint}>{isExpanded ? "▲ Collapse" : "▼ Manage items"}</Text>
+                  </TouchableOpacity>
+
+                  {/* Expanded section */}
+                  {isExpanded && (
+                    <View style={styles.expandedSection}>
+                      {/* Category tabs */}
+                      <View style={styles.catTabs}>
+                        {CATEGORIES.map(cat => (
+                          <TouchableOpacity
+                            key={cat}
+                            style={[styles.catTab, activeCategory === cat && styles.catTabActive]}
+                            onPress={() => setActiveCategory(cat)}
+                          >
+                            <Text style={[styles.catTabText, activeCategory === cat && styles.catTabTextActive]}>
+                              {cat === "documents" ? "Documents" : cat === "tasks" ? "Tasks" : "Equipment"}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
-                    )}
-                    {welcomeCount > 0 && (
-                      <View style={styles.itemChip}>
-                        <Text style={styles.itemChipNum}>{welcomeCount}</Text>
-                        <Text style={styles.itemChipLabel}>Welcome</Text>
-                      </View>
-                    )}
-                  </View>
+
+                      {/* Items list */}
+                      {visibleItems.length === 0 ? (
+                        <Text style={styles.emptyCategory}>No {activeCategory} yet</Text>
+                      ) : (
+                        visibleItems.map(item => (
+                          <View key={item.item_id} style={styles.itemRow}>
+                            <View style={styles.itemInfo}>
+                              <Text style={styles.itemTitle}>{item.title}</Text>
+                              {item.description ? <Text style={styles.itemDesc}>{item.description}</Text> : null}
+                            </View>
+                            <TouchableOpacity
+                              style={[styles.requiredBadge, item.is_required ? styles.requiredOn : styles.requiredOff]}
+                              onPress={() => handleToggleRequired(template.template_id, item.item_id, item.is_required)}
+                              disabled={togglingItemId === item.item_id}
+                            >
+                              <Text style={[styles.requiredText, item.is_required ? styles.requiredTextOn : styles.requiredTextOff]}>
+                                {togglingItemId === item.item_id ? "..." : item.is_required ? "Required" : "Optional"}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ))
+                      )}
+
+                      {/* Add item button */}
+                      <TouchableOpacity
+                        style={styles.addItemBtn}
+                        onPress={() => openAddModal(template.template_id, activeCategory)}
+                      >
+                        <Text style={styles.addItemBtnText}>
+                          + Add {activeCategory === "documents" ? "Document" : activeCategory === "tasks" ? "Task" : "Equipment"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
                 </View>
               );
             })}
           </ScrollView>
         </View>
       </View>
+
+      {/* Add Item Modal */}
+      <Modal visible={addModal} animationType="slide" transparent onRequestClose={() => setAddModal(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>
+              Add {addCategory === "documents" ? "Document" : addCategory === "tasks" ? "Task" : "Equipment"}
+            </Text>
+
+            <Text style={styles.fieldLabel}>Title *</Text>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Enter title..."
+              value={newTitle}
+              onChangeText={setNewTitle}
+            />
+
+            {addCategory !== "documents" && (
+              <>
+                <Text style={styles.fieldLabel}>Description (optional)</Text>
+                <TextInput
+                  style={[styles.textInput, styles.textArea]}
+                  placeholder="Enter description..."
+                  value={newDescription}
+                  onChangeText={setNewDescription}
+                  multiline
+                  numberOfLines={3}
+                />
+              </>
+            )}
+
+            <TouchableOpacity
+              style={styles.requiredToggleRow}
+              onPress={() => setNewRequired(v => !v)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, newRequired && styles.checkboxChecked]}>
+                {newRequired && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={styles.fieldLabel}>Required</Text>
+            </TouchableOpacity>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => setAddModal(false)}>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, (!newTitle.trim() || savingItem) && styles.saveBtnDisabled]}
+                onPress={handleSaveItem}
+                disabled={!newTitle.trim() || savingItem}
+              >
+                <Text style={styles.saveBtnText}>{savingItem ? "Saving..." : "Save"}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -189,9 +374,45 @@ const styles = StyleSheet.create({
   templateCard: { backgroundColor: "#FFFFFF", borderRadius: 12, padding: 16, shadowColor: "#000", shadowOpacity: 0.06, shadowRadius: 8, elevation: 2 },
   templateName: { fontSize: 16, fontWeight: "700", color: "#1E293B", marginBottom: 4 },
   templateMeta: { fontSize: 13, color: "#3B82F6", fontWeight: "600", marginBottom: 2 },
-  templateCreated: { fontSize: 11, color: "#94A3B8", marginBottom: 12 },
-  itemsSummary: { flexDirection: "row", gap: 8 },
+  itemsSummary: { flexDirection: "row", gap: 8, marginTop: 10 },
   itemChip: { flex: 1, backgroundColor: "#F1F5F9", borderRadius: 8, padding: 8, alignItems: "center" },
   itemChipNum: { fontSize: 16, fontWeight: "700", color: "#1E293B" },
   itemChipLabel: { fontSize: 10, color: "#64748B", marginTop: 1 },
+  expandHint: { fontSize: 12, color: "#94A3B8", marginTop: 10, textAlign: "right" },
+  expandedSection: { marginTop: 14, borderTopWidth: 1, borderTopColor: "#F1F5F9", paddingTop: 12 },
+  catTabs: { flexDirection: "row", gap: 6, marginBottom: 12 },
+  catTab: { flex: 1, paddingVertical: 6, borderRadius: 8, backgroundColor: "#F1F5F9", alignItems: "center" },
+  catTabActive: { backgroundColor: "#1E40AF" },
+  catTabText: { fontSize: 12, fontWeight: "600", color: "#64748B" },
+  catTabTextActive: { color: "#FFFFFF" },
+  emptyCategory: { color: "#94A3B8", fontSize: 13, textAlign: "center", paddingVertical: 12 },
+  itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: "#F8FAFC", gap: 10 },
+  itemInfo: { flex: 1 },
+  itemTitle: { fontSize: 14, fontWeight: "600", color: "#1E293B" },
+  itemDesc: { fontSize: 12, color: "#64748B", marginTop: 2 },
+  requiredBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, borderWidth: 1 },
+  requiredOn: { backgroundColor: "#EFF6FF", borderColor: "#3B82F6" },
+  requiredOff: { backgroundColor: "#F8FAFC", borderColor: "#CBD5E1" },
+  requiredText: { fontSize: 11, fontWeight: "600" },
+  requiredTextOn: { color: "#1D4ED8" },
+  requiredTextOff: { color: "#94A3B8" },
+  addItemBtn: { marginTop: 12, paddingVertical: 10, borderRadius: 8, borderWidth: 1.5, borderColor: "#1E40AF", borderStyle: "dashed", alignItems: "center" },
+  addItemBtnText: { color: "#1E40AF", fontSize: 13, fontWeight: "600" },
+  // Modal
+  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.4)", justifyContent: "flex-end" },
+  modalCard: { backgroundColor: "#FFFFFF", borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 24, gap: 12 },
+  modalTitle: { fontSize: 18, fontWeight: "700", color: "#1E293B", marginBottom: 4 },
+  fieldLabel: { fontSize: 13, fontWeight: "600", color: "#475569", marginBottom: 4 },
+  textInput: { borderWidth: 1, borderColor: "#CBD5E1", borderRadius: 8, padding: 10, fontSize: 14, color: "#1E293B", backgroundColor: "#F8FAFC" },
+  textArea: { height: 80, textAlignVertical: "top" },
+  requiredToggleRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  checkbox: { width: 20, height: 20, borderRadius: 4, borderWidth: 2, borderColor: "#CBD5E1", alignItems: "center", justifyContent: "center" },
+  checkboxChecked: { backgroundColor: "#1E40AF", borderColor: "#1E40AF" },
+  checkmark: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+  modalActions: { flexDirection: "row", gap: 10, marginTop: 8 },
+  cancelBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, borderWidth: 1, borderColor: "#CBD5E1", alignItems: "center" },
+  cancelBtnText: { color: "#64748B", fontWeight: "600" },
+  saveBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, backgroundColor: "#1E40AF", alignItems: "center" },
+  saveBtnDisabled: { backgroundColor: "#94A3B8" },
+  saveBtnText: { color: "#FFFFFF", fontWeight: "700" },
 });

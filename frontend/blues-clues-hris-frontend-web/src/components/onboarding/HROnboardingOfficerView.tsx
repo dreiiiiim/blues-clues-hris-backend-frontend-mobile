@@ -748,7 +748,12 @@ export default function HROnboardingOfficerView() {
                                     <h4 className="font-semibold">{equip.title}</h4>
                                     {equip.description && <p className="text-xs text-slate-600 mt-1">{equip.description}</p>}
                                     {equip.delivery_method && (
-                                      <p className="text-xs text-purple-600 mt-1">Delivery: {equip.delivery_method}</p>
+                                      <p className="text-xs text-purple-600 mt-1">
+                                        Delivery: {equip.delivery_method === 'office' ? 'Office Pickup' : 'Delivery'}
+                                        {equip.delivery_method === 'delivery' && equip.delivery_address && (
+                                          <span className="block text-purple-500">Address: {equip.delivery_address}</span>
+                                        )}
+                                      </p>
                                     )}
                                   </div>
                                   {getItemStatusBadge(equip.status)}

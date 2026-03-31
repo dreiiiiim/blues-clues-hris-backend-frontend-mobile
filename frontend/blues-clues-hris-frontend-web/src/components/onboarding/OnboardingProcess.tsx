@@ -49,7 +49,12 @@ export function OnboardingProcess({
     setDaysRemaining(diffDays);
   }, [session.deadline_date]);
 
-  const progress = session.progress_percentage;
+  const allItems = [...documents, ...tasks, ...equipment, ...hrForms, ...profileItems, ...welcomeItems];
+  const requiredItems = allItems.filter(i => i.is_required);
+  const completedItems = requiredItems.filter(i => ['approved', 'confirmed', 'issued'].includes(i.status));
+  const progress = requiredItems.length > 0
+    ? Math.round((completedItems.length / requiredItems.length) * 100)
+    : 0;
 
   const handleUpdateDocuments = (docs: DocumentItem[]) => {
     onUpdateSession({ ...session, documents: docs });

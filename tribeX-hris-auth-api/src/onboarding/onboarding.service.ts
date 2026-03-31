@@ -55,6 +55,7 @@ export class OnboardingService {
         status,
         is_requested,
         delivery_method,
+        delivery_address,
         template_items (
           item_id,
           type,
@@ -152,6 +153,7 @@ export class OnboardingService {
           ...base,
           is_requested: item.is_requested,
           delivery_method: item.delivery_method,
+          delivery_address: item.delivery_address,
           proof_of_receipt: itemSubmissions.filter(s => s.is_proof_of_receipt),
         });
       } else if (category === 'hr_forms') {
@@ -631,7 +633,7 @@ export class OnboardingService {
     return { message: 'Template assigned', session_id: sessionId };
   }
 
-  async requestEquipment(onboardingItemId: string, dto: { is_requested: boolean; delivery_method: 'office' | 'delivery' }) {
+  async requestEquipment(onboardingItemId: string, dto: { is_requested: boolean; delivery_method: 'office' | 'delivery'; delivery_address?: string }) {
     const supabase = this.supabaseService.getClient();
 
     const { data: item, error } = await supabase
@@ -644,7 +646,7 @@ export class OnboardingService {
 
     await supabase
       .from('onboarding_items')
-      .update({ is_requested: dto.is_requested, delivery_method: dto.delivery_method, status: 'submitted' })
+      .update({ is_requested: dto.is_requested, delivery_method: dto.delivery_method, delivery_address: dto.delivery_address ?? null, status: 'submitted' })
       .eq('onboarding_item_id', onboardingItemId);
 
     await this.recalculateProgress(item.session_id);
@@ -689,6 +691,41 @@ export class OnboardingService {
         position_name: dto.position_name,
         created_at: new Date().toISOString(),
       })
+      .select()
+      .single();
+
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  async addTemplateItem(templateId: string, dto: { type: string; tab_category: string; title: string; description?: string; is_required: boolean }) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('template_items')
+      .insert({
+        item_id: crypto.randomUUID(),
+        template_id: templateId,
+        type: dto.type,
+        tab_category: dto.tab_category,
+        title: dto.title,
+        description: dto.description || null,
+        is_required: dto.is_required,
+      })
+      .select()
+      .single();
+
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  async updateTemplateItem(itemId: string, dto: { title?: string; description?: string; is_required?: boolean }) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('template_items')
+      .update(dto)
+      .eq('item_id', itemId)
       .select()
       .single();
 

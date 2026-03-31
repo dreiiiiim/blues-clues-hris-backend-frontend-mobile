@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { OnboardingService } from './onboarding.service';
 import { CreateTemplateDto } from './dto/create-template.dto';
@@ -54,5 +54,25 @@ export class AdminOnboardingController {
   @ApiOperation({ summary: 'List all departments' })
   getDepartments() {
     return this.onboardingService.getDepartments();
+  }
+
+  @Post('templates/:templateId/items')
+  @Roles('System Admin')
+  @ApiOperation({ summary: 'Add a new item to an existing template' })
+  addTemplateItem(
+    @Param('templateId') templateId: string,
+    @Body() body: { type: string; tab_category: string; title: string; description?: string; is_required: boolean },
+  ) {
+    return this.onboardingService.addTemplateItem(templateId, body);
+  }
+
+  @Patch('template-items/:itemId')
+  @Roles('System Admin')
+  @ApiOperation({ summary: 'Update a template item (title, description, is_required)' })
+  updateTemplateItem(
+    @Param('itemId') itemId: string,
+    @Body() body: { title?: string; description?: string; is_required?: boolean },
+  ) {
+    return this.onboardingService.updateTemplateItem(itemId, body);
   }
 }

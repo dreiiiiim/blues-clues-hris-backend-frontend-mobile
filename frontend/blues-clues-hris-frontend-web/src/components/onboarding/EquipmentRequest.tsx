@@ -78,7 +78,7 @@ export function EquipmentRequest({ equipment, remarks, onUpdateEquipment }: Read
 
       await Promise.all(
         itemsToSubmit.map(item =>
-          requestEquipment(item.onboarding_item_id, true, deliveryMethod)
+          requestEquipment(item.onboarding_item_id, true, deliveryMethod, deliveryMethod === 'delivery' ? deliveryAddress : undefined)
         )
       );
 

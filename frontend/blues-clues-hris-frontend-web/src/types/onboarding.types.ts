@@ -43,6 +43,7 @@ export interface TaskItem extends OnboardingItemBase {}
 export interface EquipmentItem extends OnboardingItemBase {
   is_requested?: boolean;
   delivery_method?: 'office' | 'delivery';
+  delivery_address?: string;
   proof_of_receipt: DocumentSubmission[];
 }
 

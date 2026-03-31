@@ -1,6 +1,6 @@
 import { API_BASE_URL } from './api';
 import { getAccessToken } from './authStorage';
-import type { OnboardingSession, OnboardingSessionSummary, OnboardingTemplate, ProfileData } from '@/types/onboarding.types';
+import type { OnboardingSession, OnboardingSessionSummary, OnboardingTemplate, ProfileData, TemplateItem } from '@/types/onboarding.types';
 
 function headers() {
   return {
@@ -61,11 +61,11 @@ export async function submitForReview(sessionId: string): Promise<any> {
   return res.json();
 }
 
-export async function requestEquipment(onboardingItemId: string, is_requested: boolean, delivery_method: 'office' | 'delivery'): Promise<any> {
+export async function requestEquipment(onboardingItemId: string, is_requested: boolean, delivery_method: 'office' | 'delivery', delivery_address?: string): Promise<any> {
   const res = await fetch(`${API_BASE_URL}/onboarding/applicant/items/${onboardingItemId}/request-equipment`, {
     method: 'PATCH',
     headers: headers(),
-    body: JSON.stringify({ is_requested, delivery_method }),
+    body: JSON.stringify({ is_requested, delivery_method, delivery_address }),
   });
   if (!res.ok) throw new Error('Failed to submit equipment request');
   return res.json();
@@ -155,6 +155,26 @@ export async function createPosition(department_id: string, position_name: strin
     body: JSON.stringify({ department_id, position_name }),
   });
   if (!res.ok) throw new Error('Failed to create position');
+  return res.json();
+}
+
+export async function addTemplateItem(templateId: string, item: { type: string; tab_category: string; title: string; description?: string; is_required: boolean }): Promise<TemplateItem> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/templates/${templateId}/items`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify(item),
+  });
+  if (!res.ok) throw new Error('Failed to add template item');
+  return res.json();
+}
+
+export async function updateTemplateItem(itemId: string, updates: { title?: string; description?: string; is_required?: boolean }): Promise<TemplateItem> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/template-items/${itemId}`, {
+    method: 'PATCH',
+    headers: headers(),
+    body: JSON.stringify(updates),
+  });
+  if (!res.ok) throw new Error('Failed to update template item');
   return res.json();
 }
 
