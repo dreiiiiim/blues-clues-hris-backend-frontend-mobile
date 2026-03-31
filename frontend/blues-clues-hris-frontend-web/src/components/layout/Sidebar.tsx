@@ -58,30 +58,30 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "My Applications", href: "/applicant/applications", icon: FileText },
   ],
   employee: [
-    { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
-    { name: "Timekeeping", href: "/employee/timekeeping",  icon: Clock },
-    { name: "My Profile",  href: "/employee/profile",      icon: Users },
-    { name: "Documents",   href: "/employee/documents",    icon: FileCheck },
+    { name: "Dashboard", href: "/employee", icon: LayoutDashboard },
+    { name: "Timekeeping", href: "/employee/timekeeping", icon: Clock },
+    { name: "My Profile", href: "/employee/profile", icon: Users },
+    { name: "Documents", href: "/employee/documents", icon: FileCheck },
   ],
   hr: [
-    { name: "Dashboard",    href: "/hr",              icon: LayoutDashboard },
-    { name: "Timekeeping",  href: "/hr/timekeeping",  icon: Clock },
-    { name: "Recruitment",  href: "/hr/jobs",         icon: Briefcase },
-    { name: "Onboarding",   href: "/hr/onboarding",   icon: UserPlus },
-    { name: "Compensation", href: "/hr/payroll",      icon: DollarSign },
-    { name: "Performance",  href: "/hr/performance",  icon: BarChart },
+    { name: "Dashboard", href: "/hr", icon: LayoutDashboard },
+    { name: "Timekeeping", href: "/hr/timekeeping", icon: Clock },
+    { name: "Recruitment", href: "/hr/jobs", icon: Briefcase },
+    { name: "Onboarding", href: "/hr/onboarding", icon: UserPlus },
+    { name: "Compensation", href: "/hr/payroll", icon: DollarSign },
+    { name: "Performance", href: "/hr/performance", icon: BarChart },
   ],
   admin: [
     { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
     { name: "Users", href: "/admin/users", icon: Users },
   ],
   "system-admin": [
-    { name: "Dashboard",      href: "/system-admin",                  icon: LayoutDashboard },
-    { name: "Users",          href: "/system-admin/users",            icon: Users },
-    { name: "Timekeeping",    href: "/system-admin/timekeeping",      icon: Clock },
-    { name: "Subscriptions",  href: "/system-admin/subscriptions",    icon: DollarSign },
-    { name: "Audit Logs",     href: "/system-admin/audit-logs",       icon: ScrollText },
-    { name: "Global Settings", href: "/system-admin/settings",        icon: ClipboardCheck },
+    { name: "Dashboard", href: "/system-admin", icon: LayoutDashboard },
+    { name: "Users", href: "/system-admin/users", icon: Users },
+    { name: "Timekeeping", href: "/system-admin/timekeeping", icon: Clock },
+    { name: "Subscriptions", href: "/system-admin/subscriptions", icon: DollarSign },
+    { name: "Audit Logs", href: "/system-admin/audit-logs", icon: ScrollText },
+    { name: "Global Settings", href: "/system-admin/settings", icon: ClipboardCheck },
   ],
 };
 
@@ -91,7 +91,17 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
   const [user, setUser] = useState<StoredUser | null>(null);
 
   useEffect(() => {
-    setUser(getUserInfo());
+    const syncUser = () => setUser(getUserInfo());
+
+    syncUser();
+
+    window.addEventListener("user-info-updated", syncUser);
+    window.addEventListener("storage", syncUser);
+
+    return () => {
+      window.removeEventListener("user-info-updated", syncUser);
+      window.removeEventListener("storage", syncUser);
+    };
   }, []);
 
   const handleLogout = async () => {
@@ -121,8 +131,6 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
 
   return (
     <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen shrink-0 border-r border-sidebar-border">
-
-      {/* Logo Section */}
       <div className="h-16 flex items-center gap-3 px-6 mb-8 mt-4">
         <div className="h-10 w-10 bg-white/10 rounded-xl flex items-center justify-center border border-white/20 shadow-inner shrink-0">
           <Layers className="h-6 w-6 text-sidebar-foreground" />
@@ -130,7 +138,7 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
 
         <div className="flex flex-col">
           <span className="text-xl font-bold tracking-tight leading-none mb-1">
-            Blue's Clues
+            Blue&apos;s Clues
           </span>
           <span className="text-sm font-bold uppercase tracking-[0.2em] text-sidebar-foreground/60 leading-none">
             HRIS
@@ -138,7 +146,6 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
         </div>
       </div>
 
-      {/* Navigation Section */}
       <div className="flex-1 px-4 overflow-y-auto">
         <p className="text-[10px] font-bold text-sidebar-foreground/40 mb-3 px-2 tracking-widest uppercase">
           Main Menu
@@ -154,7 +161,6 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
         </nav>
       </div>
 
-      {/* Account Section */}
       <div className="mt-auto px-4 pb-4 border-t border-sidebar-border pt-4">
         <p className="text-[10px] font-bold text-sidebar-foreground/40 mb-3 px-2 tracking-widest uppercase">
           Account
@@ -173,10 +179,7 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleLogout}
-                variant="destructive"
-              >
+              <AlertDialogAction onClick={handleLogout} variant="destructive">
                 Log Out
               </AlertDialogAction>
             </AlertDialogFooter>
@@ -184,7 +187,6 @@ export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
         </AlertDialog>
       </div>
 
-      {/* Profile Block */}
       <div className="bg-black/20 p-4 flex items-center gap-3">
         <div className="h-9 w-9 bg-primary/20 rounded-full flex items-center justify-center font-bold text-sm border border-white/10 text-sidebar-foreground">
           {user ? user.name.charAt(0) : <Loader2 className="h-4 w-4 animate-spin" />}
