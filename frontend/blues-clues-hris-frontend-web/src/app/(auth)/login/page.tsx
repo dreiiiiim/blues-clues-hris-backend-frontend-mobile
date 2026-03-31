@@ -11,8 +11,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
-// TODO (Sprint 2): swap GoogleSignInButton for GoogleLogin once Client ID is available
-// import { GoogleLogin } from "@react-oauth/google";
 import { AlertCircle, Loader2, Clock, Users, Shield } from "lucide-react";
 
 export default function EmployeeLoginPage() {
@@ -62,10 +60,6 @@ export default function EmployeeLoginPage() {
     }
   };
 
-  // TODO (Sprint 2 - Frontend): wire credentialResponse.credential to googleLoginApi()
-  const handleGoogleSignIn = (credentialResponse: any) => {
-    // TODO: googleLoginApi(credentialResponse.credential)
-  };
 
   return (
     <div className="flex min-h-screen bg-muted/10 animate-in fade-in duration-500">
@@ -131,7 +125,6 @@ export default function EmployeeLoginPage() {
             </div>
           )}
 
-          {/* TODO (Sprint 2): replace with GoogleLogin once Client ID is available */}
           <GoogleSignInButton disabled={isLoading} onClick={() => {}} />
 
           <div className="flex items-center gap-3">
@@ -142,10 +135,11 @@ export default function EmployeeLoginPage() {
 
           <form onSubmit={handleLogin} className="space-y-5">
             <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
+              <label htmlFor="login-identifier" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                 Email or Username
               </label>
               <Input
+                id="login-identifier"
                 type="text"
                 placeholder="name@company.com or username"
                 className="h-11 bg-background"
@@ -157,10 +151,11 @@ export default function EmployeeLoginPage() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
+              <label htmlFor="login-password" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">
                 Security Password
               </label>
               <PasswordInput
+                id="login-password"
                 placeholder="••••••••"
                 className="h-11 bg-background"
                 value={password}
@@ -217,7 +212,7 @@ export default function EmployeeLoginPage() {
   );
 }
 
-function FeatureItem({ icon: Icon, title, desc }: { icon: React.ElementType; title: string; desc: string }) {
+function FeatureItem({ icon: Icon, title, desc }: { readonly icon: React.ElementType; readonly title: string; readonly desc: string }) {
   return (
     <div className="flex gap-4 group">
       <div className="bg-white/10 border border-white/10 p-2.5 rounded-xl h-fit shrink-0 transition-transform group-hover:scale-110">

@@ -52,11 +52,35 @@ function typePill(type: string) {
   return TYPE_COLORS[type?.toLowerCase()] ?? { bg: "#F3F4F6", border: "#E5E7EB", text: "#374151" };
 }
 
+function mapJobItem(j: any): JobItem {
+  return {
+    job_posting_id: j.job_posting_id ?? j.job_id ?? j.id ?? String(Math.random()),
+    title: j.title ?? j.job_title ?? "Untitled",
+    department: j.department ?? j.department_name ?? "—",
+    location: j.location ?? "—",
+    posted: j.posted_at
+      ? new Date(j.posted_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+      : "—",
+    type: j.employment_type ?? j.type ?? "Full-time",
+    description: j.description ?? "",
+    salary_range: j.salary_range ?? "",
+  };
+}
+
+function validateAnswers(questions: Question[], answers: Record<string, string>): string | null {
+  for (const q of questions) {
+    if (q.is_required && !answers[q.question_id]?.trim()) {
+      return q.question_text;
+    }
+  }
+  return null;
+}
+
 // Department avatar — picks a color from title initial
 const AVATAR_COLORS = ["#1E3A8A", "#0F766E", "#6D28D9", "#B45309", "#991B1B"];
 function avatarColor(str: string) {
   let h = 0;
-  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  for (let i = 0; i < str.length; i++) h = (str.codePointAt(i) ?? 0) + ((h << 5) - h);
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
@@ -88,18 +112,7 @@ export function ApplicantJobsScreen() {
         const res = await authFetch(`${API_BASE_URL}/jobs/applicant/open`);
         const data = await res.json().catch(() => []);
         if (!cancelled && Array.isArray(data)) {
-          setJobs(data.map((j: any) => ({
-            job_posting_id: j.job_posting_id ?? j.job_id ?? j.id ?? String(Math.random()),
-            title: j.title ?? j.job_title ?? "Untitled",
-            department: j.department ?? j.department_name ?? "—",
-            location: j.location ?? "—",
-            posted: j.posted_at
-              ? new Date(j.posted_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-              : "—",
-            type: j.employment_type ?? j.type ?? "Full-time",
-            description: j.description ?? "",
-            salary_range: j.salary_range ?? "",
-          })));
+          setJobs(data.map(mapJobItem));
         }
       } catch {
         // leave empty
@@ -164,11 +177,10 @@ export function ApplicantJobsScreen() {
 
   async function handleSubmit() {
     if (!selectedJob) return;
-    for (const q of questions) {
-      if (q.is_required && !answers[q.question_id]?.trim()) {
-        Alert.alert("Required", `Please answer: "${q.question_text}"`);
-        return;
-      }
+    const unanswered = validateAnswers(questions, answers);
+    if (unanswered) {
+      Alert.alert("Required", `Please answer: "${unanswered}"`);
+      return;
     }
     setSubmitting(true);
     try {
@@ -184,7 +196,7 @@ export function ApplicantJobsScreen() {
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        throw new Error((err as any)?.message || "Failed to submit");
+        throw new Error((err as { message?: string })?.message || "Failed to submit");
       }
       setModalVisible(false);
       Alert.alert("Submitted!", `Your application for "${selectedJob.title}" was submitted successfully.`);
@@ -288,9 +300,10 @@ export function ApplicantJobsScreen() {
             )}
 
             {/* Job list */}
-            {loading ? (
+            {loading && (
               <ActivityIndicator size="large" color="#1E3A8A" style={{ marginTop: 32 }} />
-            ) : filteredJobs.length === 0 ? (
+            )}
+            {!loading && filteredJobs.length === 0 && (
               <View style={styles.emptyCard}>
                 <Ionicons name="briefcase-outline" size={36} color="#D1D5DB" style={{ marginBottom: 12 }} />
                 <Text style={styles.emptyTitle}>
@@ -300,8 +313,8 @@ export function ApplicantJobsScreen() {
                   {jobs.length === 0 ? "Check back later for new opportunities." : "Try a different keyword or filter."}
                 </Text>
               </View>
-            ) : (
-              filteredJobs.map((job) => {
+            )}
+            {!loading && filteredJobs.length > 0 && filteredJobs.map((job) => {
                 const pill = typePill(job.type);
                 const ac = avatarColor(job.title);
                 return (
@@ -356,8 +369,7 @@ export function ApplicantJobsScreen() {
                     </View>
                   </Pressable>
                 );
-              })
-            )}
+              })}
           </ScrollView>
         </View>
       </View>
@@ -474,9 +486,10 @@ export function ApplicantJobsScreen() {
                     <Text style={styles.formSubtitle}>{selectedJob.title}</Text>
                   </View>
 
-                  {loadingQuestions ? (
+                  {loadingQuestions && (
                     <ActivityIndicator color="#1E3A8A" style={{ marginVertical: 24 }} />
-                  ) : questions.length === 0 ? (
+                  )}
+                  {!loadingQuestions && questions.length === 0 && (
                     <View style={styles.noQuestionsCard}>
                       <Ionicons name="checkmark-circle-outline" size={36} color="#1E3A8A" style={{ marginBottom: 10 }} />
                       <Text style={styles.noQuestionsTitle}>No additional questions</Text>
@@ -484,8 +497,8 @@ export function ApplicantJobsScreen() {
                         This posting has no form questions. You can submit your application right away.
                       </Text>
                     </View>
-                  ) : (
-                    questions.map((q, idx) => (
+                  )}
+                  {!loadingQuestions && questions.length > 0 && questions.map((q, idx) => (
                       <View key={q.question_id} style={styles.questionCard}>
                         <Text style={styles.questionLabel}>
                           {idx + 1}.{"  "}{q.question_text}
@@ -537,8 +550,7 @@ export function ApplicantJobsScreen() {
                           );
                         })}
                       </View>
-                    ))
-                  )}
+                    ))}
 
                   <Pressable
                     style={[styles.submitBtn, submitting && styles.submitBtnDisabled]}

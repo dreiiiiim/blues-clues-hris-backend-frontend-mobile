@@ -20,14 +20,14 @@ const memoryStore: {
   isApplicant?: boolean;
 } = {};
 
-function parseJwt(token: string): any | null {
+function parseJwt(token: string): Record<string, unknown> | null {
   try {
     const base64Url = token.split(".")[1];
-    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const base64 = base64Url.replaceAll("-", "+").replaceAll("_", "/");
     const jsonPayload = decodeURIComponent(
       atob(base64)
         .split("")
-        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .map((c) => "%" + ("00" + (c.codePointAt(0) ?? 0).toString(16)).slice(-2))
         .join("")
     );
     return JSON.parse(jsonPayload);
@@ -218,9 +218,53 @@ export async function applicantLogin(
 }
 
 // Kept for API compatibility with AppNavigator.
-export async function saveSession(_session: UserSession, _persist: boolean): Promise<void> {}
+export function saveSession(_session: UserSession, _persist: boolean): void {}
 
 // ─── Session Restore ──────────────────────────────────────────────────────────
+
+async function storeTokens(isPersistent: boolean, accessToken: string, refreshToken?: string): Promise<void> {
+  if (isPersistent) {
+    await AsyncStorage.setItem(ACCESS_KEY, accessToken);
+    if (refreshToken) await AsyncStorage.setItem(REFRESH_KEY, refreshToken);
+  } else {
+    memoryStore.accessToken = accessToken;
+    if (refreshToken) memoryStore.refreshToken = refreshToken;
+  }
+}
+
+async function refreshExpiredSession(payload: Record<string, unknown>): Promise<UserSession | null> {
+  const { refreshToken, isApplicant, isPersistent } = await getRefreshInfo();
+  if (!refreshToken) return null;
+
+  const res = await fetch(getRefreshEndpoint(isApplicant), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: cookieStr(getCookieName(isApplicant), refreshToken),
+    },
+  });
+
+  if (!res.ok) {
+    await clearSession();
+    return null;
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!data?.access_token) return null;
+
+  const newPayload = parseJwt(data.access_token);
+  if (!newPayload) return null;
+
+  await storeTokens(isPersistent, data.access_token, data.refresh_token);
+
+  const role = isApplicant
+    ? ("applicant" as UserRole)
+    : (roleNameToKey(String(newPayload.role_name ?? "")) ?? null);
+  if (!role) return null;
+
+  const name = [newPayload.first_name, newPayload.last_name].filter(Boolean).join(" ");
+  return { role, name, email: String(newPayload.email ?? "") };
+}
 
 export async function getSession(): Promise<UserSession | null> {
   try {
@@ -232,46 +276,8 @@ export async function getSession(): Promise<UserSession | null> {
     const payload = parseJwt(accessToken);
     if (!payload) return null;
 
-    if (payload.exp && Date.now() / 1000 > payload.exp) {
-      const { refreshToken, isApplicant, isPersistent } = await getRefreshInfo();
-      if (!refreshToken) return null;
-
-      const res = await fetch(getRefreshEndpoint(isApplicant), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Cookie: cookieStr(getCookieName(isApplicant), refreshToken),
-        },
-      });
-
-      if (!res.ok) {
-        await clearSession();
-        return null;
-      }
-
-      const data = await res.json().catch(() => ({}));
-      if (!data?.access_token) return null;
-
-      const newPayload = parseJwt(data.access_token);
-      if (!newPayload) return null;
-
-      if (isPersistent) {
-        await AsyncStorage.setItem(ACCESS_KEY, data.access_token);
-        if (data.refresh_token) await AsyncStorage.setItem(REFRESH_KEY, data.refresh_token);
-      } else {
-        memoryStore.accessToken = data.access_token;
-        if (data.refresh_token) memoryStore.refreshToken = data.refresh_token;
-      }
-
-      const role = isApplicant
-        ? ("applicant" as UserRole)
-        : (roleNameToKey(newPayload.role_name) ?? null);
-      if (!role) return null;
-
-      const name = [newPayload.first_name, newPayload.last_name]
-        .filter(Boolean)
-        .join(" ");
-      return { role, name, email: newPayload.email ?? "" };
+    if (payload.exp && Date.now() / 1000 > Number(payload.exp)) {
+      return refreshExpiredSession(payload);
     }
 
     const persistedIsApplicant = await AsyncStorage.getItem(IS_APPLICANT_KEY);
@@ -280,11 +286,11 @@ export async function getSession(): Promise<UserSession | null> {
 
     const role = isApplicant
       ? ("applicant" as UserRole)
-      : (roleNameToKey(payload.role_name) ?? null);
+      : (roleNameToKey(String(payload.role_name ?? "")) ?? null);
     if (!role) return null;
 
     const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ");
-    return { role, name, email: payload.email ?? "" };
+    return { role, name, email: String(payload.email ?? "") };
   } catch {
     return null;
   }
@@ -292,61 +298,60 @@ export async function getSession(): Promise<UserSession | null> {
 
 // ─── Authenticated Fetch ──────────────────────────────────────────────────────
 
+function buildAuthRequest(url: string, options: RequestInit, token: string): Promise<Response> {
+  return fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers as Record<string, string> | undefined),
+      Authorization: `Bearer ${token}`,
+    },
+  });
+}
+
+async function refreshAndRetry(url: string, options: RequestInit, isPersistent: boolean): Promise<Response> {
+  const { refreshToken, isApplicant } = await getRefreshInfo();
+
+  if (!refreshToken) {
+    await clearSession();
+    throw new Error("Session expired");
+  }
+
+  const refreshRes = await fetch(getRefreshEndpoint(isApplicant), {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: cookieStr(getCookieName(isApplicant), refreshToken),
+    },
+  });
+
+  if (!refreshRes.ok) {
+    await clearSession();
+    throw new Error("Session expired");
+  }
+
+  const data = await refreshRes.json().catch(() => ({}));
+  if (!data?.access_token) {
+    await clearSession();
+    throw new Error("Session expired");
+  }
+
+  await storeTokens(isPersistent, data.access_token, data.refresh_token);
+
+  return buildAuthRequest(url, options, data.access_token);
+}
+
 export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
   const persistedAccess = await AsyncStorage.getItem(ACCESS_KEY);
   const isPersistent = !!persistedAccess;
-  let accessToken = persistedAccess ?? memoryStore.accessToken ?? null;
+  const accessToken = persistedAccess ?? memoryStore.accessToken ?? null;
 
   if (!accessToken) throw new Error("Not authenticated");
 
-  const makeRequest = (token: string) =>
-    fetch(url, {
-      ...options,
-      headers: {
-        "Content-Type": "application/json",
-        ...(options.headers as Record<string, string> | undefined),
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-  let res = await makeRequest(accessToken);
+  const res = await buildAuthRequest(url, options, accessToken);
 
   if (res.status === 401) {
-    const { refreshToken, isApplicant } = await getRefreshInfo();
-
-    if (!refreshToken) {
-      await clearSession();
-      throw new Error("Session expired");
-    }
-
-    const refreshRes = await fetch(getRefreshEndpoint(isApplicant), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Cookie: cookieStr(getCookieName(isApplicant), refreshToken),
-      },
-    });
-
-    if (!refreshRes.ok) {
-      await clearSession();
-      throw new Error("Session expired");
-    }
-
-    const data = await refreshRes.json().catch(() => ({}));
-    if (!data?.access_token) {
-      await clearSession();
-      throw new Error("Session expired");
-    }
-
-    if (isPersistent) {
-      await AsyncStorage.setItem(ACCESS_KEY, data.access_token);
-      if (data.refresh_token) await AsyncStorage.setItem(REFRESH_KEY, data.refresh_token);
-    } else {
-      memoryStore.accessToken = data.access_token;
-      if (data.refresh_token) memoryStore.refreshToken = data.refresh_token;
-    }
-
-    res = await makeRequest(data.access_token);
+    return refreshAndRetry(url, options, isPersistent);
   }
 
   return res;

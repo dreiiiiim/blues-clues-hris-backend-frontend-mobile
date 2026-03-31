@@ -56,7 +56,7 @@ const AVATAR_COLORS = [
 
 function avatarColor(userId: string): string {
   let hash = 0;
-  for (let i = 0; i < userId.length; i++) hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+  for (let i = 0; i < userId.length; i++) hash = (userId.codePointAt(i) ?? 0) + ((hash << 5) - hash);
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
@@ -173,15 +173,17 @@ export function ManagerTeamScreen() {
               ))}
             </ScrollView>
 
-            {loading ? (
+            {loading && (
               <ActivityIndicator size="large" color="#1E3A8A" style={{ marginTop: 32 }} />
-            ) : filtered.length === 0 ? (
+            )}
+            {!loading && filtered.length === 0 && (
               <View style={styles.emptyCard}>
                 <Feather name="users" size={32} color="#CBD5E1" />
                 <Text style={styles.emptyTitle}>No team members found</Text>
                 <Text style={styles.emptyText}>Try adjusting your search or filter.</Text>
               </View>
-            ) : (
+            )}
+            {!loading && filtered.length > 0 && (
               filtered.map((member) => (
                 <MemberCard
                   key={member.user_id}
@@ -240,7 +242,7 @@ export function ManagerTeamScreen() {
   );
 }
 
-function StatBox({ label, value, color = "#0F172A" }: { label: string; value: string; color?: string }) {
+function StatBox({ label, value, color = "#0F172A" }: { readonly label: string; readonly value: string; readonly color?: string }) {
   return (
     <View style={styles.statBox}>
       <Text style={[styles.statValue, { color }]}>{value}</Text>
@@ -249,7 +251,7 @@ function StatBox({ label, value, color = "#0F172A" }: { label: string; value: st
   );
 }
 
-function MemberCard({ member, onPress }: { member: TeamMember; onPress: () => void }) {
+function MemberCard({ member, onPress }: { readonly member: TeamMember; readonly onPress: () => void }) {
   const initials = getInitials(member.first_name, member.last_name);
   const color = avatarColor(member.user_id);
   const s = getStatusStyle(member.account_status);
@@ -264,7 +266,7 @@ function MemberCard({ member, onPress }: { member: TeamMember; onPress: () => vo
         <View style={{ flex: 1 }}>
           <Text style={styles.memberName}>{name}</Text>
           <Text style={styles.memberEmail} numberOfLines={1}>{member.email}</Text>
-          {member.department && (
+          {!!member.department && (
             <Text style={styles.memberDept}>{member.department}</Text>
           )}
         </View>
@@ -278,7 +280,7 @@ function MemberCard({ member, onPress }: { member: TeamMember; onPress: () => vo
   );
 }
 
-function DetailItem({ icon, label, value }: { icon: any; label: string; value: string }) {
+function DetailItem({ icon, label, value }: { readonly icon: any; readonly label: string; readonly value: string }) {
   return (
     <View style={styles.detailItem}>
       <Feather name={icon} size={13} color="#64748B" />

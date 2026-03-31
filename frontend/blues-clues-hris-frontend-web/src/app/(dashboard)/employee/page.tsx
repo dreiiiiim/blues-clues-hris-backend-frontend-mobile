@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import { Progress } from "@/components/ui/progress";
@@ -33,7 +33,6 @@ export default function EmployeeDashboardPage() {
 
   useWelcomeToast(session?.name || "Employee", "Staff Portal");
 
-  // TODO: replace with GET /employees/:id fields.
   const checklist: ChecklistItemData[] = [
     { title: "Upload Identification Documents", status: "Pending", icon: Upload, locked: false },
     { title: "Review Employee Handbook", status: "Pending", icon: FileText, locked: false },
@@ -43,10 +42,6 @@ export default function EmployeeDashboardPage() {
   ];
 
   const completion = 0;
-  const pendingCount = useMemo(
-    () => checklist.filter((item) => !item.locked && item.status !== "Completed").length,
-    [checklist],
-  );
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto animate-in fade-in duration-500">
@@ -75,7 +70,6 @@ export default function EmployeeDashboardPage() {
           <CardContent className="space-y-3 p-5">
             <ProfileField label="Full Name" value={session?.name || "-"} />
             <ProfileField label="Role" value={session?.role === "employee" ? "Internal Staff" : session?.role || "-"} />
-            {/* TODO: replace with start_date from GET /employees/:id */}
             <ProfileField label="Member Since" value="-" />
           </CardContent>
         </Card>
@@ -89,7 +83,6 @@ export default function EmployeeDashboardPage() {
                 </div>
                 <CardTitle className="text-lg font-bold tracking-tight">Onboarding Progress</CardTitle>
               </div>
-              {/* TODO: replace with real completion % from GET /employees/:id */}
               <span className="font-bold text-primary text-xs bg-primary/10 border border-primary/20 px-3 py-1 rounded-full uppercase tracking-wide">
                 {completion}% Complete
               </span>
@@ -107,7 +100,7 @@ export default function EmployeeDashboardPage() {
   );
 }
 
-function HeroStat({ label, value }: { label: string; value: string }) {
+function HeroStat({ label, value }: { readonly label: string; readonly value: string }) {
   return (
     <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
       <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/65">{label}</p>
@@ -116,7 +109,7 @@ function HeroStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ProfileField({ label, value }: { label: string; value: string }) {
+function ProfileField({ label, value }: { readonly label: string; readonly value: string }) {
   return (
     <div className="p-4 rounded-xl border border-border bg-muted/20 transition-colors hover:bg-muted/30">
       <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-[0.14em] mb-1">{label}</p>
@@ -125,7 +118,7 @@ function ProfileField({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ChecklistItem({ item }: { item: ChecklistItemData }) {
+function ChecklistItem({ item }: { readonly item: ChecklistItemData }) {
   return (
     <div
       className={`flex items-center justify-between p-4 rounded-xl border transition-all ${

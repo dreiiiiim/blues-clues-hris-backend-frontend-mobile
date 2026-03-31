@@ -58,15 +58,32 @@ export default function ForgotPasswordPage() {
               <span>{error}</span>
             </div>
           )}
-          {!submitted ? (
+          {submitted ? (
+            <div className="text-center space-y-4 py-4">
+              <div className="mx-auto h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
+                <CheckCircle className="h-6 w-6 text-green-600" />
+              </div>
+              <div className="space-y-2">
+                <p className="font-medium">Check your email</p>
+                <p className="text-sm text-muted-foreground">
+                  If an account exists for <span className="font-semibold text-foreground">{email}</span>,
+                  a reset link has been sent.
+                </p>
+              </div>
+              <Link href="/login" className="inline-block mt-4 text-primary hover:underline font-semibold text-sm">
+                Return to Login
+              </Link>
+            </div>
+          ) : (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <label className="text-sm font-semibold">
+                <label htmlFor="forgot-email" className="text-sm font-semibold">
                   Email Address
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
+                    id="forgot-email"
                     type="email"
                     placeholder="name@company.com"
                     className="pl-9"
@@ -94,30 +111,14 @@ export default function ForgotPasswordPage() {
               </Button>
 
               <div className="text-center mt-4">
-                <Link 
-                  href="/login" 
+                <Link
+                  href="/login"
                   className="text-sm text-muted-foreground hover:text-primary flex items-center justify-center gap-2 transition-colors"
                 >
                   <ArrowLeft className="h-3 w-3" /> Back to Login
                 </Link>
               </div>
             </form>
-          ) : (
-            <div className="text-center space-y-4 py-4">
-              <div className="mx-auto h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle className="h-6 w-6 text-green-600" />
-              </div>
-              <div className="space-y-2">
-                <p className="font-medium">Check your email</p>
-                <p className="text-sm text-muted-foreground">
-                  If an account exists for <span className="font-semibold text-foreground">{email}</span>,
-                  a reset link has been sent.
-                </p>
-              </div>
-              <Link href="/login" className="inline-block mt-4 text-primary hover:underline font-semibold text-sm">
-                Return to Login
-              </Link>
-            </div>
           )}
         </CardContent>
       </Card>

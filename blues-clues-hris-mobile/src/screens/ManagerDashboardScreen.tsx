@@ -46,7 +46,7 @@ function deriveStatus(
   timeIn: string | null
 ): "Present" | "Late" | "Absent" {
   if (!timeIn) return "Absent";
-  const hour = parseInt(
+  const hour = Number.parseInt(
     parseTs(timeIn).toLocaleString("en-US", {
       hour: "numeric",
       hour12: false,

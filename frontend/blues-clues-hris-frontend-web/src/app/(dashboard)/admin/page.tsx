@@ -67,7 +67,7 @@ export default function AdminDashboardPage() {
             </div>
           </CardHeader>
           <CardContent>
-            <p className="text-2xl font-bold text-gray-900">{totalUsers !== null ? totalUsers : "—"}</p>
+            <p className="text-2xl font-bold text-gray-900">{totalUsers === null ? "—" : totalUsers}</p>
             <p className="text-sm text-gray-500">Total users in your company</p>
           </CardContent>
         </Card>

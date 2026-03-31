@@ -158,7 +158,7 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
               <View className="flex-1">
                 <MetricCard
                   label="Headcount"
-                  value={totalCount !== null ? String(totalCount) : "--"}
+                  value={totalCount === null ? "--" : String(totalCount)}
                   sub="Active employees"
                   trend=""
                 />
@@ -217,7 +217,7 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
                     const fullName = [row.first_name, row.last_name].filter(Boolean).join(" ") || row.email;
                     const initials = (row.first_name?.charAt(0) ?? row.email.charAt(0)).toUpperCase();
                     const avatarColors = ["#EFF6FF|#1D4ED8", "#F0FDF4|#16A34A", "#FEF3C7|#B45309", "#F5F3FF|#7C3AED", "#FFF1F2|#BE123C"];
-                    const colorPair = avatarColors[row.email.charCodeAt(0) % avatarColors.length].split("|");
+                    const colorPair = avatarColors[(row.email.codePointAt(0) ?? 0) % avatarColors.length].split("|");
                     return (
                       <View key={row.user_id} style={{ flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 14, padding: 12, marginBottom: 8, backgroundColor: "#FFFFFF" }}>
                         <View style={{ width: 42, height: 42, borderRadius: 21, backgroundColor: colorPair[0], alignItems: "center", justifyContent: "center", marginRight: 12 }}>

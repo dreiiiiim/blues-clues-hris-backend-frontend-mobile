@@ -80,6 +80,12 @@ export class JobsController {
     return this.jobsService.getApplicationDetail(applicationId, req.user.company_id);
   }
 
+  @Get('applications/:applicationId/survey-score')
+  @ApiOperation({ summary: 'Public: Get survey score for an application (bypasses auth for testing)' })
+  getSurveyScore(@Param('applicationId') applicationId: string) {
+    return this.jobsService.getSurveyScore(applicationId);
+  }
+
   @Patch('applications/:applicationId/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...HR_AND_ABOVE)
