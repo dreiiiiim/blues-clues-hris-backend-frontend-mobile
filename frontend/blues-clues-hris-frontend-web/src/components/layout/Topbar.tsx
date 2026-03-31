@@ -4,8 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, ChevronDown, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { NotificationBell } from "@/components/NotificationBell";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
+import { NotificationBell } from "@/components/NotificationBell";
 
 type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
 
@@ -68,7 +68,7 @@ export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {
 
         {/* Notifications */}
         {persona === "applicant" && user && (
-          <NotificationBell applicantId={user.applicant_id} showUnreadBadge={true} />
+          <NotificationBell applicantId={user.user_id} showUnreadBadge={true} />
         )}
 
         {/* Profile Dropdown */}

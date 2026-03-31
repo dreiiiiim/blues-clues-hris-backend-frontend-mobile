@@ -7,9 +7,11 @@ export class CreateNotificationDto {
   @IsString()
   message: string;
 
-  @IsString() @IsOptional()
+  @IsString()
+  @IsOptional()
   notification_type?: string; // 'status_update', 'message', etc.
 
-  @IsString() @IsOptional()
-  related_application_id?: string;
+  @IsString()
+  @IsOptional()
+  job_posting_id?: string; // FK to job_postings table (optional)
 }

@@ -89,12 +89,20 @@ export async function saveManualRanking(
 }
 
 export async function getSurveyScore(applicationId: string): Promise<{ surveyScore: number }> {
-  const res = await fetch(`${API_BASE_URL}/jobs/applications/${applicationId}/survey-score`);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error((data as { message?: string })?.message || "Failed to fetch survey score");
+  try {
+    const res = await fetch(`${API_BASE_URL}/jobs/applications/${applicationId}/survey-score`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // If column doesn't exist or endpoint fails, return 0 instead of throwing
+      console.warn(`Survey score unavailable for ${applicationId}`);
+      return { surveyScore: 0 };
+    }
+    return { surveyScore: data?.surveyScore ?? 0 };
+  } catch (err) {
+    // Network error or parse error - return 0
+    console.warn(`Could not fetch survey score for ${applicationId}:`, err);
+    return { surveyScore: 0 };
   }
-  return { surveyScore: data?.surveyScore ?? 0 };
 }
 
 export async function updateApplicationStatus(

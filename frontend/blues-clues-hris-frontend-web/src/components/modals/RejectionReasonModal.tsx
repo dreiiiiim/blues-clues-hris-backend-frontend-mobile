@@ -128,10 +128,11 @@ export function RejectionReasonModal({
           {/* Custom reason input */}
           {selectedReason === "other" && (
             <div className="pt-2 space-y-2">
-              <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              <label htmlFor="custom-rejection-reason" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
                 Please specify
               </label>
               <Input
+                id="custom-rejection-reason"
                 type="text"
                 placeholder="Enter custom rejection reason..."
                 value={customReason}

@@ -9,8 +9,8 @@ interface Notification {
   notification_id: string;
   applicant_id?: string;
   message: string;
-  notification_type: string;
-  related_application_id?: string;
+  type: string;
+  job_posting_id?: string;
   is_read: boolean;
   created_at: string;
 }
@@ -29,27 +29,35 @@ export function NotificationBell({ applicantId, showUnreadBadge = true }: Notifi
 
   const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api/tribeX/auth/v1";
 
-  // Fetch notifications when dropdown opens
+  // Fetch notifications when dropdown opens and poll for updates
   useEffect(() => {
     if (!isOpen || !applicantId) return;
 
     const fetchNotifications = async () => {
-      setLoading(true);
       setError(null);
       try {
         const res = await fetch(`${API_BASE_URL}/notifications/applicant/${applicantId}`);
         if (!res.ok) throw new Error("Failed to fetch notifications");
         const data: Notification[] = await res.json();
         setNotifications(data);
+        setLoading(false);
       } catch (err) {
         setError("Failed to load notifications");
         console.error(err);
-      } finally {
         setLoading(false);
       }
     };
 
+    // Fetch immediately on open
+    setLoading(true);
     fetchNotifications();
+
+    // Poll for new notifications every 3 seconds while dropdown is open
+    const pollInterval = setInterval(() => {
+      fetchNotifications();
+    }, 3000);
+
+    return () => clearInterval(pollInterval);
   }, [isOpen, applicantId, API_BASE_URL]);
 
   // Close dropdown when clicking outside
@@ -180,7 +188,7 @@ export function NotificationBell({ applicantId, showUnreadBadge = true }: Notifi
                   >
                     <div className="flex items-start gap-3">
                       <div className="shrink-0 mt-1">
-                        {getNotificationIcon(notif.notification_type)}
+                        {getNotificationIcon(notif.type)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm text-foreground leading-relaxed break-words">

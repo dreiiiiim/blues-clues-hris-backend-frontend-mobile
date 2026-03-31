@@ -16,13 +16,13 @@ export class NotificationsService {
     const notification_id = crypto.randomUUID();
 
     const { data, error } = await supabase
-      .from('email_notifications')
+      .from('notifications')
       .insert({
         notification_id,
         applicant_id: dto.applicant_id,
         message: dto.message,
-        notification_type: dto.notification_type ?? 'status_update',
-        related_application_id: dto.related_application_id ?? null,
+        type: dto.notification_type ?? 'status_update',
+        job_posting_id: dto.job_posting_id ?? null,
         is_read: false,
         created_at: new Date().toISOString(),
       })
@@ -37,7 +37,7 @@ export class NotificationsService {
     const supabase = this.supabaseService.getClient();
 
     const { data, error } = await supabase
-      .from('email_notifications')
+      .from('notifications')
       .select('*')
       .eq('applicant_id', applicantId)
       .eq('is_read', false)
@@ -51,7 +51,7 @@ export class NotificationsService {
     const supabase = this.supabaseService.getClient();
 
     const { data, error } = await supabase
-      .from('email_notifications')
+      .from('notifications')
       .select('*')
       .eq('applicant_id', applicantId)
       .order('created_at', { ascending: false });
@@ -64,7 +64,7 @@ export class NotificationsService {
     const supabase = this.supabaseService.getClient();
 
     const { data, error } = await supabase
-      .from('email_notifications')
+      .from('notifications')
       .update({ is_read: true })
       .eq('notification_id', notificationId)
       .select()
@@ -79,7 +79,7 @@ export class NotificationsService {
     const supabase = this.supabaseService.getClient();
 
     const { error } = await supabase
-      .from('email_notifications')
+      .from('notifications')
       .update({ is_read: true })
       .eq('applicant_id', applicantId)
       .eq('is_read', false);

@@ -557,7 +557,7 @@ export class JobsService {
           applicant_id: app.applicant_id,
           message: statusMessages[status.toLowerCase()],
           notification_type: 'status_update',
-          related_application_id: applicationId,
+          job_posting_id: app.job_posting_id,
         });
       } catch (notifError) {
         this.logger.error(`Failed to create notification: ${notifError}`);
@@ -815,6 +815,17 @@ export class JobsService {
       const { error: answerError } = await supabase.from('applicant_answers').insert(answerRows);
       if (answerError) {
         console.error('Failed to save applicant answers:', answerError.message);
+      }
+
+      // Calculate survey score after answers are saved
+      const surveyScore = await this.calculateSurveyScore(application_id);
+      const { error: scoreError } = await supabase
+        .from('job_applications')
+        .update({ survey_score: surveyScore })
+        .eq('application_id', application_id);
+
+      if (scoreError) {
+        console.error('Failed to save survey score:', scoreError.message);
       }
     }
 

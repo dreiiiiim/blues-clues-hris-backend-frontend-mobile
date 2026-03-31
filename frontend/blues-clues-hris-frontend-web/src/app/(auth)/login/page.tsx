@@ -51,7 +51,7 @@ export default function EmployeeLoginPage() {
       const meRes = await authFetch(`${API_BASE_URL}/me`);
       const me = await meRes.json().catch(() => ({}));
       const name = [payload.first_name ?? "", payload.last_name ?? ""].filter(Boolean).join(" ") || me.username || identifier;
-      saveUserInfo({ name, email: me.email ?? "", role });
+      saveUserInfo({ name, email: me.email ?? "", role, user_id: payload.sub_userid });
       router.push(`/${role}`);
     } catch (err: any) {
       setError(err?.message || "Invalid credentials. Please try again.");

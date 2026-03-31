@@ -106,7 +106,8 @@ function ApplicationForm({
         toast.error("You have already submitted an application for this role.");
       } else {
         toast.error(errorMsg);
-      } finally {
+      }
+    } finally {
       setSubmitting(false);
     }
   };
@@ -427,14 +428,16 @@ export default function ApplicantDashboardPage() {
                 Track your applications and discover fresh opportunities all in one place.
               </p>
             </div>
-            {!loading && applications.length > 0 && (
-              <Link
-                href="/applicant/applications"
-                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/15 bg-white/8 hover:bg-white/14 transition-colors text-[11px] font-semibold text-white/70 hover:text-white shrink-0 cursor-pointer"
-              >
-                My Applications <ArrowUpRight className="h-3.5 w-3.5" />
-              </Link>
-            )}
+            <div className="flex items-center gap-3 shrink-0">
+              {!loading && applications.length > 0 && (
+                <Link
+                  href="/applicant/applications"
+                  className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/15 bg-white/8 hover:bg-white/14 transition-colors text-[11px] font-semibold text-white/70 hover:text-white shrink-0 cursor-pointer"
+                >
+                  My Applications <ArrowUpRight className="h-3.5 w-3.5" />
+                </Link>
+              )}
+            </div>
           </div>
         </div>
 

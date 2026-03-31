@@ -77,6 +77,34 @@ function normalizeStatus(status: string) {
     .join(" ");
 }
 
+const SFIA_LEVELS = {
+  1: "Following",
+  2: "Assisting",
+  3: "Applying",
+  4: "Enabling",
+  5: "Ensuring",
+  6: "Initiating",
+  7: "Strategizing",
+} as const;
+
+function getSfiaLevelName(level: number): string {
+  return SFIA_LEVELS[level as keyof typeof SFIA_LEVELS] || "Unknown";
+}
+
+function getSfiaLevelColor(level: number): string {
+  if (level <= 2) return "bg-red-400"; // Beginner
+  if (level <= 4) return "bg-amber-400"; // Intermediate
+  if (level <= 6) return "bg-green-500"; // Advanced
+  return "bg-emerald-600"; // Expert
+}
+
+function getSfiaLevelBgColor(level: number): string {
+  if (level <= 2) return "bg-red-50";
+  if (level <= 4) return "bg-amber-50";
+  if (level <= 6) return "bg-green-50";
+  return "bg-emerald-50";
+}
+
 function formatJobMeta(job: JobWithCount) {
   const parts = [job.location, job.status ? normalizeStatus(job.status) : null];
   if (typeof job.total_candidates === "number") {
@@ -98,6 +126,10 @@ function FitVisualization({
         const hasGap = skill.supply_level < skill.demand_level;
         const demandWidth = Math.max(skill.demand_level * 20, 8);
         const supplyWidth = Math.max(skill.supply_level * 20, 0);
+        const demandLevelName = getSfiaLevelName(skill.demand_level);
+        const supplyLevelName = getSfiaLevelName(skill.supply_level);
+        const demandBgColor = getSfiaLevelBgColor(skill.demand_level);
+        const supplyBgColor = getSfiaLevelBgColor(skill.supply_level);
 
         return (
           <div key={`${skill.sfia_skill_id}-${skill.skill_name}`}>
@@ -111,20 +143,24 @@ function FitVisualization({
             <div className="mb-0.5 flex items-center gap-2">
               <span className="w-14 shrink-0 text-right text-[10px] text-muted-foreground">Demand</span>
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                <div className="h-full rounded-full bg-slate-400" style={{ width: `${demandWidth}%` }} />
+                <div className={`h-full rounded-full ${getSfiaLevelColor(skill.demand_level)}`} style={{ width: `${demandWidth}%` }} />
               </div>
-              <span className="w-8 shrink-0 text-[10px] text-muted-foreground">{skill.demand_level}</span>
+              <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${demandBgColor}`}>
+                {skill.demand_level} <span className="text-[9px] font-normal">({demandLevelName})</span>
+              </span>
             </div>
 
             <div className="flex items-center gap-2">
               <span className="w-14 shrink-0 text-right text-[10px] text-muted-foreground">Supply</span>
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className={`h-full rounded-full ${hasGap ? "bg-red-400" : "bg-green-500"}`}
+                  className={`h-full rounded-full ${getSfiaLevelColor(skill.supply_level)}`}
                   style={{ width: `${supplyWidth}%` }}
                 />
               </div>
-              <span className="w-8 shrink-0 text-[10px] text-muted-foreground">{skill.supply_level}</span>
+              <span className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-semibold ${supplyBgColor}`}>
+                {skill.supply_level} <span className="text-[9px] font-normal">({supplyLevelName})</span>
+              </span>
             </div>
 
             <p className="mt-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -135,6 +171,35 @@ function FitVisualization({
       })}
     </div>
   );
+}
+
+function CandidateListContent({
+  loading,
+  items,
+  renderItem,
+}: Readonly<{
+  loading: boolean;
+  items: RankedCandidate[];
+  renderItem: (candidate: RankedCandidate, index: number) => React.ReactNode;
+}>) {
+  if (loading) {
+    return (
+      <div className="flex min-h-[220px] items-center justify-center text-sm font-medium text-muted-foreground">
+        <Loader2 className="mr-3 h-4 w-4 animate-spin" />
+        Loading ranked candidates...
+      </div>
+    );
+  }
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+        No candidate ranking data available for this job yet.
+      </div>
+    );
+  }
+
+  return <>{items.map(renderItem)}</>;
 }
 
 function CandidateCard({
@@ -213,6 +278,22 @@ function CandidateCard({
             {Math.round(displayScore)}%
           </p>
           <p className="mt-0.5 text-[10px] text-muted-foreground">{scoreLabel}</p>
+          {mode === "manual" && candidate.sfia_match_percentage !== null && (
+            <>
+              <p className="mt-1.5 text-xs font-semibold leading-none text-muted-foreground">
+                {Math.round(candidate.sfia_match_percentage)}%
+              </p>
+              <p className="text-[10px] text-muted-foreground">Fit Score</p>
+            </>
+          )}
+          {mode === "sfia" && surveyScore !== null && surveyScore > 0 && (
+            <>
+              <p className="mt-1.5 text-xs font-semibold leading-none text-muted-foreground">
+                {Math.round(surveyScore)}%
+              </p>
+              <p className="text-[10px] text-muted-foreground">Survey</p>
+            </>
+          )}
         </div>
 
         <button
@@ -470,23 +551,31 @@ export default function CandidateEvaluationPage() {
         </div>
 
         <div className="flex flex-wrap gap-3">
-          {top3.map((candidate, index) => (
-            <Card key={candidate.application_id} className="border-border/70 shadow-sm">
-              <CardContent className="flex items-center gap-3 px-4 py-3">
-                <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${podiumBg(index)}`}>
-                  <Trophy className={`h-3.5 w-3.5 ${podiumIconColor(index)}`} />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold leading-none text-foreground">
-                    {candidate.first_name} {candidate.last_name}
-                  </p>
-                  <p className={`mt-0.5 text-sm font-bold ${fitTextColor(candidate.sfia_match_percentage)}`}>
-                    {candidate.sfia_match_percentage}% fit
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+          {top3.map((candidate, index) => {
+            const top3SurveyScore = surveyScores[candidate.application_id] ?? 0;
+            return (
+              <Card key={candidate.application_id} className="border-border/70 shadow-sm">
+                <CardContent className="flex items-center gap-3 px-4 py-3">
+                  <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${podiumBg(index)}`}>
+                    <Trophy className={`h-3.5 w-3.5 ${podiumIconColor(index)}`} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-semibold leading-none text-foreground">
+                      {candidate.first_name} {candidate.last_name}
+                    </p>
+                    <p className={`mt-0.5 text-sm font-bold ${fitTextColor(candidate.sfia_match_percentage)}`}>
+                      {candidate.sfia_match_percentage}% fit
+                    </p>
+                    {top3SurveyScore > 0 && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Survey: {Math.round(top3SurveyScore)}%
+                      </p>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       </div>
 
@@ -552,17 +641,10 @@ export default function CandidateEvaluationPage() {
         )}
 
         <div className="space-y-3 p-5">
-          {loadingCandidates ? (
-            <div className="flex min-h-[220px] items-center justify-center text-sm font-medium text-muted-foreground">
-              <Loader2 className="mr-3 h-4 w-4 animate-spin" />
-              Loading ranked candidates...
-            </div>
-          ) : visibleList.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
-              No candidate ranking data available for this job yet.
-            </div>
-          ) : (
-            visibleList.map((candidate, index) => (
+          <CandidateListContent
+            loading={loadingCandidates}
+            items={visibleList}
+            renderItem={(candidate, index) => (
               <CandidateCard
                 key={candidate.application_id}
                 candidate={candidate}
@@ -582,8 +664,8 @@ export default function CandidateEvaluationPage() {
                   setDragOverIndex(null);
                 }}
               />
-            ))
-          )}
+            )}
+          />
         </div>
 
         <div className="border-t border-border bg-muted/20 px-5 py-3">

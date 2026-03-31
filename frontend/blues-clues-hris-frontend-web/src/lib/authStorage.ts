@@ -6,6 +6,7 @@ export interface StoredUser {
   name: string;
   email: string;
   role: string;
+  user_id?: string;  // applicant_id for applicants, sub_userid for staff
 }
 
 // Access token lives ONLY in memory — never written to sessionStorage or localStorage.

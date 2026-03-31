@@ -79,7 +79,12 @@ function ApplicantPortalAuthInner() {
           .filter(Boolean)
           .join(" ") || email;
 
-        saveUserInfo({ name, email, role: "applicant" });
+        saveUserInfo({ 
+          name, 
+          email, 
+          role: "applicant",
+          user_id: payload.sub_userid,  // Store the applicant_id from JWT
+        });
 
         // Soft navigation — keeps in-memory access token alive (no refresh cookie for applicants)
         router.push("/applicant/dashboard");
