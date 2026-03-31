@@ -15,7 +15,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
 import { MobileRoleMenu } from "../components/MobileRoleMenu";
 import { GradientHero } from "../components/GradientHero";
-import { TimekeepingTable, TimekeepingLog } from "../components/TimekeepingTable";
+import { TimekeepingTable } from "../components/TimekeepingTable";
+import type { TimekeepingLog } from "../components/TimekeepingTable";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
 
@@ -42,9 +43,7 @@ function formatHours(timeIn: string | null, timeOut: string | null): string {
   return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
-function deriveStatus(
-  timeIn: string | null
-): "Present" | "Late" | "Absent" {
+function deriveStatus(timeIn: string | null): "Present" | "Late" | "Absent" {
   if (!timeIn) return "Absent";
   const hour = Number.parseInt(
     parseTs(timeIn).toLocaleString("en-US", {
@@ -96,13 +95,17 @@ function buildTimekeepingLogs(
     string,
     { timeIn: string | null; timeOut: string | null }
   > = {};
+
   for (const p of punches) {
-    if (!punchMap[p.employee_id])
+    if (!punchMap[p.employee_id]) {
       punchMap[p.employee_id] = { timeIn: null, timeOut: null };
-    if (p.log_type === "time-in" && !punchMap[p.employee_id].timeIn)
+    }
+    if (p.log_type === "time-in" && !punchMap[p.employee_id].timeIn) {
       punchMap[p.employee_id].timeIn = p.timestamp;
-    if (p.log_type === "time-out")
+    }
+    if (p.log_type === "time-out") {
       punchMap[p.employee_id].timeOut = p.timestamp;
+    }
   }
 
   return users
@@ -114,6 +117,7 @@ function buildTimekeepingLogs(
       };
       const name =
         `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown";
+
       return {
         id: u.employee_id,
         employeeName: name,
@@ -144,6 +148,7 @@ export function ManagerDashboardScreen() {
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(false);
+
     try {
       const today = todayPHT();
       const [timesheetsRes, usersRes] = await Promise.all([
@@ -151,8 +156,9 @@ export function ManagerDashboardScreen() {
         authFetch(`${API_BASE_URL}/users`),
       ]);
 
-      if (!timesheetsRes.ok || !usersRes.ok)
+      if (!timesheetsRes.ok || !usersRes.ok) {
         throw new Error("Failed to fetch data");
+      }
 
       const punches: PunchRow[] = await timesheetsRes.json();
       const users: UserRow[] = await usersRes.json();
@@ -175,10 +181,30 @@ export function ManagerDashboardScreen() {
   const absent = logs.filter((l) => l.status === "Absent").length;
 
   const summaryCards = [
-    { id: "1", label: "Total Employees", value: loading ? "—" : String(logs.length), helper: "Active accounts" },
-    { id: "2", label: "Present Today", value: loading ? "—" : String(present), helper: "On time" },
-    { id: "3", label: "Late / Issues", value: loading ? "—" : String(late), helper: "Needs attention" },
-    { id: "4", label: "Absent", value: loading ? "—" : String(absent), helper: "Not clocked in" },
+    {
+      id: "1",
+      label: "Total Employees",
+      value: loading ? "—" : String(logs.length),
+      helper: "Active accounts",
+    },
+    {
+      id: "2",
+      label: "Present Today",
+      value: loading ? "—" : String(present),
+      helper: "On time",
+    },
+    {
+      id: "3",
+      label: "Late / Issues",
+      value: loading ? "—" : String(late),
+      helper: "Needs attention",
+    },
+    {
+      id: "4",
+      label: "Absent",
+      value: loading ? "—" : String(absent),
+      helper: "Not clocked in",
+    },
   ];
 
   return (
@@ -212,17 +238,24 @@ export function ManagerDashboardScreen() {
           >
             <GradientHero>
               <Text style={styles.eyebrow}>Manager Portal</Text>
-              <Text style={styles.title}>Welcome, {session.name.split(" ")[0]}</Text>
-              <Text style={styles.subtitle}>
-                Review daily attendance records and manage your team from one place.
+              <Text style={styles.title}>
+                Welcome, {session.name.split(" ")[0]}
               </Text>
+              <Text style={styles.subtitle}>
+                Review daily attendance records and manage your team from one
+                place.
+              </Text>
+
               <Pressable
                 style={styles.refreshBtn}
                 onPress={loadData}
                 disabled={loading}
               >
                 {loading ? (
-                  <ActivityIndicator color="rgba(255,255,255,0.85)" size="small" />
+                  <ActivityIndicator
+                    color="rgba(255,255,255,0.85)"
+                    size="small"
+                  />
                 ) : (
                   <>
                     <Ionicons
@@ -246,14 +279,15 @@ export function ManagerDashboardScreen() {
               ))}
             </View>
 
-            {/* Quick Actions */}
             <View style={styles.quickRow}>
               <Pressable
                 style={styles.quickCard}
                 onPress={() => navigation.replace("ManagerTeam", { session })}
               >
                 <Text style={styles.quickTitle}>Team Directory →</Text>
-                <Text style={styles.quickSub}>View all team members and their status.</Text>
+                <Text style={styles.quickSub}>
+                  View all team members and their status.
+                </Text>
               </Pressable>
             </View>
 

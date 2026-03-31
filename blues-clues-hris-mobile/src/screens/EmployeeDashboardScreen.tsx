@@ -14,7 +14,7 @@ import { MobileRoleMenu } from "../components/MobileRoleMenu";
 import { Header } from "../components/Header";
 import { GradientHero } from "../components/GradientHero";
 import { Colors } from "../constants/colors";
-import { UserSession } from "../services/auth";
+import type { UserSession } from "../services/auth";
 
 type ChecklistItem = {
   id: string;
@@ -25,7 +25,11 @@ type ChecklistItem = {
 type FilterMode = "all" | "pending" | "completed" | "locked";
 
 const BASE_TASKS: ChecklistItem[] = [
-  { id: "id_docs", title: "Upload identification documents", completed: false },
+  {
+    id: "id_docs",
+    title: "Upload identification documents",
+    completed: false,
+  },
   { id: "handbook", title: "Review employee handbook", completed: false },
   { id: "tax", title: "Complete tax forms", completed: false },
   { id: "deposit", title: "Set up direct deposit", completed: false },
@@ -55,8 +59,9 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
   const completedCount = unlockedTasks.filter((t) => t.completed).length;
   const pendingCount = unlockedTasks.filter((t) => !t.completed).length;
   const lockedCount = taskState.filter((t) => t.locked).length;
-  const progress = unlockedTasks.length ? Math.round((completedCount / unlockedTasks.length) * 100) : 0;
-
+  const progress = unlockedTasks.length
+    ? Math.round((completedCount / unlockedTasks.length) * 100)
+    : 0;
 
   const visibleTasks = taskState.filter((task) => {
     if (filter === "pending") return !task.locked && !task.completed;
@@ -72,7 +77,7 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
         const lockedNow = task.id === "security" ? trainingLocked : false;
         if (lockedNow) return task;
         return { ...task, completed: !task.completed };
-      }),
+      })
     );
   };
 
@@ -103,36 +108,63 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
             <Header role="employee" userName={session.name} />
           )}
 
-          <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+          >
             <GradientHero style={{ marginBottom: 0 }}>
               <Text style={styles.heroEyebrow}>Staff Portal</Text>
-              <Text style={styles.heroTitle}>Welcome back, {session.name.split(" ")[0]}</Text>
-              <Text style={styles.heroSub}>Complete your onboarding tasks and track your progress below.</Text>
+              <Text style={styles.heroTitle}>
+                Welcome back, {session.name.split(" ")[0]}
+              </Text>
+              <Text style={styles.heroSub}>
+                Complete your onboarding tasks and track your progress below.
+              </Text>
 
               <View style={styles.progressWrap}>
                 <View style={styles.progressTopRow}>
-                  <Text style={styles.progressLabel}>Onboarding Progress</Text>
+                  <Text style={styles.progressLabel}>
+                    Onboarding Progress
+                  </Text>
                   <Text style={styles.progressValue}>{progress}%</Text>
                 </View>
                 <View style={styles.progressTrack}>
-                  <View style={[styles.progressBar, { width: `${progress}%` }]} />
+                  <View
+                    style={[styles.progressBar, { width: `${progress}%` }]}
+                  />
                 </View>
               </View>
             </GradientHero>
 
             <View style={styles.metricsRow}>
-              <StatTile label="Completed" value={`${completedCount}`} helper="done" accent="#16a34a" />
-              <StatTile label="Pending" value={`${pendingCount}`} helper="to do" accent="#d97706" />
-              <StatTile label="Locked" value={`${lockedCount}`} helper="blocked" accent="#64748b" />
+              <StatTile
+                label="Completed"
+                value={`${completedCount}`}
+                helper="done"
+                accent="#16a34a"
+              />
+              <StatTile
+                label="Pending"
+                value={`${pendingCount}`}
+                helper="to do"
+                accent="#d97706"
+              />
+              <StatTile
+                label="Locked"
+                value={`${lockedCount}`}
+                helper="blocked"
+                accent="#64748b"
+              />
             </View>
 
-            {/* Quick Actions */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Quick Actions</Text>
               <View style={styles.quickActionsRow}>
                 <Pressable
                   style={styles.quickAction}
-                  onPress={() => navigation.replace("EmployeeTimekeeping", { session })}
+                  onPress={() =>
+                    navigation.replace("EmployeeTimekeeping", { session })
+                  }
                 >
                   <Text style={styles.quickActionLabel}>Clock In / Out</Text>
                   <Text style={styles.quickActionSub}>Timekeeping</Text>
@@ -148,7 +180,9 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
               </View>
               <View style={styles.profileRow}>
                 <Text style={styles.profileLabel}>Email</Text>
-                <Text style={styles.profileValue}>{session.email || "—"}</Text>
+                <Text style={styles.profileValue}>
+                  {session.email || "—"}
+                </Text>
               </View>
               <View style={styles.profileRowNoBorder}>
                 <Text style={styles.profileLabel}>Role</Text>
@@ -163,15 +197,27 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
               </View>
 
               <View style={styles.filterRow}>
-                {(["all", "pending", "completed", "locked"] as FilterMode[]).map((mode) => {
+                {(
+                  ["all", "pending", "completed", "locked"] as FilterMode[]
+                ).map((mode) => {
                   const active = filter === mode;
                   return (
                     <Pressable
                       key={mode}
                       onPress={() => setFilter(mode)}
-                      style={[styles.filterChip, active ? styles.filterChipActive : undefined]}
+                      style={[
+                        styles.filterChip,
+                        active ? styles.filterChipActive : undefined,
+                      ]}
                     >
-                      <Text style={[styles.filterChipText, active ? styles.filterChipTextActive : undefined]}>{mode}</Text>
+                      <Text
+                        style={[
+                          styles.filterChipText,
+                          active ? styles.filterChipTextActive : undefined,
+                        ]}
+                      >
+                        {mode}
+                      </Text>
                     </Pressable>
                   );
                 })}
@@ -182,19 +228,36 @@ export const EmployeeDashboardScreen = ({ route, navigation }: any) => {
               ) : (
                 visibleTasks.map((task) => {
                   const status = getTaskStatus(task.locked, task.completed);
-                  let statusStyle = styles.statusPending;
-                  if (task.locked) statusStyle = styles.statusLocked;
-                  else if (task.completed) statusStyle = styles.statusDone;
+                  const statusStyle = task.locked
+                    ? styles.statusLocked
+                    : task.completed
+                    ? styles.statusDone
+                    : styles.statusPending;
+
                   return (
                     <Pressable
                       key={task.id}
                       onPress={() => toggleTask(task.id)}
                       disabled={task.locked}
-                      style={[styles.taskRow, task.locked ? styles.taskRowLocked : undefined]}
+                      style={[
+                        styles.taskRow,
+                        task.locked ? styles.taskRowLocked : undefined,
+                      ]}
                     >
                       <View style={styles.taskTextCol}>
-                        <Text style={[styles.taskTitle, task.locked ? styles.taskTitleMuted : undefined]}>{task.title}</Text>
-                        <Text style={styles.taskHint}>{task.locked ? "Complete prerequisite tasks to unlock" : "Tap to toggle completion"}</Text>
+                        <Text
+                          style={[
+                            styles.taskTitle,
+                            task.locked ? styles.taskTitleMuted : undefined,
+                          ]}
+                        >
+                          {task.title}
+                        </Text>
+                        <Text style={styles.taskHint}>
+                          {task.locked
+                            ? "Complete prerequisite tasks to unlock"
+                            : "Tap to toggle completion"}
+                        </Text>
                       </View>
 
                       <View style={[styles.statusBadge, statusStyle]}>
@@ -218,9 +281,21 @@ function getTaskStatus(locked: boolean, completed: boolean): string {
   return "Pending";
 }
 
-function StatTile({ label, value, helper, accent = "#111827" }: { readonly label: string; readonly value: string; readonly helper: string; readonly accent?: string }) {
+function StatTile({
+  label,
+  value,
+  helper,
+  accent = "#111827",
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly helper: string;
+  readonly accent?: string;
+}) {
   return (
-    <View style={[styles.statTile, { borderTopColor: accent, borderTopWidth: 3 }]}>
+    <View
+      style={[styles.statTile, { borderTopColor: accent, borderTopWidth: 3 }]}
+    >
       <Text style={styles.statLabel}>{label}</Text>
       <Text style={[styles.statValue, { color: accent }]}>{value}</Text>
       <Text style={styles.statHelper}>{helper}</Text>

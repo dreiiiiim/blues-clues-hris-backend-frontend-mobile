@@ -6,6 +6,8 @@ import { LoginScreen } from "../screens/LoginScreen";
 import { SignUpScreen } from "../screens/SignUpScreen";
 import { ForgotPasswordScreen } from "../screens/ForgotPasswordScreen";
 import { EmployeeDashboardScreen } from "../screens/EmployeeDashboardScreen";
+import { EmployeeProfileScreen } from "../screens/EmployeeProfileScreen";
+import { EmployeeDocumentsScreen } from "../screens/EmployeeDocumentsScreen";
 import { HROfficerDashboardScreen } from "../screens/HROfficerDashboardScreen";
 import { HROfficerRecruitmentScreen } from "../screens/HROfficerRecruitmentScreen";
 import { HROfficerTimekeepingScreen } from "../screens/HROfficerTimekeepingScreen";
@@ -15,6 +17,7 @@ import { ManagerTimekeepingScreen } from "../screens/ManagerTimekeepingScreen";
 import { ApplicantDashboardScreen } from "../screens/ApplicantDashboardScreen";
 import { ApplicantJobsScreen } from "../screens/ApplicantJobsScreen";
 import { ApplicantApplicationsScreen } from "../screens/ApplicantApplicationsScreen";
+import { ApplicantResumeUploadScreen } from "../screens/ApplicantResumeUploadScreen";
 import { SystemAdminDashboardScreen } from "../screens/SystemAdminDashboardScreen";
 import { SystemAdminUsersScreen } from "../screens/SystemAdminUsersScreen";
 import { SystemAdminBillingScreen } from "../screens/SystemAdminBillingScreen";
@@ -30,6 +33,8 @@ export type RootStackParamList = {
 
   // Employee
   EmployeeDashboard: SessionParam;
+  EmployeeProfile: SessionParam;
+  EmployeeDocuments: SessionParam;
   EmployeeTimekeeping: SessionParam;
 
   // Manager
@@ -44,6 +49,7 @@ export type RootStackParamList = {
 
   // Applicant
   ApplicantDashboard: SessionParam;
+  ApplicantResumeUpload: SessionParam;
   ApplicantJobs: SessionParam;
   ApplicantApplications: SessionParam;
 
@@ -70,29 +76,80 @@ export function AppNavigator() {
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
 
         {/* Employee */}
-        <Stack.Screen name="EmployeeDashboard" component={EmployeeDashboardScreen} />
-        <Stack.Screen name="EmployeeTimekeeping" component={EmployeeTimekeepingScreen} />
+        <Stack.Screen
+          name="EmployeeDashboard"
+          component={EmployeeDashboardScreen}
+        />
+        <Stack.Screen
+          name="EmployeeProfile"
+          component={EmployeeProfileScreen}
+        />
+        <Stack.Screen
+          name="EmployeeDocuments"
+          component={EmployeeDocumentsScreen}
+        />
+        <Stack.Screen
+          name="EmployeeTimekeeping"
+          component={EmployeeTimekeepingScreen}
+        />
 
         {/* Manager */}
-        <Stack.Screen name="ManagerDashboard" component={ManagerDashboardScreen} />
+        <Stack.Screen
+          name="ManagerDashboard"
+          component={ManagerDashboardScreen}
+        />
         <Stack.Screen name="ManagerTeam" component={ManagerTeamScreen} />
-        <Stack.Screen name="ManagerTimekeeping" component={ManagerTimekeepingScreen} />
+        <Stack.Screen
+          name="ManagerTimekeeping"
+          component={ManagerTimekeepingScreen}
+        />
 
         {/* HR Officer */}
-        <Stack.Screen name="HROfficerDashboard" component={HROfficerDashboardScreen} />
-        <Stack.Screen name="HROfficerRecruitment" component={HROfficerRecruitmentScreen} />
-        <Stack.Screen name="HROfficerTimekeeping" component={HROfficerTimekeepingScreen} />
+        <Stack.Screen
+          name="HROfficerDashboard"
+          component={HROfficerDashboardScreen}
+        />
+        <Stack.Screen
+          name="HROfficerRecruitment"
+          component={HROfficerRecruitmentScreen}
+        />
+        <Stack.Screen
+          name="HROfficerTimekeeping"
+          component={HROfficerTimekeepingScreen}
+        />
 
         {/* Applicant */}
-        <Stack.Screen name="ApplicantDashboard" component={ApplicantDashboardScreen} />
+        <Stack.Screen
+          name="ApplicantDashboard"
+          component={ApplicantDashboardScreen}
+        />
+        <Stack.Screen
+          name="ApplicantResumeUpload"
+          component={ApplicantResumeUploadScreen}
+        />
         <Stack.Screen name="ApplicantJobs" component={ApplicantJobsScreen} />
-        <Stack.Screen name="ApplicantApplications" component={ApplicantApplicationsScreen} />
+        <Stack.Screen
+          name="ApplicantApplications"
+          component={ApplicantApplicationsScreen}
+        />
 
         {/* System Admin */}
-        <Stack.Screen name="SystemAdminDashboard" component={SystemAdminDashboardScreen} />
-        <Stack.Screen name="SystemAdminUsers" component={SystemAdminUsersScreen} />
-        <Stack.Screen name="SystemAdminBilling" component={SystemAdminBillingScreen} />
-        <Stack.Screen name="SystemAdminAuditLogs" component={SystemAdminAuditLogsScreen} />
+        <Stack.Screen
+          name="SystemAdminDashboard"
+          component={SystemAdminDashboardScreen}
+        />
+        <Stack.Screen
+          name="SystemAdminUsers"
+          component={SystemAdminUsersScreen}
+        />
+        <Stack.Screen
+          name="SystemAdminBilling"
+          component={SystemAdminBillingScreen}
+        />
+        <Stack.Screen
+          name="SystemAdminAuditLogs"
+          component={SystemAdminAuditLogsScreen}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );
