@@ -451,7 +451,7 @@ export default function HRDashboardPage() {
         <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-muted/20">
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             {filtered.length > 0
-              ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}â€“${Math.min(page * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}`
+              ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1} - ${Math.min(page * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}`
               : "No results"}
           </p>
           <div className="flex gap-2">

@@ -6,6 +6,7 @@ import {
   Get,
   Body,
   Query,
+  Param,
   HttpCode,
   HttpStatus,
   UseGuards,
@@ -108,5 +109,19 @@ export class ApplicantsController {
   @ApiOperation({ summary: 'Resend verification email to an unverified applicant' })
   resendVerification(@Body() body: { email: string }) {
     return this.applicantsService.resendVerification(body.email);
+  }
+
+  @Get(':applicant_id/applications')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get all applications for an applicant (bypasses auth)' })
+  getApplicationsByApplicantId(@Param('applicant_id') applicantId: string) {
+    return this.applicantsService.getApplicationsByApplicantId(applicantId);
+  }
+
+  @Get(':applicant_id/profile')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get applicant profile (bypasses auth)' })
+  getApplicantProfile(@Param('applicant_id') applicantId: string) {
+    return this.applicantsService.getApplicantProfile(applicantId);
   }
 }

@@ -329,4 +329,46 @@ export class ApplicantsService {
       } catch { /* best-effort */ }
     }
   }
+
+  async getApplicationsByApplicantId(applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('job_applications')
+      .select(`
+        application_id,
+        status,
+        applied_at,
+        updated_at,
+        job_posting_id,
+        job_postings (
+          title,
+          description,
+          location,
+          employment_type,
+          salary_range,
+          company_id,
+          company (company_name)
+        )
+      `)
+      .eq('applicant_id', applicantId)
+      .order('applied_at', { ascending: false });
+
+    if (error) throw new InternalServerErrorException(error.message);
+    return data ?? [];
+  }
+
+  async getApplicantProfile(applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('applicant_profile')
+      .select('*')
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(error.message);
+    return data;
+  }
 }
+

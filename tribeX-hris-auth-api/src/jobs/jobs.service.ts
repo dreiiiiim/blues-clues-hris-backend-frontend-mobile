@@ -8,6 +8,7 @@ import {
 import * as crypto from 'crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
@@ -18,6 +19,7 @@ export class JobsService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -279,7 +281,7 @@ export class JobsService {
 
     const { data: app, error: appError } = await supabase
       .from('job_applications')
-      .select('application_id, job_posting_id')
+      .select('application_id, job_posting_id, applicant_id')
       .eq('application_id', applicationId)
       .maybeSingle();
 
@@ -294,6 +296,32 @@ export class JobsService {
       .eq('application_id', applicationId);
 
     if (error) throw new InternalServerErrorException(error.message);
+
+    // Trigger notification for status change
+    const statusMessages = {
+      submitted: 'Your application has been received.',
+      screening: 'Your application is being reviewed.',
+      interview_1: 'You have been invited for the first interview.',
+      technical: 'You have been invited for a technical assessment.',
+      final_interview: 'You have been invited for the final interview.',
+      hired: 'Congratulations! You have been selected for this position.',
+      rejected: 'Thank you for your interest. We have decided to move forward with other candidates.',
+    };
+
+    const message = statusMessages[status] || `Your application status has been updated to: ${status}`;
+    
+    try {
+      await this.notificationsService.createNotification({
+        applicant_id: app.applicant_id,
+        message,
+        notification_type: 'status_update',
+        related_application_id: applicationId,
+      });
+    } catch (notifError) {
+      console.error('Failed to create notification:', notifError);
+      // Don't throw - notification failure shouldn't block status update
+    }
+
     return { message: 'Application status updated' };
   }
 
@@ -465,4 +493,40 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
     return data ?? [];
   }
+
+  async getSurveyScore(applicationId: string): Promise<{ survey_score: number; total_questions: number }> {
+    const supabase = this.supabaseService.getClient();
+
+    // Get all answers for the application
+    const { data: answers, error } = await supabase
+      .from('applicant_answers')
+      .select('answer_value')
+      .eq('application_id', applicationId);
+
+    if (error) throw new InternalServerErrorException(error.message);
+    if (!answers || answers.length === 0) {
+      return { survey_score: 0, total_questions: 0 };
+    }
+
+    // Calculate total score by summing numeric values
+    let totalScore = 0;
+    let numericCount = 0;
+
+    for (const answer of answers) {
+      if (answer.answer_value) {
+        // Try to parse as number (for numeric scales)
+        const numValue = parseFloat(answer.answer_value);
+        if (!isNaN(numValue)) {
+          totalScore += numValue;
+          numericCount++;
+        }
+      }
+    }
+
+    return {
+      survey_score: numericCount > 0 ? Math.round((totalScore / numericCount) * 100) / 100 : 0,
+      total_questions: answers.length,
+    };
+  }
 }
+
