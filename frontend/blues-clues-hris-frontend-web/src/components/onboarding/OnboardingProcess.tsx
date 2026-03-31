@@ -11,7 +11,7 @@ import { TaskChecklist } from "./TaskChecklist";
 import { EquipmentRequest } from "./EquipmentRequest";
 import { ProfileSetup } from "./ProfileSetup";
 import { HRForms } from "./HRForms";
-import { OnboardingSession, DocumentItem, TaskItem, EquipmentItem, HRFormItem, ProfileData } from "@/types/onboarding.types";
+import { OnboardingSession, DocumentItem, TaskItem, EquipmentItem, HRFormItem, ProfileData, OnboardingItemBase } from "@/types/onboarding.types";
 
 interface OnboardingProcessProps {
   session: OnboardingSession;
@@ -29,9 +29,15 @@ export function OnboardingProcess({
   const [daysRemaining, setDaysRemaining] = useState(0);
 
   const isEmployee = userRole === "employee";
+  const documents = session.documents || [];
+  const tasks = session.tasks || [];
+  const equipment = session.equipment || [];
+  const hrForms = session.hr_forms || [];
+  const profileItems: OnboardingItemBase[] = session.profile_items || [];
+  const welcomeItems: OnboardingItemBase[] = session.welcome || [];
   const displayTasks = isEmployee
-    ? session.tasks.filter(t => t.type !== "video")
-    : session.tasks;
+    ? tasks.filter(t => t.type !== "video")
+    : tasks;
 
   useEffect(() => {
     const today = new Date();
@@ -111,25 +117,27 @@ export function OnboardingProcess({
   };
 
   const approvedCount = [
-    ...session.documents.filter(d => d.status === "approved"),
-    ...session.tasks.filter(t => t.status === "approved" || t.status === "confirmed"),
-    ...session.equipment.filter(e => e.status === "approved"),
-    ...session.hr_forms.filter(f => f.status === "approved"),
+    ...documents.filter(d => d.status === "approved"),
+    ...tasks.filter(t => t.status === "approved" || t.status === "confirmed"),
+    ...equipment.filter(e => e.status === "approved"),
+    ...hrForms.filter(f => f.status === "approved"),
+    ...welcomeItems.filter(w => w.status === "confirmed"),
+    ...profileItems.filter(p => p.status === "confirmed"),
   ].length + (session.profile?.status === "approved" ? 1 : 0);
 
   const underReviewCount = [
-    ...session.documents.filter(d => d.status === "for-review"),
+    ...documents.filter(d => d.status === "for-review"),
     ...displayTasks.filter(t => t.status === "for-review"),
-    ...session.equipment.filter(e => e.status === "for-review"),
-    ...(isEmployee ? [] : session.hr_forms.filter(f => f.status === "for-review")),
+    ...equipment.filter(e => e.status === "for-review"),
+    ...(isEmployee ? [] : hrForms.filter(f => f.status === "for-review")),
   ].length;
 
   const remainingCount = [
     session.profile?.status === "pending" || session.profile?.status === "rejected" ? 1 : 0,
-    ...session.documents.filter(d => d.status === "pending" || d.status === "rejected"),
+    ...documents.filter(d => d.status === "pending" || d.status === "rejected"),
     ...displayTasks.filter(t => t.status === "pending" || t.status === "rejected"),
-    ...session.equipment.filter(e => e.status === "pending" || e.status === "rejected"),
-    ...(isEmployee ? [] : session.hr_forms.filter(f => f.status === "pending" || f.status === "rejected")),
+    ...equipment.filter(e => e.status === "pending" || e.status === "rejected"),
+    ...(isEmployee ? [] : hrForms.filter(f => f.status === "pending" || f.status === "rejected")),
   ].filter(Boolean).length;
 
   return (
@@ -233,7 +241,7 @@ export function OnboardingProcess({
 
               <TabsContent value="documents">
                 <DocumentUpload
-                  documents={session.documents}
+                  documents={documents}
                   remarks={session.remarks.filter(r => r.tab_tag === "Documents")}
                   onUpdate={handleUpdateDocuments}
                 />
@@ -242,7 +250,7 @@ export function OnboardingProcess({
               {!isEmployee && (
                 <TabsContent value="forms">
                   <HRForms
-                    forms={session.hr_forms}
+                    forms={hrForms}
                     remarks={session.remarks.filter(r => r.tab_tag === "Forms")}
                     onUpdate={handleUpdateHRForms}
                   />
@@ -259,7 +267,7 @@ export function OnboardingProcess({
 
               <TabsContent value="equipment">
                 <EquipmentRequest
-                  equipment={session.equipment}
+                  equipment={equipment}
                   remarks={session.remarks.filter(r => r.tab_tag === "Equipment")}
                   onUpdateEquipment={handleUpdateEquipment}
                 />

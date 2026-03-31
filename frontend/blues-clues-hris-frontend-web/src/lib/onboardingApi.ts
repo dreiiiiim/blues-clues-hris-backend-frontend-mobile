@@ -131,3 +131,25 @@ export async function assignTemplate(assignment: any): Promise<any> {
   if (!res.ok) throw new Error('Failed to assign template');
   return res.json();
 }
+
+export async function getAllPositions(): Promise<any[]> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/positions`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to fetch positions');
+  return res.json();
+}
+
+export async function createPosition(department_id: string, position_name: string): Promise<any> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/positions`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ department_id, position_name }),
+  });
+  if (!res.ok) throw new Error('Failed to create position');
+  return res.json();
+}
+
+export async function getDepartments(): Promise<any[]> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/departments`, { headers: headers() });
+  if (!res.ok) throw new Error('Failed to fetch departments');
+  return res.json();
+}

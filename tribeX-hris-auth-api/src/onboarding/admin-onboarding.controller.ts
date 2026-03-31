@@ -34,4 +34,25 @@ export class AdminOnboardingController {
   assignTemplate(@Body() dto: AssignTemplateDto) {
     return this.onboardingService.assignTemplate(dto);
   }
+
+  @Get('positions')
+  @Roles('System Admin')
+  @ApiOperation({ summary: 'List all job positions with department names' })
+  getPositions() {
+    return this.onboardingService.getAllPositions();
+  }
+
+  @Post('positions')
+  @Roles('System Admin')
+  @ApiOperation({ summary: 'Create a new job position' })
+  createPosition(@Body() body: { department_id: string; position_name: string }) {
+    return this.onboardingService.createPosition(body);
+  }
+
+  @Get('departments')
+  @Roles('System Admin', 'HR Officer')
+  @ApiOperation({ summary: 'List all departments' })
+  getDepartments() {
+    return this.onboardingService.getDepartments();
+  }
 }

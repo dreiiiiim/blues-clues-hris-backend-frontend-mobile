@@ -85,6 +85,8 @@ export interface OnboardingSession {
   tasks: TaskItem[];
   equipment: EquipmentItem[];
   hr_forms: HRFormItem[];
+  profile_items: OnboardingItemBase[];
+  welcome: OnboardingItemBase[];
   profile: ProfileData | null;
   remarks: Remark[];
 }
@@ -120,4 +122,20 @@ export interface OnboardingTemplate {
   default_deadline_days: number;
   created_at: string;
   template_items: TemplateItem[];
+  position_name?: string | null;
+  department_name?: string | null;
+}
+
+export interface JobPosition {
+  position_id: string;
+  department_id: string;
+  position_name: string;
+  department_name?: string | null;
+  created_at: string;
+}
+
+export interface Department {
+  department_id: string;
+  department_name: string;
+  company_id: string;
 }

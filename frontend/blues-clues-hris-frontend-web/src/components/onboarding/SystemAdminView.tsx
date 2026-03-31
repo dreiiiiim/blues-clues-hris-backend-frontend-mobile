@@ -23,42 +23,13 @@ import {
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-import type { OnboardingTemplate } from "@/types/onboarding.types";
-import { getAllTemplates, createTemplate } from "@/lib/onboardingApi";
-
-interface Department {
-  id: string;
-  name: string;
-  employeeCount: number;
-}
-
-interface Position {
-  id: string;
-  title: string;
-  department: string;
-}
-
-const initialDepartments: Department[] = [
-  { id: "dept-1", name: "Engineering", employeeCount: 45 },
-  { id: "dept-2", name: "Product", employeeCount: 12 },
-  { id: "dept-3", name: "Design", employeeCount: 8 },
-  { id: "dept-4", name: "Marketing", employeeCount: 15 },
-  { id: "dept-5", name: "Analytics", employeeCount: 6 },
-];
-
-const initialPositions: Position[] = [
-  { id: "pos-1", title: "Software Engineer", department: "Engineering" },
-  { id: "pos-2", title: "Senior Software Engineer", department: "Engineering" },
-  { id: "pos-3", title: "Product Manager", department: "Product" },
-  { id: "pos-4", title: "UX Designer", department: "Design" },
-  { id: "pos-5", title: "Marketing Specialist", department: "Marketing" },
-  { id: "pos-6", title: "Data Analyst", department: "Analytics" },
-];
+import type { OnboardingTemplate, JobPosition, Department } from "@/types/onboarding.types";
+import { getAllTemplates, createTemplate, getAllPositions, createPosition, getDepartments } from "@/lib/onboardingApi";
 
 export default function SystemAdminView() {
   const [templates, setTemplates] = useState<OnboardingTemplate[]>([]);
-  const [departments, setDepartments] = useState<Department[]>(initialDepartments);
-  const [positions, setPositions] = useState<Position[]>(initialPositions);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<JobPosition[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<OnboardingTemplate | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -79,6 +50,8 @@ export default function SystemAdminView() {
 
   useEffect(() => {
     getAllTemplates().then(setTemplates).catch(console.error);
+    getDepartments().then(setDepartments).catch(console.error);
+    getAllPositions().then(setPositions).catch(console.error);
   }, []);
 
   const handleCreateTemplate = async () => {
@@ -108,16 +81,20 @@ export default function SystemAdminView() {
   };
 
   const handleCreateDepartment = () => {
-    if (!newDepartmentName.trim()) return;
-    setDepartments([...departments, { id: `dept-${Date.now()}`, name: newDepartmentName, employeeCount: 0 }]);
+    // Department creation is managed at the Supabase level; this dialog is informational only.
     setNewDepartmentName("");
     setShowNewDepartmentDialog(false);
   };
 
-  const handleCreatePosition = () => {
+  const handleCreatePosition = async () => {
     if (!newPositionTitle.trim() || !newPositionDepartment) return;
-    const dept = departments.find(d => d.id === newPositionDepartment);
-    setPositions([...positions, { id: `pos-${Date.now()}`, title: newPositionTitle, department: dept?.name ?? newPositionDepartment }]);
+    try {
+      await createPosition(newPositionDepartment, newPositionTitle);
+      const updated = await getAllPositions();
+      setPositions(updated);
+    } catch (err) {
+      console.error(err);
+    }
     setNewPositionTitle("");
     setNewPositionDepartment("");
     setShowNewPositionDialog(false);
@@ -125,8 +102,8 @@ export default function SystemAdminView() {
 
   const filteredTemplates = templates.filter(t =>
     t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.department_id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.position_id.toLowerCase().includes(searchQuery.toLowerCase())
+    (t.department_name ?? t.department_id).toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (t.position_name ?? t.position_id).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -185,7 +162,7 @@ export default function SystemAdminView() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {departments.reduce((sum, dept) => sum + dept.employeeCount, 0)}
+                {departments.length}
               </div>
               <p className="text-xs text-slate-500">Across all departments</p>
             </CardContent>
@@ -249,8 +226,8 @@ export default function SystemAdminView() {
                     {filteredTemplates.map((template) => (
                       <TableRow key={template.template_id}>
                         <TableCell className="font-medium">{template.name}</TableCell>
-                        <TableCell>{template.department_id}</TableCell>
-                        <TableCell>{template.position_id}</TableCell>
+                        <TableCell>{template.department_name ?? template.department_id}</TableCell>
+                        <TableCell>{template.position_name ?? template.position_id}</TableCell>
                         <TableCell>
                           <Badge variant="outline">
                             {template.template_items.filter(i => i.tab_category === "documents").length}
@@ -302,15 +279,15 @@ export default function SystemAdminView() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Department Name</TableHead>
-                      <TableHead>Employee Count</TableHead>
+                      <TableHead>Company ID</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {departments.map((dept) => (
-                      <TableRow key={dept.id}>
-                        <TableCell className="font-medium">{dept.name}</TableCell>
+                      <TableRow key={dept.department_id}>
+                        <TableCell className="font-medium">{dept.department_name}</TableCell>
                         <TableCell>
-                          <Badge variant="secondary">{dept.employeeCount} employees</Badge>
+                          <Badge variant="secondary">{dept.company_id}</Badge>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -336,10 +313,10 @@ export default function SystemAdminView() {
                   </TableHeader>
                   <TableBody>
                     {positions.map((pos) => (
-                      <TableRow key={pos.id}>
-                        <TableCell className="font-medium">{pos.title}</TableCell>
+                      <TableRow key={pos.position_id}>
+                        <TableCell className="font-medium">{pos.position_name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{pos.department}</Badge>
+                          <Badge variant="outline">{pos.department_name ?? pos.department_id}</Badge>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -502,8 +479,8 @@ export default function SystemAdminView() {
                 </SelectTrigger>
                 <SelectContent>
                   {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
+                    <SelectItem key={dept.department_id} value={dept.department_id}>
+                      {dept.department_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -517,10 +494,10 @@ export default function SystemAdminView() {
                 </SelectTrigger>
                 <SelectContent>
                   {positions
-                    .filter(p => !newTemplateDepartment || departments.find(d => d.id === newTemplateDepartment)?.name === p.department)
+                    .filter(p => !newTemplateDepartment || p.department_id === newTemplateDepartment)
                     .map((pos) => (
-                      <SelectItem key={pos.id} value={pos.id}>
-                        {pos.title}
+                      <SelectItem key={pos.position_id} value={pos.position_id}>
+                        {pos.position_name}
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -605,8 +582,8 @@ export default function SystemAdminView() {
                 </SelectTrigger>
                 <SelectContent>
                   {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.id}>
-                      {dept.name}
+                    <SelectItem key={dept.department_id} value={dept.department_id}>
+                      {dept.department_name}
                     </SelectItem>
                   ))}
                 </SelectContent>

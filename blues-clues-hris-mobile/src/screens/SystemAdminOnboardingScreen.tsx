@@ -31,6 +31,8 @@ type OnboardingTemplate = {
   default_deadline_days: number;
   created_at: string;
   template_items: TemplateItem[];
+  position_name?: string | null;
+  department_name?: string | null;
 };
 
 export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
@@ -109,13 +111,19 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
             )}
 
             {templates.map(template => {
-              const docCount = template.template_items?.filter(i => i.tab_category === "documents").length ?? 0;
-              const taskCount = template.template_items?.filter(i => i.tab_category === "tasks").length ?? 0;
-              const equipCount = template.template_items?.filter(i => i.tab_category === "equipment").length ?? 0;
-              const formCount = template.template_items?.filter(i => i.tab_category === "hr_forms").length ?? 0;
+              const items = template.template_items || [];
+              const docCount = items.filter(i => i.tab_category === "documents").length;
+              const taskCount = items.filter(i => i.tab_category === "tasks").length;
+              const equipCount = items.filter(i => i.tab_category === "equipment").length;
+              const formCount = items.filter(i => i.tab_category === "hr_forms").length;
+              const profileCount = items.filter(i => i.tab_category === "profile").length;
+              const welcomeCount = items.filter(i => i.tab_category === "welcome").length;
               return (
                 <View key={template.template_id} style={styles.templateCard}>
                   <Text style={styles.templateName}>{template.name}</Text>
+                  <Text style={styles.templateMeta}>
+                    {template.position_name ?? template.position_id} • {template.department_name ?? template.department_id}
+                  </Text>
                   <Text style={styles.templateMeta}>
                     Deadline: {template.default_deadline_days} days
                   </Text>
@@ -140,6 +148,18 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
                       <Text style={styles.itemChipNum}>{formCount}</Text>
                       <Text style={styles.itemChipLabel}>Forms</Text>
                     </View>
+                    {profileCount > 0 && (
+                      <View style={styles.itemChip}>
+                        <Text style={styles.itemChipNum}>{profileCount}</Text>
+                        <Text style={styles.itemChipLabel}>Profile</Text>
+                      </View>
+                    )}
+                    {welcomeCount > 0 && (
+                      <View style={styles.itemChip}>
+                        <Text style={styles.itemChipNum}>{welcomeCount}</Text>
+                        <Text style={styles.itemChipLabel}>Welcome</Text>
+                      </View>
+                    )}
                   </View>
                 </View>
               );

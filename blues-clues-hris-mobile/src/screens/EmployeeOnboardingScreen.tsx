@@ -38,6 +38,8 @@ type OnboardingSession = {
   tasks: OnboardingItem[];
   equipment: OnboardingItem[];
   hr_forms: OnboardingItem[];
+  profile_items: OnboardingItem[];
+  welcome: OnboardingItem[];
 };
 
 function statusColor(status: string) {
@@ -91,12 +93,12 @@ export const EmployeeOnboardingScreen = ({ route, navigation }: any) => {
 
   const activeItems: OnboardingItem[] = onboarding
     ? activeTab === "documents"
-      ? onboarding.documents
+      ? (onboarding.documents || [])
       : activeTab === "tasks"
-      ? onboarding.tasks
+      ? (onboarding.tasks || [])
       : activeTab === "equipment"
-      ? onboarding.equipment
-      : onboarding.hr_forms
+      ? (onboarding.equipment || [])
+      : (onboarding.hr_forms || [])
     : [];
 
   return (

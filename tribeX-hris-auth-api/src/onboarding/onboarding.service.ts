@@ -74,7 +74,7 @@ export class OnboardingService {
     let submissions: any[] = [];
     if (itemIds.length > 0) {
       const { data } = await supabase
-        .from('document_submissions')
+        .from('onboarding_documents')
         .select('*')
         .in('onboarding_item_id', itemIds);
       submissions = data || [];
@@ -120,6 +120,8 @@ export class OnboardingService {
       tasks: [] as any[],
       equipment: [] as any[],
       hr_forms: [] as any[],
+      profile_items: [] as any[],
+      welcome: [] as any[],
     };
 
     for (const item of items || []) {
@@ -154,6 +156,10 @@ export class OnboardingService {
         });
       } else if (category === 'hr_forms') {
         grouped.hr_forms.push(base);
+      } else if (category === 'profile') {
+        grouped.profile_items.push(base);
+      } else if (category === 'welcome') {
+        grouped.welcome.push(base);
       }
     }
 
@@ -183,6 +189,8 @@ export class OnboardingService {
       tasks: grouped.tasks,
       equipment: grouped.equipment,
       hr_forms: grouped.hr_forms,
+      profile_items: grouped.profile_items,
+      welcome: grouped.welcome,
       profile: profile || null,
       remarks: formattedRemarks,
     };
@@ -231,7 +239,7 @@ export class OnboardingService {
 
     // Insert submission record
     const { data: submission, error: subErr } = await supabase
-      .from('document_submissions')
+      .from('onboarding_documents')
       .insert({
         submission_id: crypto.randomUUID(),
         onboarding_item_id: onboardingItemId,
@@ -468,6 +476,24 @@ export class OnboardingService {
   async createTemplate(dto: CreateTemplateDto) {
     const supabase = this.supabaseService.getClient();
 
+    // Validate position exists
+    const { data: position } = await supabase
+      .from('job_positions')
+      .select('position_id')
+      .eq('position_id', dto.position_id)
+      .maybeSingle();
+
+    if (!position) throw new BadRequestException('Invalid position_id: position does not exist');
+
+    // Validate department exists
+    const { data: dept } = await supabase
+      .from('department')
+      .select('department_id')
+      .eq('department_id', dto.department_id)
+      .maybeSingle();
+
+    if (!dept) throw new BadRequestException('Invalid department_id: department does not exist');
+
     const templateId = crypto.randomUUID();
 
     // Insert template
@@ -531,7 +557,30 @@ export class OnboardingService {
       .order('created_at', { ascending: false });
 
     if (error) throw new BadRequestException(error.message);
-    return templates;
+
+    // Enrich with position and department names
+    const enriched = [];
+    for (const t of templates || []) {
+      const { data: pos } = await supabase
+        .from('job_positions')
+        .select('position_name')
+        .eq('position_id', t.position_id)
+        .maybeSingle();
+
+      const { data: department } = await supabase
+        .from('department')
+        .select('department_name')
+        .eq('department_id', t.department_id)
+        .maybeSingle();
+
+      enriched.push({
+        ...t,
+        position_name: pos?.position_name || null,
+        department_name: department?.department_name || null,
+      });
+    }
+
+    return enriched;
   }
 
   async assignTemplate(dto: AssignTemplateDto) {
@@ -580,6 +629,63 @@ export class OnboardingService {
 
     this.logger.log(`Template ${dto.template_id} assigned to ${dto.account_id}`);
     return { message: 'Template assigned', session_id: sessionId };
+  }
+
+  async getAllPositions() {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('job_positions')
+      .select('position_id, position_name, department_id, created_at')
+      .order('position_name', { ascending: true });
+
+    if (error) throw new BadRequestException(error.message);
+
+    const enriched = [];
+    for (const p of data || []) {
+      const { data: dept } = await supabase
+        .from('department')
+        .select('department_name')
+        .eq('department_id', p.department_id)
+        .maybeSingle();
+
+      enriched.push({
+        ...p,
+        department_name: dept?.department_name || null,
+      });
+    }
+
+    return enriched;
+  }
+
+  async createPosition(dto: { department_id: string; position_name: string }) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('job_positions')
+      .insert({
+        position_id: crypto.randomUUID(),
+        department_id: dto.department_id,
+        position_name: dto.position_name,
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
+  async getDepartments() {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('department')
+      .select('department_id, department_name, company_id')
+      .order('department_name', { ascending: true });
+
+    if (error) throw new BadRequestException(error.message);
+    return data;
   }
 
   // =========================================================
