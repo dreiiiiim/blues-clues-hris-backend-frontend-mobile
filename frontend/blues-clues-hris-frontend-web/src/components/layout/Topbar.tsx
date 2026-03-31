@@ -17,7 +17,7 @@ const TOPBAR_CONFIG: Record<PersonaType, { search: string; role: string }> = {
   "system-admin": { search: "Search...", role: "System Admin" },
 };
 
-export function Topbar({ persona = "applicant" }: { persona?: PersonaType }) {
+export function Topbar({ persona = "applicant" }: Readonly<{ persona?: PersonaType }>) {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [searchValue, setSearchValue] = useState("");
   const router = useRouter();

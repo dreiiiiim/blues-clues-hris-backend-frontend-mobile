@@ -59,6 +59,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   ],
   employee: [
     { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
+    { name: "Onboarding",  href: "/employee/onboarding",   icon: UserPlus }, // <-- ADD THIS LINE
     { name: "Timekeeping", href: "/employee/timekeeping",  icon: Clock },
     { name: "My Profile",  href: "/employee/profile",      icon: Users },
     { name: "Documents",   href: "/employee/documents",    icon: FileCheck },
@@ -78,6 +79,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   "system-admin": [
     { name: "Dashboard",      href: "/system-admin",                  icon: LayoutDashboard },
     { name: "Users",          href: "/system-admin/users",            icon: Users },
+    { name: "Onboarding",     href: "/system-admin/onboarding",       icon: UserPlus },
     { name: "Timekeeping",    href: "/system-admin/timekeeping",      icon: Clock },
     { name: "Subscriptions",  href: "/system-admin/subscriptions",    icon: DollarSign },
     { name: "Audit Logs",     href: "/system-admin/audit-logs",       icon: ScrollText },
@@ -85,7 +87,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   ],
 };
 
-export function Sidebar({ persona = "applicant" }: { persona?: PersonaType }) {
+export function Sidebar({ persona = "applicant" }: { readonly persona?: PersonaType }) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);

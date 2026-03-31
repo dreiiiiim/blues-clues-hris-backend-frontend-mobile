@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,7 @@ import {
   UserCheck, Check,
 } from "lucide-react";
 
-// â”€â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Types -------------------------------------------------------------------
 
 interface Employee {
   user_id: string;
@@ -34,7 +34,7 @@ interface Employee {
 type Role = { role_id: string; role_name: string };
 type Department = { department_id: string; department_name: string };
 
-// â”€â”€â”€ Constants â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Constants ---------------------------------------------------------------
 
 const ITEMS_PER_PAGE = 10;
 
@@ -44,7 +44,7 @@ const STATUS_STYLES: Record<string, string> = {
   Pending:  "bg-amber-100 text-amber-700 border-amber-200",
 };
 
-// â”€â”€â”€ API helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- API helpers -------------------------------------------------------------
 
 async function apiFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
   const res = await authFetch(`${API_BASE_URL}${path}`, init);
@@ -74,7 +74,7 @@ function StatusBadge({ status }: Readonly<{ status: string }>) {
   );
 }
 
-// Row action dropdown â€” HR can only deactivate or reactivate, not edit
+// Row action dropdown -- HR can only deactivate or reactivate, not edit
 function RowMenu({
   employee,
   onDeactivate,
@@ -178,7 +178,7 @@ function ConfirmDeactivate({
   );
 }
 
-// â”€â”€â”€ Main Page â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// --- Main Page ---------------------------------------------------------------
 
 export default function HRDashboardPage() {
   const user = getUserInfo();
@@ -224,12 +224,12 @@ export default function HRDashboardPage() {
   const filtered = employees.filter(e => {
     const q = search.toLowerCase();
     const matchesSearch = (
-      e.first_name.toLowerCase().includes(q) ||
-      e.last_name.toLowerCase().includes(q) ||
+      e.first_name?.toLowerCase().includes(q) ||
+      e.last_name?.toLowerCase().includes(q) ||
       e.email.toLowerCase().includes(q) ||
-      e.employee_id.toLowerCase().includes(q)
+      e.employee_id?.toLowerCase().includes(q)
     );
-    const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status);
+    const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status ?? "");
     return matchesSearch && matchesStatus;
   });
 
@@ -257,8 +257,8 @@ export default function HRDashboardPage() {
         e.user_id === employee.user_id ? { ...e, account_status: "Inactive" } : e
       ));
       toast.success(`${employee.first_name}'s account deactivated.`);
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to deactivate account.");
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || "Failed to deactivate account.");
     }
   };
 
@@ -269,8 +269,8 @@ export default function HRDashboardPage() {
         e.user_id === employee.user_id ? { ...e, account_status: "Active" } : e
       ));
       toast.success(`${employee.first_name}'s account reactivated.`);
-    } catch (err: any) {
-      toast.error(err?.message || "Failed to reactivate account.");
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || "Failed to reactivate account.");
     }
   };
 
@@ -287,13 +287,14 @@ export default function HRDashboardPage() {
       </td>
     </tr>
   );
+
   const tableRows = loading || paged.length === 0 ? tableRowsPlaceholder : paged.map(e => (
     <tr key={e.user_id} className="hover:bg-primary/5 transition-colors">
       {/* User */}
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
-            {e.first_name.charAt(0)}
+            {e.first_name?.charAt(0)}
           </div>
           <div>
             <p className="font-semibold text-foreground leading-none">
@@ -310,16 +311,16 @@ export default function HRDashboardPage() {
       {/* Role */}
       <td className="px-5 py-4">
         <span className="text-xs font-semibold text-foreground">
-          {roles.find(r => r.role_id === e.role_id)?.role_name ?? "—"}
+          {roles.find(r => r.role_id === e.role_id)?.role_name ?? "-"}
         </span>
       </td>
       {/* Department */}
       <td className="px-5 py-4">
-        <span className="text-xs text-muted-foreground">{e.department_id ?? "—"}</span>
+        <span className="text-xs text-muted-foreground">{e.department_id ?? "-"}</span>
       </td>
       {/* Status */}
       <td className="px-5 py-4">
-        <StatusBadge status={e.account_status} />
+        <StatusBadge status={e.account_status ?? ""} />
       </td>
       {/* Actions */}
       <td className="px-5 py-4 text-right">
@@ -441,7 +442,7 @@ export default function HRDashboardPage() {
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className=”divide-y divide-border”>
+            <tbody className="divide-y divide-border">
               {tableRows}
             </tbody>
           </table>
@@ -451,7 +452,7 @@ export default function HRDashboardPage() {
         <div className="flex items-center justify-between px-5 py-3 border-t border-border bg-muted/20">
           <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             {filtered.length > 0
-              ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}â€“${Math.min(page * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}`
+              ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}-${Math.min(page * ITEMS_PER_PAGE, filtered.length)} of ${filtered.length}`
               : "No results"}
           </p>
           <div className="flex gap-2">
