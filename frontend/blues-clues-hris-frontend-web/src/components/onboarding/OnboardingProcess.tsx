@@ -136,12 +136,12 @@ export function OnboardingProcess({
 
   const approvedCount = [
     ...documents.filter(d => d.status === "approved"),
-    ...tasks.filter(t => t.status === "approved" || t.status === "confirmed"),
-    ...equipment.filter(e => e.status === "approved"),
+    ...displayTasks.filter(t => t.status === "approved" || t.status === "confirmed"),
+    ...equipment.filter(e => e.status === "approved" || e.status === "issued"),
     ...hrForms.filter(f => f.status === "approved" || f.status === "confirmed"),
     ...welcomeItems.filter(w => w.status === "confirmed"),
     ...profileItems.filter(p => p.status === "confirmed"),
-  ].length + (session.profile?.status === "approved" ? 1 : 0);
+  ].length;
 
   const underReviewCount = [
     ...documents.filter(d => d.status === "for-review"),
@@ -151,12 +151,12 @@ export function OnboardingProcess({
   ].length;
 
   const remainingCount = [
-    session.profile?.status === "pending" || session.profile?.status === "rejected" ? 1 : 0,
+    ...profileItems.filter(p => p.status === "pending" || p.status === "rejected"),
     ...documents.filter(d => d.status === "pending" || d.status === "rejected"),
     ...displayTasks.filter(t => t.status === "pending" || t.status === "rejected"),
     ...equipment.filter(e => e.status === "pending" || e.status === "rejected"),
     ...hrForms.filter(f => f.status === "pending" || f.status === "rejected"),
-  ].filter(Boolean).length;
+  ].length;
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
