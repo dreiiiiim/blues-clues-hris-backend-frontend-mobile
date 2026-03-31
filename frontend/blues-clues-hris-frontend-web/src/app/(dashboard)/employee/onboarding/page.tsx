@@ -22,6 +22,7 @@ export default function EmployeeOnboardingPage() {
         setSession(data);
         if (data?.status === "for-review") setStage("review");
         else if (data?.status === "approved") setStage("completion");
+        else if (data && (data.status === "in-progress" || data.progress_percentage > 0)) setStage("onboarding");
       })
       .catch(() => {
         setError("Failed to load onboarding data.");
