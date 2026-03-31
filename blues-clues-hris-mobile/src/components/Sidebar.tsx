@@ -14,7 +14,13 @@ type Props = {
   readonly navigation: any;
 };
 
-export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }: Props) => {
+export const Sidebar = ({
+  role,
+  userName,
+  email = "",
+  activeScreen,
+  navigation,
+}: Props) => {
   const [showLogout, setShowLogout] = useState(false);
   const initial = getInitial(userName);
 
@@ -39,12 +45,40 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
   };
 
   const SCREEN_MAP: Partial<Record<UserRole, Record<string, string>>> = {
-    system_admin: { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
-    admin:        { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
-    manager:      { Dashboard: "ManagerDashboard", Timekeeping: "ManagerTimekeeping", Team: "ManagerTeam" },
-    hr:           { Dashboard: "HROfficerDashboard", Timekeeping: "HROfficerTimekeeping", Recruitment: "HROfficerRecruitment" },
-    employee:     { Dashboard: "EmployeeDashboard", Timekeeping: "EmployeeTimekeeping" },
-    applicant:    { Dashboard: "ApplicantDashboard", Jobs: "ApplicantJobs", Applications: "ApplicantApplications" },
+    system_admin: {
+      Dashboard: "SystemAdminDashboard",
+      Users: "SystemAdminUsers",
+      Billing: "SystemAdminBilling",
+      AuditLogs: "SystemAdminAuditLogs",
+    },
+    admin: {
+      Dashboard: "SystemAdminDashboard",
+      Users: "SystemAdminUsers",
+      Billing: "SystemAdminBilling",
+      AuditLogs: "SystemAdminAuditLogs",
+    },
+    manager: {
+      Dashboard: "ManagerDashboard",
+      Timekeeping: "ManagerTimekeeping",
+      Team: "ManagerTeam",
+    },
+    hr: {
+      Dashboard: "HROfficerDashboard",
+      Timekeeping: "HROfficerTimekeeping",
+      Recruitment: "HROfficerRecruitment",
+    },
+    employee: {
+      Dashboard: "EmployeeDashboard",
+      Profile: "EmployeeProfile",
+      Documents: "EmployeeDocuments",
+      Timekeeping: "EmployeeTimekeeping",
+    },
+    applicant: {
+      Dashboard: "ApplicantDashboard",
+      Resume: "ApplicantResumeUpload",
+      Jobs: "ApplicantJobs",
+      Applications: "ApplicantApplications",
+    },
   };
 
   const goToScreen = (screenName: string) => {
@@ -83,14 +117,21 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
         return <Feather name="briefcase" size={17} color={color} />;
       case "Applications":
       case "Documents":
+      case "Resume":
         return (
-          <Ionicons name="document-text-outline" size={17} color={color} />
+          <Ionicons
+            name="document-text-outline"
+            size={17}
+            color={color}
+          />
         );
       case "Recruitment":
       case "Team":
         return <Feather name="users" size={17} color={color} />;
       case "AuditLogs":
-        return <Ionicons name="shield-checkmark-outline" size={17} color={color} />;
+        return (
+          <Ionicons name="shield-checkmark-outline" size={17} color={color} />
+        );
       case "Approvals":
         return (
           <Ionicons name="checkmark-done-outline" size={17} color={color} />
@@ -136,7 +177,9 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
                 <View style={styles.menuIcon}>
                   {renderIcon(item.name, isActive)}
                 </View>
-                <Text style={[styles.menuText, isActive && styles.menuTextActive]}>
+                <Text
+                  style={[styles.menuText, isActive && styles.menuTextActive]}
+                >
                   {item.label}
                 </Text>
               </Pressable>
@@ -147,7 +190,10 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
         <View style={styles.accountSection}>
           <Text style={styles.sectionLabel}>ACCOUNT</Text>
 
-          <Pressable style={styles.signOutRow} onPress={() => setShowLogout(true)}>
+          <Pressable
+            style={styles.signOutRow}
+            onPress={() => setShowLogout(true)}
+          >
             <Ionicons
               name="log-out-outline"
               size={17}

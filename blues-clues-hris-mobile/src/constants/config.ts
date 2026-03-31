@@ -13,10 +13,13 @@ export const MENU_CONFIG: Record<UserRole, { name: string; label: string }[]> = 
   ],
   employee: [
     { name: "Dashboard", label: "Dashboard" },
+    { name: "Profile", label: "Profile" },
+    { name: "Documents", label: "Documents" },
     { name: "Timekeeping", label: "Timekeeping" },
   ],
   applicant: [
     { name: "Dashboard", label: "Dashboard" },
+    { name: "Resume", label: "Resume Upload" },
     { name: "Jobs", label: "Browse Jobs" },
     { name: "Applications", label: "My Applications" },
   ],

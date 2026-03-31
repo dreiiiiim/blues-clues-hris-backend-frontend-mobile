@@ -43,19 +43,53 @@ export function MobileRoleMenu({
   };
 
   const SCREEN_MAP: Partial<Record<UserRole, Record<string, string>>> = {
-    system_admin: { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
-    admin:        { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
-    manager:      { Dashboard: "ManagerDashboard", Timekeeping: "ManagerTimekeeping", Team: "ManagerTeam" },
-    hr:           { Dashboard: "HROfficerDashboard", Timekeeping: "HROfficerTimekeeping", Recruitment: "HROfficerRecruitment" },
-    employee:     { Dashboard: "EmployeeDashboard", Timekeeping: "EmployeeTimekeeping" },
-    applicant:    { Dashboard: "ApplicantDashboard", Jobs: "ApplicantJobs", Applications: "ApplicantApplications" },
+    system_admin: {
+      Dashboard: "SystemAdminDashboard",
+      Users: "SystemAdminUsers",
+      Billing: "SystemAdminBilling",
+      AuditLogs: "SystemAdminAuditLogs",
+    },
+    admin: {
+      Dashboard: "SystemAdminDashboard",
+      Users: "SystemAdminUsers",
+      Billing: "SystemAdminBilling",
+      AuditLogs: "SystemAdminAuditLogs",
+    },
+    manager: {
+      Dashboard: "ManagerDashboard",
+      Timekeeping: "ManagerTimekeeping",
+      Team: "ManagerTeam",
+    },
+    hr: {
+      Dashboard: "HROfficerDashboard",
+      Timekeeping: "HROfficerTimekeeping",
+      Recruitment: "HROfficerRecruitment",
+    },
+    employee: {
+      Dashboard: "EmployeeDashboard",
+      Profile: "EmployeeProfile",
+      Documents: "EmployeeDocuments",
+      Timekeeping: "EmployeeTimekeeping",
+    },
+    applicant: {
+      Dashboard: "ApplicantDashboard",
+      Resume: "ApplicantResumeUpload",
+      Jobs: "ApplicantJobs",
+      Applications: "ApplicantApplications",
+    },
   };
 
   const goToScreen = (screenName: string) => {
-    if (screenName === activeScreen) { setVisible(false); return; }
+    if (screenName === activeScreen) {
+      setVisible(false);
+      return;
+    }
 
     const target = SCREEN_MAP[role]?.[screenName];
-    if (target) { switchTo(target); return; }
+    if (target) {
+      switchTo(target);
+      return;
+    }
 
     setVisible(false);
   };
@@ -98,12 +132,21 @@ export function MobileRoleMenu({
         return <Feather name="briefcase" size={17} color={color} />;
       case "Applications":
       case "Documents":
-        return <Ionicons name="document-text-outline" size={17} color={color} />;
+      case "Resume":
+        return (
+          <Ionicons
+            name="document-text-outline"
+            size={17}
+            color={color}
+          />
+        );
       case "Recruitment":
       case "Team":
         return <Feather name="users" size={17} color={color} />;
       case "AuditLogs":
-        return <Ionicons name="shield-checkmark-outline" size={17} color={color} />;
+        return (
+          <Ionicons name="shield-checkmark-outline" size={17} color={color} />
+        );
       case "Onboarding":
         return <Ionicons name="clipboard-outline" size={17} color={color} />;
       case "Compensation":

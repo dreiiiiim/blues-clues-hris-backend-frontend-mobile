@@ -1,310 +1,625 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  SafeAreaView,
-  useWindowDimensions,
-  Pressable,
   ActivityIndicator,
-  Alert,
+  Pressable,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+  useWindowDimensions,
+  Modal,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
 import { MobileRoleMenu } from "../components/MobileRoleMenu";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
 
-function parseTs(ts: string): Date {
-  return new Date(ts.includes("Z") || ts.includes("+") ? ts : ts + "Z");
-}
-
-function formatTime(ts: string | null): string {
-  if (!ts) return "—";
-  return parseTs(ts).toLocaleTimeString("en-US", {
-    hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila",
-  });
-}
-
-function formatHours(timeIn: string | null, timeOut: string | null): string {
-  if (!timeIn || !timeOut) return "—";
-  const diff = (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3_600_000;
-  if (diff <= 0) return "—";
-  const h = Math.floor(diff);
-  const m = Math.round((diff - h) * 60);
-  return m > 0 ? `${h}h ${m}m` : `${h}h`;
-}
-
-function deriveStatus(timeIn: string | null): "present" | "late" | "absent" {
-  if (!timeIn) return "absent";
-  const utcMs = parseTs(timeIn).getTime();
-  const manilaMs = utcMs + 8 * 60 * 60 * 1000;
-  const hour = Math.floor((manilaMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
-  const minute = Math.floor((manilaMs % (60 * 60 * 1000)) / (60 * 1000));
-  return hour > 9 || (hour === 9 && minute > 0) ? "late" : "present";
-}
-
-function todayPHT(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
-}
-
-function formatDisplayDate(dateStr: string): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString("en-US", {
-    weekday: "short", month: "short", day: "numeric", year: "numeric",
-  });
-}
-
-function addDays(dateStr: string, delta: number): string {
-  const [year, month, day] = dateStr.split("-").map(Number);
-  const d = new Date(year, month - 1, day + delta);
-  return d.toLocaleDateString("en-CA");
-}
-
-type PunchRow = {
-  log_id: string;
-  employee_id: string;
-  log_type: "time-in" | "time-out";
-  timestamp: string;
-  latitude: number | null;
-  longitude: number | null;
-};
-
-type UserRow = {
+type TeamMember = {
   user_id: string;
-  employee_id: string;
   first_name: string | null;
   last_name: string | null;
-  account_status: string | null;
+  email: string;
+  role_id?: string;
+  department?: string;
+  account_status?: string;
+  start_date?: string;
+  employee_id?: string;
 };
 
-type RosterRow = {
-  employee_id: string;
-  name: string;
-  timeIn: string | null;
-  timeOut: string | null;
-  status: "present" | "late" | "absent";
-};
-
-function buildRoster(users: UserRow[], punches: PunchRow[]): RosterRow[] {
-  const punchMap: Record<string, { timeIn: string | null; timeOut: string | null }> = {};
-  for (const p of punches) {
-    if (!punchMap[p.employee_id]) punchMap[p.employee_id] = { timeIn: null, timeOut: null };
-    if (p.log_type === "time-in" && !punchMap[p.employee_id].timeIn)
-      punchMap[p.employee_id].timeIn = p.timestamp;
-    if (p.log_type === "time-out")
-      punchMap[p.employee_id].timeOut = p.timestamp;
-  }
-  return users
-    .filter((u) => u.account_status?.toLowerCase() !== "inactive")
-    .map((u) => {
-      const punched = punchMap[u.employee_id] ?? { timeIn: null, timeOut: null };
-      return {
-        employee_id: u.employee_id,
-        name: `${u.first_name ?? ""} ${u.last_name ?? ""}`.trim() || "Unknown",
-        timeIn: punched.timeIn,
-        timeOut: punched.timeOut,
-        status: deriveStatus(punched.timeIn),
-      };
-    });
+function getInitials(first?: string | null, last?: string | null): string {
+  return (
+    [(first ?? "")[0], (last ?? "")[0]]
+      .filter(Boolean)
+      .join("")
+      .toUpperCase() || "?"
+  );
 }
 
-const STATUS_STYLES = {
-  present: { bg: "#DCFCE7", border: "#BBF7D0", text: "#166534", label: "Present" },
-  late:    { bg: "#FEF3C7", border: "#FDE68A", text: "#92400E", label: "Late" },
-  absent:  { bg: "#E5E7EB", border: "#D1D5DB", text: "#374151", label: "Absent" },
-};
+function formatDate(iso?: string): string {
+  if (!iso) return "—";
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getStatusStyle(status?: string) {
+  switch (status?.toLowerCase()) {
+    case "active":
+      return { bg: "#DCFCE7", border: "#BBF7D0", text: "#166534" };
+    case "pending":
+      return { bg: "#FEF3C7", border: "#FDE68A", text: "#92400E" };
+    case "inactive":
+      return { bg: "#F1F5F9", border: "#E2E8F0", text: "#475569" };
+    case "locked":
+      return { bg: "#FEE2E2", border: "#FECACA", text: "#991B1B" };
+    default:
+      return { bg: "#F1F5F9", border: "#E2E8F0", text: "#475569" };
+  }
+}
+
+const AVATAR_COLORS = ["#1E3A8A", "#0F766E", "#7C3AED", "#B45309", "#BE185D"];
+
+function avatarColor(userId: string): string {
+  let hash = 0;
+  for (let i = 0; i < userId.length; i++) {
+    hash = (userId.codePointAt(i) ?? 0) + ((hash << 5) - hash);
+  }
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
 
 export function ManagerTimekeepingScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
-  const session = route.params?.session ?? { name: "Manager", email: "", role: "manager" };
+  const session = route.params?.session ?? {
+    name: "Manager",
+    email: "",
+    role: "manager",
+  };
   const { width } = useWindowDimensions();
   const isMobile = width < 900;
 
-  const [selectedDate, setSelectedDate] = useState(todayPHT());
-  const [roster, setRoster] = useState<RosterRow[]>([]);
+  const [members, setMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [selected, setSelected] = useState<TeamMember | null>(null);
 
-  const loadData = useCallback(async (date: string) => {
+  const loadTeam = useCallback(async () => {
     setLoading(true);
     try {
-      const [timesheetsRes, usersRes] = await Promise.all([
-        authFetch(`${API_BASE_URL}/timekeeping/timesheets?date=${date}`),
-        authFetch(`${API_BASE_URL}/users`),
-      ]);
-      if (!timesheetsRes.ok) throw new Error("Failed to load timesheets");
-      if (!usersRes.ok) throw new Error("Failed to load users");
-      const punches: PunchRow[] = await timesheetsRes.json();
-      const users: UserRow[] = await usersRes.json();
-      setRoster(buildRoster(users, punches));
+      const res = await authFetch(`${API_BASE_URL}/users`);
+      const data = await res.json().catch(() => []);
+      setMembers(Array.isArray(data) ? data : []);
     } catch {
-      Alert.alert("Error", "Failed to load timekeeping data.");
+      setMembers([]);
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => { loadData(selectedDate); }, [selectedDate, loadData]);
+  useEffect(() => {
+    loadTeam();
+  }, [loadTeam]);
 
-  function changeDate(delta: number) { setSelectedDate((prev) => addDays(prev, delta)); }
+  const filtered = useMemo(() => {
+    return members.filter((m) => {
+      const name = `${m.first_name ?? ""} ${m.last_name ?? ""}`.toLowerCase();
+      const q = search.toLowerCase();
+      const matchSearch =
+        !q || name.includes(q) || m.email.toLowerCase().includes(q);
+      const matchStatus =
+        statusFilter === "all" ||
+        m.account_status?.toLowerCase() === statusFilter;
+      return matchSearch && matchStatus;
+    });
+  }, [members, search, statusFilter]);
 
-  const total   = roster.length;
-  const present = roster.filter((r) => r.status === "present").length;
-  const late    = roster.filter((r) => r.status === "late").length;
-  const absent  = roster.filter((r) => r.status === "absent").length;
-  const isToday = selectedDate === todayPHT();
+  const statuses = ["all", "active", "pending", "inactive", "locked"];
+
+  const activeCount = members.filter(
+    (m) => m.account_status?.toLowerCase() === "active"
+  ).length;
+  const pendingCount = members.filter(
+    (m) => m.account_status?.toLowerCase() === "pending"
+  ).length;
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safe}>
       <View style={styles.layout}>
         {!isMobile && (
-          <Sidebar role="manager" userName={session.name} email={session.email} activeScreen="Timekeeping" navigation={navigation} />
+          <Sidebar
+            role="manager"
+            userName={session.name}
+            email={session.email}
+            activeScreen="Timekeeping"
+            navigation={navigation}
+          />
         )}
-        <View style={styles.mainContent}>
+        <View style={styles.main}>
           {isMobile && (
-            <MobileRoleMenu role="manager" userName={session.name} email={session.email} activeScreen="Timekeeping" navigation={navigation} />
+            <MobileRoleMenu
+              role="manager"
+              userName={session.name}
+              email={session.email}
+              activeScreen="Timekeeping"
+              navigation={navigation}
+            />
           )}
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-            <GradientHero style={styles.heroCard}>
-              <Text style={styles.eyebrow}>Manager Portal</Text>
-              <Text style={styles.heroTitle}>Timekeeping</Text>
-              <Text style={styles.heroSubtitle}>View team daily attendance records.</Text>
+
+          <ScrollView
+            style={styles.scroll}
+            contentContainerStyle={styles.content}
+            showsVerticalScrollIndicator={false}
+          >
+            <GradientHero style={styles.hero}>
+              <Text style={styles.heroEyebrow}>Manager Portal</Text>
+              <Text style={styles.heroTitle}>Timekeeping Overview</Text>
+              <Text style={styles.heroSub}>
+                Review employee status and team records in one place.
+              </Text>
             </GradientHero>
 
-            <View style={styles.dateNavCard}>
-              <Pressable style={styles.navBtn} onPress={() => changeDate(-1)}>
-                <Ionicons name="chevron-back" size={20} color="#1e3a8a" />
-              </Pressable>
-              <View style={styles.dateCenter}>
-                <Text style={styles.dateText}>{formatDisplayDate(selectedDate)}</Text>
-                {isToday && (
-                  <View style={styles.todayBadge}>
-                    <Text style={styles.todayBadgeText}>Today</Text>
-                  </View>
-                )}
-              </View>
-              <Pressable style={[styles.navBtn, isToday && styles.navBtnDisabled]} onPress={() => changeDate(1)} disabled={isToday}>
-                <Ionicons name="chevron-forward" size={20} color={isToday ? "#CBD5E1" : "#1e3a8a"} />
-              </Pressable>
-            </View>
-
             <View style={styles.statsRow}>
-              {[
-                { label: "Total",   value: total,   bg: "#F8FAFC", border: "#E2E8F0", text: "#0F172A" },
-                { label: "Present", value: present, bg: "#DCFCE7", border: "#BBF7D0", text: "#166534" },
-                { label: "Late",    value: late,    bg: "#FEF3C7", border: "#FDE68A", text: "#92400E" },
-                { label: "Absent",  value: absent,  bg: "#E5E7EB", border: "#D1D5DB", text: "#374151" },
-              ].map((s) => (
-                <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg, borderColor: s.border }]}>
-                  <Text style={[styles.statValue, { color: s.text }]}>{loading ? "—" : s.value}</Text>
-                  <Text style={[styles.statLabel, { color: s.text }]}>{s.label}</Text>
-                </View>
-              ))}
+              <StatBox label="Total" value={String(members.length)} />
+              <StatBox
+                label="Active"
+                value={String(activeCount)}
+                color="#166534"
+              />
+              <StatBox
+                label="Pending"
+                value={String(pendingCount)}
+                color="#92400E"
+              />
             </View>
 
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Attendance Roster</Text>
-              <Text style={styles.sectionSubtitle}>{total} employee{total === 1 ? "" : "s"}</Text>
+            <View style={styles.searchWrap}>
+              <Feather
+                name="search"
+                size={15}
+                color="#94A3B8"
+                style={{ marginRight: 8 }}
+              />
+              <TextInput
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search by name or email..."
+                placeholderTextColor="#94A3B8"
+                style={styles.searchInput}
+              />
+              {search.length > 0 && (
+                <Pressable onPress={() => setSearch("")}>
+                  <Ionicons
+                    name="close-circle"
+                    size={16}
+                    color="#94A3B8"
+                  />
+                </Pressable>
+              )}
             </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.filterRow}
+            >
+              {statuses.map((s) => (
+                <Pressable
+                  key={s}
+                  style={[
+                    styles.filterChip,
+                    statusFilter === s && styles.filterChipActive,
+                  ]}
+                  onPress={() => setStatusFilter(s)}
+                >
+                  <Text
+                    style={[
+                      styles.filterText,
+                      statusFilter === s && styles.filterTextActive,
+                    ]}
+                  >
+                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
 
             {loading && (
-              <ActivityIndicator size="large" color="#1e3a8a" style={{ marginTop: 24 }} />
+              <ActivityIndicator
+                size="large"
+                color="#1E3A8A"
+                style={{ marginTop: 32 }}
+              />
             )}
-            {!loading && roster.length === 0 && (
+
+            {!loading && filtered.length === 0 && (
               <View style={styles.emptyCard}>
-                <Text style={styles.emptyTitle}>No employees found</Text>
-                <Text style={styles.emptyText}>No active employees in the system.</Text>
+                <Feather name="users" size={32} color="#CBD5E1" />
+                <Text style={styles.emptyTitle}>No records found</Text>
+                <Text style={styles.emptyText}>
+                  Try adjusting your search or filter.
+                </Text>
               </View>
             )}
-            {!loading && roster.length > 0 && roster.map((row) => {
-                const s = STATUS_STYLES[row.status];
-                return (
-                  <View key={row.employee_id} style={styles.rosterCard}>
-                    <View style={styles.rosterTop}>
-                      <View style={styles.rosterNameBlock}>
-                        <Text style={styles.rosterName}>{row.name}</Text>
-                        <Text style={styles.rosterEmpId}>{row.employee_id}</Text>
-                      </View>
-                      <View style={[styles.badge, { backgroundColor: s.bg, borderColor: s.border }]}>
-                        <Text style={[styles.badgeText, { color: s.text }]}>{s.label}</Text>
-                      </View>
-                    </View>
-                    <View style={styles.rosterInfoRow}>
-                      <View style={styles.infoBox}>
-                        <Text style={styles.infoLabel}>Time In</Text>
-                        <Text style={styles.infoValue}>{formatTime(row.timeIn)}</Text>
-                      </View>
-                      <View style={styles.infoBox}>
-                        <Text style={styles.infoLabel}>Time Out</Text>
-                        <Text style={styles.infoValue}>{formatTime(row.timeOut)}</Text>
-                      </View>
-                      <View style={styles.infoBox}>
-                        <Text style={styles.infoLabel}>Hours</Text>
-                        <Text style={styles.infoValue}>{formatHours(row.timeIn, row.timeOut)}</Text>
-                      </View>
-                    </View>
-                  </View>
-                );
-              })}
+
+            {!loading &&
+              filtered.length > 0 &&
+              filtered.map((member) => (
+                <MemberCard
+                  key={member.user_id}
+                  member={member}
+                  onPress={() => setSelected(member)}
+                />
+              ))}
           </ScrollView>
         </View>
       </View>
+
+      <Modal
+        visible={!!selected}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setSelected(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalSheet}>
+            {selected && (
+              <>
+                <View style={styles.modalHeader}>
+                  <View
+                    style={[
+                      styles.bigAvatar,
+                      { backgroundColor: avatarColor(selected.user_id) },
+                    ]}
+                  >
+                    <Text style={styles.bigAvatarText}>
+                      {getInitials(selected.first_name, selected.last_name)}
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={styles.closeBtn}
+                    onPress={() => setSelected(null)}
+                  >
+                    <Ionicons name="close" size={20} color="#0F172A" />
+                  </Pressable>
+                </View>
+
+                <Text style={styles.detailName}>
+                  {[selected.first_name, selected.last_name]
+                    .filter(Boolean)
+                    .join(" ") || "—"}
+                </Text>
+                <Text style={styles.detailEmail}>{selected.email}</Text>
+
+                {(() => {
+                  const s = getStatusStyle(selected.account_status);
+                  return (
+                    <View
+                      style={[
+                        styles.detailBadge,
+                        { backgroundColor: s.bg, borderColor: s.border },
+                      ]}
+                    >
+                      <Text
+                        style={[styles.detailBadgeText, { color: s.text }]}
+                      >
+                        {selected.account_status ?? "Unknown"}
+                      </Text>
+                    </View>
+                  );
+                })()}
+
+                <View style={styles.detailGrid}>
+                  <DetailItem
+                    icon="credit-card"
+                    label="Employee ID"
+                    value={selected.employee_id ?? "—"}
+                  />
+                  <DetailItem
+                    icon="briefcase"
+                    label="Department"
+                    value={selected.department ?? "—"}
+                  />
+                  <DetailItem
+                    icon="calendar"
+                    label="Start Date"
+                    value={formatDate(selected.start_date)}
+                  />
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-export default ManagerTimekeepingScreen;
+function StatBox({
+  label,
+  value,
+  color = "#0F172A",
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly color?: string;
+}) {
+  return (
+    <View style={styles.statBox}>
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+function MemberCard({
+  member,
+  onPress,
+}: {
+  readonly member: TeamMember;
+  readonly onPress: () => void;
+}) {
+  const initials = getInitials(member.first_name, member.last_name);
+  const color = avatarColor(member.user_id);
+  const s = getStatusStyle(member.account_status);
+  const name =
+    [member.first_name, member.last_name].filter(Boolean).join(" ") || "—";
+
+  return (
+    <Pressable style={styles.card} onPress={onPress}>
+      <View style={styles.cardRow}>
+        <View style={[styles.avatar, { backgroundColor: color }]}>
+          <Text style={styles.avatarText}>{initials}</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.memberName}>{name}</Text>
+          <Text style={styles.memberEmail} numberOfLines={1}>
+            {member.email}
+          </Text>
+          {!!member.department && (
+            <Text style={styles.memberDept}>{member.department}</Text>
+          )}
+        </View>
+        <View
+          style={[
+            styles.statusPill,
+            { backgroundColor: s.bg, borderColor: s.border },
+          ]}
+        >
+          <Text style={[styles.statusText, { color: s.text }]}>
+            {member.account_status ?? "—"}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+}
+
+function DetailItem({
+  icon,
+  label,
+  value,
+}: {
+  readonly icon: any;
+  readonly label: string;
+  readonly value: string;
+}) {
+  return (
+    <View style={styles.detailItem}>
+      <Feather name={icon} size={13} color="#64748B" />
+      <View style={{ marginLeft: 8, flex: 1 }}>
+        <Text style={styles.detailLabel}>{label}</Text>
+        <Text style={styles.detailValue}>{value}</Text>
+      </View>
+    </View>
+  );
+}
 
 const styles = StyleSheet.create({
-  safeArea:    { flex: 1, backgroundColor: "#F1F5F9" },
-  layout:      { flex: 1, flexDirection: "row", backgroundColor: "#F1F5F9" },
-  mainContent: { flex: 1, backgroundColor: "#F1F5F9" },
-  scroll:      { flex: 1 },
-  content:     { padding: 16, paddingBottom: 28 },
-  heroCard:    { borderRadius: 20, padding: 20, marginBottom: 16 },
-  eyebrow: {
-    fontSize: 12, fontWeight: "800", color: "rgba(255,255,255,0.75)",
-    textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 8,
+  safe: { flex: 1, backgroundColor: "#F1F5F9" },
+  layout: { flex: 1, flexDirection: "row" },
+  main: { flex: 1 },
+  scroll: { flex: 1 },
+  content: { padding: 16, paddingBottom: 32, gap: 12 },
+
+  hero: { borderRadius: 20, padding: 20 },
+  heroEyebrow: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    marginBottom: 6,
   },
-  heroTitle:    { fontSize: 26, fontWeight: "800", color: "#FFFFFF", marginBottom: 6 },
-  heroSubtitle: { fontSize: 14, lineHeight: 22, color: "rgba(255,255,255,0.78)" },
-  dateNavCard: {
-    backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0",
-    borderRadius: 18, padding: 14, marginBottom: 16,
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+  heroTitle: {
+    color: "#FFFFFF",
+    fontSize: 24,
+    fontWeight: "800",
+    marginBottom: 6,
   },
-  navBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "#EFF6FF", alignItems: "center", justifyContent: "center" },
-  navBtnDisabled: { backgroundColor: "#F1F5F9" },
-  dateCenter:     { flex: 1, alignItems: "center" },
-  dateText:       { fontSize: 15, fontWeight: "800", color: "#0F172A", marginBottom: 4 },
-  todayBadge:     { backgroundColor: "#DBEAFE", borderWidth: 1, borderColor: "#BFDBFE", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999 },
-  todayBadgeText: { fontSize: 11, fontWeight: "800", color: "#1D4ED8" },
-  statsRow:       { flexDirection: "row", marginBottom: 16 },
-  statCard:       { flex: 1, borderWidth: 1, borderRadius: 14, paddingVertical: 12, paddingHorizontal: 8, marginRight: 8, alignItems: "center" },
-  statValue:      { fontSize: 22, fontWeight: "800", marginBottom: 4 },
-  statLabel:      { fontSize: 11, fontWeight: "700" },
-  sectionHeader:  { marginBottom: 14 },
-  sectionTitle:   { fontSize: 22, fontWeight: "800", color: "#0F172A", marginBottom: 4 },
-  sectionSubtitle:{ fontSize: 13, color: "#64748B", fontWeight: "600" },
-  emptyCard:      { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 18, padding: 28, alignItems: "center" },
-  emptyTitle:     { fontSize: 16, fontWeight: "800", color: "#0F172A", marginBottom: 6 },
-  emptyText:      { fontSize: 13, color: "#64748B", textAlign: "center" },
-  rosterCard:     { backgroundColor: "#FFFFFF", borderWidth: 1, borderColor: "#E2E8F0", borderRadius: 18, padding: 14, marginBottom: 12 },
-  rosterTop:      { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 },
-  rosterNameBlock:{ flex: 1, paddingRight: 10 },
-  rosterName:     { fontSize: 15, fontWeight: "800", color: "#0F172A", marginBottom: 2 },
-  rosterEmpId:    { fontSize: 12, color: "#64748B", fontWeight: "600" },
-  badge:          { paddingVertical: 4, paddingHorizontal: 10, borderRadius: 999, borderWidth: 1 },
-  badgeText:      { fontSize: 12, fontWeight: "800" },
-  rosterInfoRow:  { flexDirection: "row" },
-  infoBox: {
-    flex: 1, backgroundColor: "#F8FAFC", borderWidth: 1, borderColor: "#E2E8F0",
-    borderRadius: 12, paddingVertical: 10, paddingHorizontal: 10, marginRight: 8,
+  heroSub: {
+    color: "rgba(255,255,255,0.75)",
+    fontSize: 13,
+    lineHeight: 19,
   },
-  infoLabel: { fontSize: 11, color: "#64748B", fontWeight: "700", marginBottom: 4 },
-  infoValue: { fontSize: 13, color: "#0F172A", fontWeight: "800" },
+
+  statsRow: { flexDirection: "row", gap: 8 },
+  statBox: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 12,
+    alignItems: "center",
+  },
+  statValue: { fontSize: 22, fontWeight: "800" },
+  statLabel: {
+    color: "#64748B",
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
+  searchWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    height: 44,
+  },
+  searchInput: { flex: 1, color: "#0F172A", fontSize: 14 },
+
+  filterRow: { gap: 8, paddingVertical: 2 },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#FFFFFF",
+  },
+  filterChipActive: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#BFDBFE",
+  },
+  filterText: { color: "#64748B", fontSize: 12, fontWeight: "700" },
+  filterTextActive: { color: "#1E3A8A", fontWeight: "800" },
+
+  emptyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    padding: 32,
+    alignItems: "center",
+    gap: 8,
+  },
+  emptyTitle: { color: "#0F172A", fontSize: 16, fontWeight: "800" },
+  emptyText: { color: "#64748B", fontSize: 13, textAlign: "center" },
+
+  card: {
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 16,
+    padding: 14,
+  },
+  cardRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
+  memberName: { color: "#0F172A", fontSize: 15, fontWeight: "700" },
+  memberEmail: {
+    color: "#64748B",
+    fontSize: 12,
+    fontWeight: "500",
+    marginTop: 2,
+  },
+  memberDept: {
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  statusPill: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  statusText: { fontSize: 11, fontWeight: "800" },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15,23,42,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    paddingBottom: 36,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 16,
+  },
+  bigAvatar: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  bigAvatarText: { color: "#FFFFFF", fontSize: 22, fontWeight: "800" },
+  closeBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailName: {
+    color: "#0F172A",
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  detailEmail: {
+    color: "#64748B",
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: 12,
+  },
+  detailBadge: {
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 16,
+  },
+  detailBadgeText: { fontSize: 12, fontWeight: "800" },
+  detailGrid: { gap: 10 },
+  detailItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  detailLabel: {
+    color: "#94A3B8",
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  detailValue: {
+    color: "#0F172A",
+    fontSize: 14,
+    fontWeight: "700",
+    marginTop: 2,
+  },
 });
