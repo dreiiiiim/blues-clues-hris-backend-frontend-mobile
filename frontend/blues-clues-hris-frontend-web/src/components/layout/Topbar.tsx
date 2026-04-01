@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
@@ -23,25 +23,48 @@ export function Topbar({ persona = "applicant" }: { readonly persona?: PersonaTy
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const config = TOPBAR_CONFIG[persona];
 
   useEffect(() => {
-    setUser(getUserInfo());
+    const syncUser = () => setUser(getUserInfo());
+
+    syncUser();
+
+    window.addEventListener("user-info-updated", syncUser);
+    window.addEventListener("storage", syncUser);
+
+    return () => {
+      window.removeEventListener("user-info-updated", syncUser);
+      window.removeEventListener("storage", syncUser);
+    };
   }, []);
 
-  // Sync topbar input with URL ?q= when URL changes (e.g. page navigation)
   useEffect(() => {
     setSearchValue(searchParams.get("q") ?? "");
   }, [searchParams]);
 
   const handleSearch = (value: string) => {
     setSearchValue(value);
-    clearTimeout(debounceRef.current);
+
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
     debounceRef.current = setTimeout(() => {
       const params = new URLSearchParams(searchParams.toString());
-      if (value) params.set("q", value); else params.delete("q");
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false } as any);
+
+      if (value) {
+        params.set("q", value);
+      } else {
+        params.delete("q");
+      }
+
+      const queryString = params.toString();
+      router.replace(
+        queryString ? `${pathname}?${queryString}` : pathname,
+        { scroll: false } as any
+      );
     }, 300);
   };
 
@@ -49,8 +72,6 @@ export function Topbar({ persona = "applicant" }: { readonly persona?: PersonaTy
 
   return (
     <header className="h-16 bg-background border-b border-border flex items-center justify-between px-8 shrink-0">
-
-      {/* Search Section */}
       <div className="relative w-96">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
@@ -62,16 +83,12 @@ export function Topbar({ persona = "applicant" }: { readonly persona?: PersonaTy
         />
       </div>
 
-      {/* Actions and Profile Section */}
       <div className="flex items-center gap-6">
-
-        {/* Notifications */}
         <button className="relative text-muted-foreground hover:text-primary transition-colors cursor-pointer group">
           <Bell className="h-5 w-5" />
           <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-destructive rounded-full border-2 border-background group-hover:scale-110 transition-transform"></span>
         </button>
 
-        {/* Profile Dropdown */}
         <button className="flex items-center gap-3 border-l border-border pl-6 cursor-pointer group">
           <div className="flex flex-col text-right transition-transform group-hover:-translate-x-1">
             <span className="text-sm font-semibold text-foreground">
@@ -82,14 +99,12 @@ export function Topbar({ persona = "applicant" }: { readonly persona?: PersonaTy
             </span>
           </div>
 
-          {/* Avatar */}
           <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm border border-primary/20 transition-all group-hover:bg-primary group-hover:text-primary-foreground">
             {user ? initial : <Loader2 className="h-4 w-4 animate-spin" />}
           </div>
 
           <ChevronDown className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
         </button>
-
       </div>
     </header>
   );
