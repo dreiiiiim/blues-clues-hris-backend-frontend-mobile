@@ -194,6 +194,44 @@ export async function applyToJob(
   return data;
 }
 
+// ─── Interview Schedule (Email + Notification trigger) ───────────────────────
+
+export interface InterviewSchedulePayload {
+  application_id:    string;
+  scheduled_date:    string;         // "YYYY-MM-DD"
+  scheduled_time:    string;         // "HH:MM"
+  duration_minutes:  number;
+  format:            string;         // "in_person" | "video" | "phone"
+  location?:         string | null;
+  meeting_link?:     string | null;
+  interviewer_name:  string;
+  interviewer_title?: string | null;
+  notes?:            string | null;
+}
+
+/**
+ * Sends the interview schedule to the applicant via email and stores
+ * the schedule on the backend. Called by HR after confirming a schedule.
+ */
+export async function sendInterviewSchedule(
+  payload: InterviewSchedulePayload,
+): Promise<void> {
+  const res = await authFetch(
+    `${API_BASE_URL}/jobs/applications/${payload.application_id}/interview-schedule`,
+    {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify(payload),
+    },
+  );
+  // If the endpoint doesn't exist yet, we swallow the error gracefully
+  // so the UI flow isn't blocked.
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message || "Failed to send interview schedule");
+  }
+}
+
 export async function getApplicationDetail(applicationId: string): Promise<ApplicationDetail> {
   const res = await authFetch(`${API_BASE_URL}/jobs/applications/${applicationId}`);
   const data = await res.json().catch(() => ({}));
@@ -251,6 +289,20 @@ export type ApplicationQuestion = {
   sort_order: number;
 };
 
+export type InterviewSchedule = {
+  application_id:   string;
+  scheduled_date:   string;        // "YYYY-MM-DD"
+  scheduled_time:   string;        // "HH:MM"
+  duration_minutes: number;
+  format:           string;        // "in_person" | "video" | "phone"
+  location:         string | null;
+  meeting_link:     string | null;
+  interviewer_name: string;
+  interviewer_title: string | null;
+  notes:            string | null;
+  created_at?:      string;
+};
+
 export type ApplicationDetail = {
   application_id: string;
   status: string;
@@ -274,6 +326,8 @@ export type ApplicationDetail = {
       sort_order: number;
     };
   }[];
+  // Populated by backend when an interview has been scheduled
+  interview_schedule?: InterviewSchedule | null;
 };
 
 // ---------------------------------------------------------------------------

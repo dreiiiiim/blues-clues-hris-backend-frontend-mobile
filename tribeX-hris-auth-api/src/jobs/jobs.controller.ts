@@ -24,6 +24,7 @@ import { CreateApplicationDto } from './dto/create-application.dto';
 import { SetQuestionsDto } from './dto/create-questions.dto';
 import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { SaveManualRankingDto } from './dto/save-manual-ranking.dto';
+import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
 
 const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
 
@@ -90,6 +91,19 @@ export class JobsController {
     @Req() req: any,
   ) {
     return this.jobsService.updateApplicationStatus(applicationId, body.status, req.user.company_id);
+  }
+
+  @Post('applications/:applicationId/interview-schedule')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'HR: Schedule an interview and notify applicant by email' })
+  scheduleInterview(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: ScheduleInterviewDto,
+    @Req() req: any,
+  ) {
+    return this.jobsService.scheduleInterview(applicationId, dto, req.user.company_id);
   }
 
   // ---------------------------------------------------------------------------

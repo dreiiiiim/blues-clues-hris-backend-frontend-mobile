@@ -10,12 +10,15 @@ import {
 import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
+import { MailService } from '../mail/mail.service';
 import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { ApplicationQuestionDto } from './dto/create-questions.dto';
 import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { ManualRankingItemDto } from './dto/save-manual-ranking.dto';
+import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
+import { InterviewResponseDto } from './dto/interview-response.dto';
 
 type RankingMode = 'sfia' | 'manual';
 
@@ -101,6 +104,7 @@ export class JobsService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly auditService: AuditService,
+    private readonly mailService: MailService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -580,6 +584,291 @@ export class JobsService {
     return { message: 'Application status updated' };
   }
 
+  async scheduleInterview(applicationId: string, dto: ScheduleInterviewDto, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    // Verify application belongs to this company
+    const { data: app, error: appError } = await supabase
+      .from('job_applications')
+      .select('application_id, job_posting_id, applicant_id, status')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (appError) throw new InternalServerErrorException(appError.message);
+    if (!app) throw new NotFoundException('Application not found');
+
+    await this.findOnePosting(app.job_posting_id, companyId);
+
+    // Upsert: replace any existing schedule for this application (latest wins)
+    const scheduleId = crypto.randomUUID();
+    const { error: insertError } = await supabase
+      .from('interview_schedules')
+      .upsert({
+        schedule_id:        scheduleId,
+        application_id:     applicationId,
+        company_id:         companyId,
+        scheduled_date:     dto.scheduled_date,
+        scheduled_time:     dto.scheduled_time,
+        duration_minutes:   dto.duration_minutes,
+        format:             dto.format,
+        location:           dto.location ?? null,
+        meeting_link:       dto.meeting_link ?? null,
+        interviewer_name:   dto.interviewer_name,
+        interviewer_title:  dto.interviewer_title ?? null,
+        notes:              dto.notes ?? null,
+        scheduled_by_email: dto.scheduled_by_email ?? null,
+        // Reset applicant response on reschedule
+        applicant_response:      null,
+        applicant_response_note: null,
+        applicant_responded_at:  null,
+        updated_at:         new Date().toISOString(),
+      }, { onConflict: 'application_id' });
+
+    if (insertError) throw new InternalServerErrorException(insertError.message);
+
+    // Fetch applicant info for the email
+    const { data: profile } = await supabase
+      .from('applicant_profile')
+      .select('first_name, last_name, email')
+      .eq('applicant_id', app.applicant_id)
+      .maybeSingle();
+
+    const { data: posting } = await supabase
+      .from('job_postings')
+      .select('title')
+      .eq('job_posting_id', app.job_posting_id)
+      .maybeSingle();
+
+    if (profile?.email) {
+      const applicantName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Applicant';
+      await this.mailService.sendInterviewScheduleEmail({
+        to:               profile.email,
+        applicantName,
+        jobTitle:         posting?.title ?? 'the position',
+        scheduledDate:    dto.scheduled_date,
+        scheduledTime:    dto.scheduled_time,
+        durationMinutes:  dto.duration_minutes,
+        format:           dto.format,
+        location:         dto.location,
+        meetingLink:      dto.meeting_link,
+        interviewerName:  dto.interviewer_name,
+        interviewerTitle: dto.interviewer_title,
+        notes:            dto.notes,
+      });
+    }
+
+    await this.auditService.log(
+      `Interview scheduled for application ${applicationId} on ${dto.scheduled_date} at ${dto.scheduled_time}`,
+      'system',
+      companyId,
+    );
+
+    return { message: 'Interview scheduled and email sent', schedule_id: scheduleId };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Applicant interview schedule & response methods
+  // ---------------------------------------------------------------------------
+
+  async getMyInterviewSchedules(applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: apps, error: appsError } = await supabase
+      .from('job_applications')
+      .select('application_id, status, job_postings (title, job_posting_id)')
+      .eq('applicant_id', applicantId);
+
+    if (appsError) throw new InternalServerErrorException(appsError.message);
+    if (!apps?.length) return [];
+
+    const appIds = apps.map((a) => a.application_id);
+
+    const { data: schedules, error: schedError } = await supabase
+      .from('interview_schedules')
+      .select('schedule_id, application_id, scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes, created_at, applicant_response, applicant_response_note, applicant_responded_at')
+      .in('application_id', appIds)
+      .order('created_at', { ascending: false });
+
+    if (schedError) throw new InternalServerErrorException(schedError.message);
+
+    const appMap = new Map(apps.map((a) => [a.application_id, a]));
+
+    return (schedules ?? []).map((s) => ({
+      ...s,
+      job_title:          (appMap.get(s.application_id) as any)?.job_postings?.title ?? '',
+      application_status: (appMap.get(s.application_id) as any)?.status ?? '',
+    }));
+  }
+
+  async respondToInterview(applicationId: string, applicantId: string, dto: InterviewResponseDto) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: app, error: appError } = await supabase
+      .from('job_applications')
+      .select('application_id, job_posting_id, applicant_id, job_postings (title)')
+      .eq('application_id', applicationId)
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (appError) throw new InternalServerErrorException(appError.message);
+    if (!app) throw new NotFoundException('Application not found');
+
+    const { data: schedule, error: schedError } = await supabase
+      .from('interview_schedules')
+      .update({
+        applicant_response:      dto.action,
+        applicant_response_note: dto.note ?? null,
+        applicant_responded_at:  new Date().toISOString(),
+      })
+      .eq('application_id', applicationId)
+      .select('scheduled_by_email, scheduled_date, scheduled_time')
+      .maybeSingle();
+
+    if (schedError) throw new InternalServerErrorException(schedError.message);
+    if (!schedule) throw new NotFoundException('No interview scheduled for this application');
+
+    const { data: profile } = await supabase
+      .from('applicant_profile')
+      .select('first_name, last_name, email')
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (schedule.scheduled_by_email && profile?.email) {
+      const applicantName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Applicant';
+      this.mailService.sendApplicantResponseEmail({
+        to:             schedule.scheduled_by_email,
+        applicantName,
+        applicantEmail: profile.email,
+        jobTitle:       (app.job_postings as any)?.title ?? 'the position',
+        action:         dto.action,
+        note:           dto.note,
+        scheduledDate:  schedule.scheduled_date,
+        scheduledTime:  schedule.scheduled_time,
+      }).catch(() => {});
+    }
+
+    return { message: 'Response recorded' };
+  }
+
+  async getHRInterviewCalendar(companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('interview_schedules')
+      .select(`
+        schedule_id, application_id, scheduled_date, scheduled_time, duration_minutes,
+        format, location, meeting_link, interviewer_name, interviewer_title,
+        applicant_response, created_at,
+        job_applications (
+          status, applicant_id,
+          job_postings (title, job_posting_id)
+        )
+      `)
+      .eq('company_id', companyId)
+      .order('scheduled_date', { ascending: true });
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    const applicantIds = [
+      ...new Set(
+        (data ?? [])
+          .map((s) => (s.job_applications as any)?.applicant_id)
+          .filter(Boolean),
+      ),
+    ];
+
+    const { data: profiles } = applicantIds.length
+      ? await supabase
+          .from('applicant_profile')
+          .select('applicant_id, first_name, last_name, email')
+          .in('applicant_id', applicantIds)
+      : { data: [] };
+
+    const profileMap = new Map((profiles ?? []).map((p) => [p.applicant_id, p]));
+
+    return (data ?? []).map((s) => {
+      const app     = s.job_applications as any;
+      const profile = profileMap.get(app?.applicant_id);
+      return {
+        schedule_id:        s.schedule_id,
+        application_id:     s.application_id,
+        scheduled_date:     s.scheduled_date,
+        scheduled_time:     s.scheduled_time,
+        duration_minutes:   s.duration_minutes,
+        format:             s.format,
+        location:           s.location,
+        meeting_link:       s.meeting_link,
+        interviewer_name:   s.interviewer_name,
+        interviewer_title:  s.interviewer_title,
+        applicant_response: s.applicant_response,
+        created_at:         s.created_at,
+        application_status: app?.status,
+        job_title:          app?.job_postings?.title ?? '',
+        job_posting_id:     app?.job_postings?.job_posting_id ?? '',
+        first_name:         profile?.first_name ?? '',
+        last_name:          profile?.last_name  ?? '',
+        email:              profile?.email       ?? '',
+      };
+    });
+  }
+
+  async getHRInterviewNotifications(companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('interview_schedules')
+      .select(`
+        schedule_id, application_id, scheduled_date, scheduled_time, format,
+        interviewer_name, applicant_response, applicant_response_note, applicant_responded_at,
+        job_applications (
+          applicant_id,
+          job_postings (title)
+        )
+      `)
+      .eq('company_id', companyId)
+      .not('applicant_response', 'is', null)
+      .order('applicant_responded_at', { ascending: false });
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    const applicantIds = [
+      ...new Set(
+        (data ?? [])
+          .map((s) => (s.job_applications as any)?.applicant_id)
+          .filter(Boolean),
+      ),
+    ];
+
+    const { data: profiles } = applicantIds.length
+      ? await supabase
+          .from('applicant_profile')
+          .select('applicant_id, first_name, last_name, email')
+          .in('applicant_id', applicantIds)
+      : { data: [] };
+
+    const profileMap = new Map((profiles ?? []).map((p) => [p.applicant_id, p]));
+
+    return (data ?? []).map((s) => {
+      const app     = s.job_applications as any;
+      const profile = profileMap.get(app?.applicant_id);
+      return {
+        schedule_id:             s.schedule_id,
+        application_id:          s.application_id,
+        scheduled_date:          s.scheduled_date,
+        scheduled_time:          s.scheduled_time,
+        format:                  s.format,
+        interviewer_name:        s.interviewer_name,
+        applicant_response:      s.applicant_response,
+        applicant_response_note: s.applicant_response_note,
+        applicant_responded_at:  s.applicant_responded_at,
+        job_title:               app?.job_postings?.title ?? '',
+        first_name:              profile?.first_name ?? '',
+        last_name:               profile?.last_name  ?? '',
+        email:                   profile?.email       ?? '',
+      };
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Public methods — no auth required
   // ---------------------------------------------------------------------------
@@ -722,7 +1011,15 @@ export class JobsService {
       .eq('application_id', applicationId)
       .order('application_questions(sort_order)');
 
-    return { ...app, answers: answers ?? [] };
+    const { data: schedule } = await supabase
+      .from('interview_schedules')
+      .select('application_id, scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes, created_at')
+      .eq('application_id', applicationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    return { ...app, answers: answers ?? [], interview_schedule: schedule ?? null };
   }
 
   async getMyApplications(applicantId: string) {

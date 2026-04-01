@@ -5,6 +5,7 @@ import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { Search, Bell, ChevronDown, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
+import { NotificationBell } from "@/components/layout/NotificationBell";
 
 type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
 
@@ -84,10 +85,19 @@ export function Topbar({ persona = "applicant" }: { readonly persona?: PersonaTy
       </div>
 
       <div className="flex items-center gap-6">
-        <button className="relative text-muted-foreground hover:text-primary transition-colors cursor-pointer group">
-          <Bell className="h-5 w-5" />
-          <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-destructive rounded-full border-2 border-background group-hover:scale-110 transition-transform"></span>
-        </button>
+
+        {/* Notifications — full bell for applicants, static indicator for staff */}
+        {persona === "applicant" ? (
+          <NotificationBell />
+        ) : (
+          <button
+            aria-label="Notifications"
+            className="relative h-9 w-9 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/5 transition-all cursor-pointer"
+          >
+            <Bell className="h-5 w-5" />
+            <span className="absolute -top-0.5 -right-0.5 h-2 w-2 bg-destructive rounded-full border-2 border-background" />
+          </button>
+        )}
 
         <button className="flex items-center gap-3 border-l border-border pl-6 cursor-pointer group">
           <div className="flex flex-col text-right transition-transform group-hover:-translate-x-1">

@@ -7,11 +7,12 @@ import {
   Loader2, FileText, MapPin, Briefcase, CheckCircle2, X, Calendar,
   ChevronRight, ClipboardList, Clock, Trophy, Mic, Cpu,
   Search, Filter, SortAsc, SortDesc, TrendingUp, CheckCheck, XCircle,
-  RotateCcw, DollarSign, AlarmClock,
+  RotateCcw, DollarSign, AlarmClock, Video, Phone, Building2, Link2,
+  User, MessageSquare, AlertCircle,
 } from "lucide-react";
 import {
   getMyApplications, getMyApplicationDetail,
-  type MyApplication, type ApplicationDetail,
+  type MyApplication, type ApplicationDetail, type InterviewSchedule,
 } from "@/lib/authApi";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -221,11 +222,149 @@ type DetailWithJob = ApplicationDetail & {
   };
 };
 
+const FORMAT_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  in_person: Building2,
+  video:     Video,
+  phone:     Phone,
+};
+const FORMAT_LABELS: Record<string, string> = {
+  in_person: "In-Person",
+  video:     "Video Call",
+  phone:     "Phone Call",
+};
+
+const INTERVIEW_STAGES = new Set(["first_interview", "technical_interview", "final_interview"]);
+
+function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedule | null | undefined; readonly status: string }) {
+  const isInterviewStage = INTERVIEW_STAGES.has(status);
+
+  if (!isInterviewStage) {
+    return (
+      <div className="flex flex-col items-center py-12 text-muted-foreground gap-3">
+        <Calendar className="h-8 w-8 opacity-20" />
+        <div className="text-center">
+          <p className="text-sm font-medium text-foreground">No interview yet</p>
+          <p className="text-xs mt-1">Interview details will appear here once you reach an interview stage.</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!schedule) {
+    return (
+      <div className="flex flex-col items-center py-12 gap-3">
+        <div className="h-12 w-12 rounded-full bg-amber-50 border border-amber-200 flex items-center justify-center">
+          <AlertCircle className="h-5 w-5 text-amber-500" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm font-semibold text-foreground">Schedule pending</p>
+          <p className="text-xs text-muted-foreground mt-1">HR is preparing your interview schedule. Check back soon or watch for an email.</p>
+        </div>
+      </div>
+    );
+  }
+
+  const FormatIcon = FORMAT_ICONS[schedule.format] ?? Calendar;
+  const formatLabel = FORMAT_LABELS[schedule.format] ?? schedule.format;
+
+  const dateStr = schedule.scheduled_date
+    ? new Date(`${schedule.scheduled_date}T${schedule.scheduled_time ?? "00:00"}`).toLocaleDateString("en-US", {
+        weekday: "long", month: "long", day: "numeric", year: "numeric",
+      })
+    : "—";
+  const timeStr = schedule.scheduled_time
+    ? new Date(`2000-01-01T${schedule.scheduled_time}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+    : "—";
+
+  return (
+    <div className="space-y-4">
+      {/* Date & Time banner */}
+      <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4 flex items-center gap-4">
+        <div className="h-12 w-12 rounded-xl bg-primary/10 border border-primary/20 flex flex-col items-center justify-center shrink-0">
+          <Calendar className="h-5 w-5 text-primary" />
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Scheduled</p>
+          <p className="text-sm font-bold text-foreground leading-tight">{dateStr}</p>
+          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
+            <Clock className="h-3 w-3" />{timeStr} · {schedule.duration_minutes} min
+          </p>
+        </div>
+      </div>
+
+      {/* Format */}
+      <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-center gap-3">
+        <div className="h-8 w-8 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
+          <FormatIcon className="h-4 w-4 text-blue-600" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Format</p>
+          <p className="text-sm font-semibold text-foreground">{formatLabel}</p>
+        </div>
+      </div>
+
+      {/* Location or Meeting Link */}
+      {(schedule.location || schedule.meeting_link) && (
+        <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-center gap-3">
+          <div className="h-8 w-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+            <Link2 className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+              {schedule.meeting_link ? "Meeting Link" : "Location"}
+            </p>
+            {schedule.meeting_link ? (
+              <a
+                href={schedule.meeting_link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-semibold text-primary hover:underline truncate block"
+              >
+                {schedule.meeting_link}
+              </a>
+            ) : (
+              <p className="text-sm font-semibold text-foreground truncate">{schedule.location}</p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Interviewer */}
+      <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-center gap-3">
+        <div className="h-8 w-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
+          <User className="h-4 w-4 text-muted-foreground" />
+        </div>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Interviewer</p>
+          <p className="text-sm font-semibold text-foreground">{schedule.interviewer_name}</p>
+          {schedule.interviewer_title && (
+            <p className="text-xs text-muted-foreground">{schedule.interviewer_title}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Notes */}
+      {schedule.notes && (
+        <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-start gap-3">
+          <div className="h-8 w-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0 mt-0.5">
+            <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-1">Notes from HR</p>
+            <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{schedule.notes}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DetailModal({ detail, onClose }: { readonly detail: DetailWithJob; readonly onClose: () => void }) {
-  const [tab, setTab] = useState<"job" | "answers">("job");
+  const [tab, setTab] = useState<"job" | "answers" | "interview">("job");
   const cfg    = STATUS_CONFIG[detail.status] ?? STATUS_CONFIG["submitted"];
   const job    = detail.job_postings;
   const sorted = [...detail.answers].sort((a, b) => a.application_questions.sort_order - b.application_questions.sort_order);
+  const hasInterview = INTERVIEW_STAGES.has(detail.status);
 
   return (
     <div role="presentation" className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
@@ -284,6 +423,21 @@ function DetailModal({ detail, onClose }: { readonly detail: DetailWithJob; read
             >
               Job Details
             </button>
+            {hasInterview && (
+              <button
+                onClick={() => setTab("interview")}
+                className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
+                  tab === "interview"
+                    ? "border-white text-white"
+                    : "border-transparent text-white/45 hover:text-white/75"
+                }`}
+              >
+                Interview
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tab === "interview" ? "bg-white/20 text-white" : "bg-white/10 text-white/50"}`}>
+                  {detail.interview_schedule ? "Scheduled" : "Pending"}
+                </span>
+              </button>
+            )}
             <button
               onClick={() => setTab("answers")}
               className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
@@ -367,6 +521,11 @@ function DetailModal({ detail, onClose }: { readonly detail: DetailWithJob; read
                 </div>
               </div>
             </>
+          )}
+
+          {/* ── INTERVIEW TAB ── */}
+          {tab === "interview" && (
+            <InterviewTab schedule={detail.interview_schedule} status={detail.status} />
           )}
 
           {/* ── MY ANSWERS TAB ── */}

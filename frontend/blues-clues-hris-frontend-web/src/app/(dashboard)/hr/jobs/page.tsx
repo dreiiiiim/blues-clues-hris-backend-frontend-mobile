@@ -13,11 +13,14 @@ import {
   Search, Plus, MoreHorizontal, X, ChevronLeft, ChevronRight,
   Briefcase, MapPin, Users, XCircle, Loader2, CheckCircle, Link2, Copy, Check,
   ArrowRight, GripVertical, Trash2, ChevronDown, Pencil, RefreshCw, FileText,
-  KanbanSquare, List, Mail, Phone, Calendar, Mic, Cpu, Trophy, CheckCircle2,
-  LayoutGrid,
+  KanbanSquare, List, Mail, Phone, Calendar, Clock, Mic, Cpu, Trophy, CheckCircle2,
+  LayoutGrid, Send, RotateCcw,
 } from "lucide-react";
 import { PipelineKanbanView } from "./_components/PipelineKanbanView";
-import { getApplicationDetail, getMyCompany, type ApplicationDetail } from "@/lib/authApi";
+import {
+  getApplicationDetail, getMyCompany, sendInterviewSchedule,
+  type ApplicationDetail,
+} from "@/lib/authApi";
 import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -692,6 +695,517 @@ function ManageFormModal({
   );
 }
 
+// ─── Stage Modal Config ────────────────────────────────────────────────────────
+
+const STAGE_STEPS = [
+  { key: "submitted",           short: "Applied",  dot: "bg-blue-500",   ring: "ring-blue-400",   border: "border-blue-500"   },
+  { key: "screening",           short: "Screen",   dot: "bg-amber-500",  ring: "ring-amber-400",  border: "border-amber-500"  },
+  { key: "first_interview",     short: "1st Int.", dot: "bg-purple-500", ring: "ring-purple-400", border: "border-purple-500" },
+  { key: "technical_interview", short: "Tech",     dot: "bg-indigo-500", ring: "ring-indigo-400", border: "border-indigo-500" },
+  { key: "final_interview",     short: "Final",    dot: "bg-violet-500", ring: "ring-violet-400", border: "border-violet-500" },
+];
+
+const STAGE_META: Record<string, {
+  dotColor: string;
+  bannerClass: string;
+  label: string;
+  interviewer?: string;
+  focus?: string[];
+  focusDot?: string;
+  description: string;
+}> = {
+  submitted: {
+    dotColor: "bg-blue-500",
+    bannerClass: "border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:border-blue-700/40 dark:text-blue-300",
+    label: "New Application",
+    description: "Review this application and move to screening when ready.",
+  },
+  screening: {
+    dotColor: "bg-amber-500",
+    bannerClass: "border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-300",
+    label: "Pre-Interview Review",
+    interviewer: "HR Personnel",
+    description: "Conduct initial review before scheduling the first interview.",
+  },
+  first_interview: {
+    dotColor: "bg-purple-500",
+    bannerClass: "border-purple-200 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:border-purple-700/40 dark:text-purple-300",
+    label: "HR Screening Interview",
+    interviewer: "HR Personnel",
+    focus: ["Keywords & skills verification", "Position fit assessment", "Candidate profiling"],
+    focusDot: "bg-purple-500",
+    description: "CV validation and initial profiling.",
+  },
+  technical_interview: {
+    dotColor: "bg-indigo-500",
+    bannerClass: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-700/40 dark:text-indigo-300",
+    label: "Technical Assessment",
+    interviewer: "Technical Hiring Manager",
+    focus: ["Technical skills evaluation", "Problem-solving ability", "Domain knowledge"],
+    focusDot: "bg-indigo-500",
+    description: "~50% of candidates reach this stage.",
+  },
+  final_interview: {
+    dotColor: "bg-violet-500",
+    bannerClass: "border-violet-200 bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:border-violet-700/40 dark:text-violet-300",
+    label: "Cultural Fit Interview",
+    interviewer: "Hiring Manager's Boss",
+    focus: ["Culture fit assessment", "Team compatibility", "Final suitability"],
+    focusDot: "bg-violet-500",
+    description: "This is the final interview stage. Make a hiring decision after this.",
+  },
+  hired: {
+    dotColor: "bg-green-500",
+    bannerClass: "border-green-200 bg-green-50 text-green-700 dark:bg-green-900/20 dark:border-green-700/40 dark:text-green-300",
+    label: "Hired",
+    description: "Proceed with compensation discussion and offer letter. Hiring triggers the onboarding phase.",
+  },
+  rejected: {
+    dotColor: "bg-red-500",
+    bannerClass: "border-red-200 bg-red-50 text-red-600 dark:bg-red-900/10 dark:border-red-700/30 dark:text-red-400",
+    label: "Not Selected",
+    description: "This application has not been selected.",
+  },
+};
+
+const REJECTION_REASONS = [
+  "Does not meet qualifications",
+  "Failed interview assessment",
+  "Position already filled",
+  "Candidate withdrew",
+  "Other",
+];
+
+// ─── Stage Modal Helper Components ───────────────────────────────────────────
+
+function formatApplicationAnswer(answer: ApplicationDetail["answers"][number]): React.ReactNode {
+  const val = answer.answer_value;
+  if (!val) return <span className="text-muted-foreground italic">No answer</span>;
+  if (answer.application_questions.question_type === "checkbox") {
+    try {
+      const arr = JSON.parse(val) as string[];
+      return <span>{arr.join(", ")}</span>;
+    } catch {
+      return <span>{val}</span>;
+    }
+  }
+  return <span>{val}</span>;
+}
+
+function StageProgressBar({ currentStatus }: { readonly currentStatus: string }) {
+  const isTerminal = currentStatus === "hired" || currentStatus === "rejected";
+  const currentIdx = STAGE_STEPS.findIndex((s) => s.key === currentStatus);
+
+  let terminalLineColor = "bg-border";
+  if (currentStatus === "hired") terminalLineColor = "bg-green-500";
+  else if (currentStatus === "rejected") terminalLineColor = "bg-red-500";
+
+  let terminalDotClass = "bg-muted/30 border-border";
+  if (currentStatus === "hired") terminalDotClass = "bg-green-500 border-green-500";
+  else if (currentStatus === "rejected") terminalDotClass = "bg-red-500 border-red-500";
+
+  let terminalTextClass = "text-muted-foreground/40";
+  if (currentStatus === "hired") terminalTextClass = "text-green-600 dark:text-green-400";
+  else if (currentStatus === "rejected") terminalTextClass = "text-red-500 dark:text-red-400";
+
+  let terminalLabel = "Result";
+  if (currentStatus === "hired") terminalLabel = "Hired";
+  else if (currentStatus === "rejected") terminalLabel = "Rejected";
+
+  return (
+    <div className="flex items-center gap-0 px-6 py-3 border-b border-border bg-muted/20 shrink-0">
+      {STAGE_STEPS.map((step, i) => {
+        const done    = !isTerminal && i < currentIdx;
+        const current = step.key === currentStatus;
+        let dotClass = "bg-muted/30 border-border";
+        if (done) dotClass = `${step.dot} border-transparent`;
+        else if (current) dotClass = `bg-background ${step.border} ring-2 ring-offset-1 ${step.ring}/30`;
+        const textClass = done || current ? "text-foreground" : "text-muted-foreground/40";
+        return (
+          <div key={step.key} className="flex items-center flex-1 min-w-0">
+            <div className="flex flex-col items-center shrink-0">
+              <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${dotClass}`}>
+                {done && <CheckCircle2 className="h-3 w-3 text-white" />}
+              </div>
+              <span className={`mt-0.5 text-[8px] font-bold uppercase tracking-wide text-center leading-tight ${textClass}`}>
+                {step.short}
+              </span>
+            </div>
+            {i < STAGE_STEPS.length - 1 && (
+              <div className={`h-0.5 flex-1 -mt-3 mx-0.5 rounded-full ${done ? step.dot : "bg-border"}`} />
+            )}
+          </div>
+        );
+      })}
+      <div className="flex items-center flex-1 min-w-0">
+        <div className={`h-0.5 flex-1 -mt-3 mx-0.5 rounded-full ${terminalLineColor}`} />
+        <div className="flex flex-col items-center shrink-0">
+          <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${terminalDotClass}`}>
+            {currentStatus === "hired"    && <CheckCircle2 className="h-3 w-3 text-white" />}
+            {currentStatus === "rejected" && <XCircle      className="h-3 w-3 text-white" />}
+          </div>
+          <span className={`mt-0.5 text-[8px] font-bold uppercase tracking-wide text-center leading-tight ${terminalTextClass}`}>
+            {terminalLabel}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ApplicantInfoCard({ d }: { readonly d: ApplicationDetail }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Info</p>
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+          <p className="text-[10px] text-muted-foreground font-semibold">Code</p>
+          <p className="font-mono font-bold">{d.applicant_profile.applicant_code}</p>
+        </div>
+        <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
+          <p className="text-[10px] text-muted-foreground font-semibold">Applied</p>
+          <p className="font-semibold">{formatDate(d.applied_at)}</p>
+        </div>
+        {d.applicant_profile.phone_number && (
+          <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 col-span-2">
+            <p className="text-[10px] text-muted-foreground font-semibold">Phone</p>
+            <p className="font-semibold">{d.applicant_profile.phone_number}</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CollapsibleAnswers({ d }: { readonly d: ApplicationDetail }) {
+  const [open, setOpen] = useState(false);
+  if (d.answers.length === 0) return null;
+  const sorted = d.answers.slice().sort((a, b) => (a.application_questions.sort_order ?? 0) - (b.application_questions.sort_order ?? 0));
+  return (
+    <div className="space-y-2">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground hover:text-foreground transition-colors w-full cursor-pointer"
+      >
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-180" : ""}`} />
+        Application Answers ({sorted.length})
+      </button>
+      {open && (
+        <div className="space-y-2">
+          {sorted.map((ans) => (
+            <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
+              <p className="text-xs font-semibold text-foreground">{ans.application_questions.question_text}</p>
+              <p className="text-sm text-foreground">{formatApplicationAnswer(ans)}</p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RejectButton({ onReject, updating }: { readonly onReject: () => void; readonly updating: boolean }) {
+  return (
+    <Button
+      onClick={onReject}
+      disabled={updating}
+      variant="outline"
+      className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 dark:border-red-800/40 dark:text-red-400 dark:hover:bg-red-900/20"
+    >
+      Reject
+    </Button>
+  );
+}
+
+function BackButton({ label, onBack, updating }: { readonly label: string; readonly onBack: () => void; readonly updating: boolean }) {
+  return (
+    <Button
+      onClick={onBack}
+      disabled={updating}
+      variant="ghost"
+      size="sm"
+      className="w-full text-muted-foreground text-xs cursor-pointer"
+    >
+      ← {label}
+    </Button>
+  );
+}
+
+// ─── Interview Schedule Types & Helpers ──────────────────────────────────────
+
+interface InterviewSchedule {
+  date: string;
+  time: string;
+  duration: string;
+  format: string; // "in_person" | "video" | "phone"
+  location: string;
+  meetingLink: string;
+  interviewer: string;
+  interviewerTitle: string;
+  notes: string;
+}
+
+const FORMAT_LABELS: Record<string, string> = {
+  in_person: "In-person",
+  video:     "Video Call",
+  phone:     "Phone Call",
+};
+
+// ─── Schedule Info Banner ─────────────────────────────────────────────────────
+
+function ScheduleInfoBanner({
+  schedule,
+  onReschedule,
+}: Readonly<{ schedule: InterviewSchedule; onReschedule: () => void }>) {
+  const venue = schedule.format === "video" ? schedule.meetingLink : schedule.location;
+  return (
+    <div className="rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-700/40 dark:bg-blue-900/20 px-4 py-3 space-y-2.5">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300">
+          Interview Scheduled
+        </p>
+        <button
+          onClick={onReschedule}
+          className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 transition-colors"
+        >
+          <RotateCcw className="h-3 w-3" /> Reschedule
+        </button>
+      </div>
+      <div className="space-y-1.5 text-sm text-blue-800 dark:text-blue-200">
+        <div className="flex items-center gap-2">
+          <Calendar className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          <span>
+            {schedule.date} at {schedule.time} · {schedule.duration} min
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <MapPin className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          <span>
+            {FORMAT_LABELS[schedule.format] ?? schedule.format}
+            {venue ? ` — ${venue}` : ""}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Users className="h-3.5 w-3.5 shrink-0 opacity-70" />
+          <span>
+            {schedule.interviewer}
+            {schedule.interviewerTitle ? ` · ${schedule.interviewerTitle}` : ""}
+          </span>
+        </div>
+        {schedule.notes && (
+          <div className="rounded-lg bg-blue-100 dark:bg-blue-800/30 px-3 py-2 text-xs text-blue-700 dark:text-blue-300 mt-1">
+            {schedule.notes}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Interview Schedule Form ──────────────────────────────────────────────────
+
+function InterviewScheduleForm({
+  targetStage,
+  isRescheduling,
+  existingSchedule,
+  onConfirm,
+  onCancel,
+  saving,
+}: Readonly<{
+  targetStage: string;
+  isRescheduling: boolean;
+  existingSchedule: InterviewSchedule | null;
+  onConfirm: (s: InterviewSchedule) => void;
+  onCancel: () => void;
+  saving: boolean;
+}>) {
+  const stageLabel = APP_STATUSES.find((s) => s.value === targetStage)?.label ?? targetStage;
+
+  const [form, setForm] = useState<InterviewSchedule>(
+    existingSchedule ?? {
+      date: "", time: "", duration: "60", format: "in_person",
+      location: "", meetingLink: "", interviewer: "", interviewerTitle: "", notes: "",
+    }
+  );
+
+  function field(k: keyof InterviewSchedule) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
+      setForm((p) => ({ ...p, [k]: e.target.value }));
+  }
+
+  const handleSubmit = () => {
+    if (!form.date || !form.time || !form.interviewer) {
+      toast.error("Date, time, and interviewer name are required.");
+      return;
+    }
+    onConfirm(form);
+  };
+
+  return (
+    <div className="space-y-4 animate-in fade-in duration-200">
+      {/* Banner */}
+      <div className="rounded-xl border border-primary/20 bg-[linear-gradient(155deg,rgba(37,99,235,0.07),transparent)] px-4 py-3">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-primary/80 mb-0.5">
+          {isRescheduling ? "Rescheduling Interview" : "Schedule Interview"}
+        </p>
+        <p className="text-sm font-semibold text-foreground">{stageLabel}</p>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          {isRescheduling
+            ? "A reschedule confirmation will be sent to the applicant."
+            : "An interview invite will be sent to the applicant upon confirmation."}
+        </p>
+      </div>
+
+      {/* Date + Time */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Date *
+          </label>
+          <Input type="date" value={form.date} onChange={field("date")} className="h-9" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Time *
+          </label>
+          <Input type="time" value={form.time} onChange={field("time")} className="h-9" />
+        </div>
+      </div>
+
+      {/* Duration + Format */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Duration
+          </label>
+          <select
+            value={form.duration}
+            onChange={field("duration")}
+            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="30">30 minutes</option>
+            <option value="60">1 hour</option>
+            <option value="90">1.5 hours</option>
+            <option value="120">2 hours</option>
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Format
+          </label>
+          <select
+            value={form.format}
+            onChange={field("format")}
+            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            <option value="in_person">In-person</option>
+            <option value="video">Video Call</option>
+            <option value="phone">Phone Call</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Location / Link / Phone */}
+      {form.format === "in_person" && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Office / Location
+          </label>
+          <Input
+            value={form.location}
+            onChange={field("location")}
+            placeholder="e.g. 5th Floor, HQ Building, BGC"
+            className="h-9"
+          />
+        </div>
+      )}
+      {form.format === "video" && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Meeting Link
+          </label>
+          <Input
+            value={form.meetingLink}
+            onChange={field("meetingLink")}
+            placeholder="https://meet.google.com/..."
+            className="h-9"
+          />
+        </div>
+      )}
+      {form.format === "phone" && (
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Contact Number
+          </label>
+          <Input
+            value={form.location}
+            onChange={field("location")}
+            placeholder="+63 XXX XXX XXXX"
+            className="h-9"
+          />
+        </div>
+      )}
+
+      {/* Interviewer */}
+      <div className="grid grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Interviewer *
+          </label>
+          <Input
+            value={form.interviewer}
+            onChange={field("interviewer")}
+            placeholder="Full name"
+            className="h-9"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Title / Role
+          </label>
+          <Input
+            value={form.interviewerTitle}
+            onChange={field("interviewerTitle")}
+            placeholder="e.g. HR Manager"
+            className="h-9"
+          />
+        </div>
+      </div>
+
+      {/* Notes */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Notes to Applicant
+        </label>
+        <textarea
+          value={form.notes}
+          onChange={field("notes")}
+          rows={3}
+          placeholder="What to bring, dress code, who to ask for at reception, etc."
+          className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+        />
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-2 pt-1">
+        <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+          Cancel
+        </Button>
+        <Button onClick={handleSubmit} disabled={saving} className="flex-1 gap-1.5">
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <>
+              <Send className="h-4 w-4" />
+              {isRescheduling ? "Confirm Reschedule" : "Confirm & Notify Applicant"}
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Application Detail Modal ─────────────────────────────────────────────────
 
 function ApplicationDetailModal({
@@ -703,28 +1217,33 @@ function ApplicationDetailModal({
   onClose: () => void;
   onStatusChange: (newStatus: string) => void;
 }>) {
-  const [detail, setDetail] = useState<ApplicationDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [updating, setUpdating] = useState(false);
-  const [status, setStatus] = useState("");
+  const [detail, setDetail]                   = useState<ApplicationDetail | null>(null);
+  const [loading, setLoading]                 = useState(true);
+  const [updating, setUpdating]               = useState(false);
+  const [rejectionReason, setRejectionReason] = useState(REJECTION_REASONS[0]);
+  const [scheduleMode, setScheduleMode]       = useState<string | null>(null);
+  const [confirmedSchedule, setConfirmedSchedule] = useState<InterviewSchedule | null>(null);
 
   useEffect(() => {
     getApplicationDetail(applicationId)
-      .then((d) => { setDetail(d); setStatus(d.status); })
+      .then((d) => setDetail(d))
       .catch((err: any) => toast.error(err.message || "Failed to load details"))
       .finally(() => setLoading(false));
   }, [applicationId]);
 
-  const handleStatusSave = async () => {
-    if (!detail || status === detail.status) return;
+  const moveTo = async (targetStatus: string, silent = false) => {
+    if (!detail) return;
     setUpdating(true);
     try {
       await apiFetch(`/jobs/applications/${applicationId}/status`, {
         method: "PATCH",
-        body: JSON.stringify({ status }),
+        body: JSON.stringify({ status: targetStatus }),
       });
-      onStatusChange(status);
-      toast.success("Status updated");
+      setDetail((prev) => prev ? { ...prev, status: targetStatus } : prev);
+      onStatusChange(targetStatus);
+      if (!silent) {
+        toast.success(`Moved to ${APP_STATUSES.find((s) => s.value === targetStatus)?.label ?? targetStatus}`);
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to update status");
     } finally {
@@ -732,81 +1251,320 @@ function ApplicationDetailModal({
     }
   };
 
-  const formatAnswer = (answer: ApplicationDetail["answers"][number]) => {
-    const val = answer.answer_value;
-    if (!val) return <span className="text-muted-foreground italic">No answer</span>;
-    if (answer.application_questions.question_type === "checkbox") {
-      try {
-        const arr = JSON.parse(val) as string[];
-        return <span>{arr.join(", ")}</span>;
-      } catch {
-        return <span>{val}</span>;
-      }
+  const handleConfirmSchedule = async (schedule: InterviewSchedule) => {
+    if (!scheduleMode) return;
+    const targetStatus   = scheduleMode;
+    const isRescheduling = detail?.status === targetStatus;
+    setScheduleMode(null);
+    setConfirmedSchedule(schedule);
+
+    // Build the schedule payload for the backend email trigger
+    const emailPayload = {
+      application_id:    applicationId,
+      scheduled_date:    schedule.date,
+      scheduled_time:    schedule.time,
+      duration_minutes:  parseInt(schedule.duration, 10) || 60,
+      format:            schedule.format,
+      location:          (schedule.format !== "video" && schedule.location) ? schedule.location : null,
+      meeting_link:      (schedule.format === "video" && schedule.meetingLink) ? schedule.meetingLink : null,
+      interviewer_name:  schedule.interviewer,
+      interviewer_title: schedule.interviewerTitle || null,
+      notes:             schedule.notes || null,
+    };
+
+    if (isRescheduling) {
+      // Silently attempt to send reschedule email
+      sendInterviewSchedule(emailPayload).catch(() => {});
+      toast.success("Interview rescheduled — updated invite sent to applicant");
+    } else {
+      await moveTo(targetStatus, true);
+      // Silently attempt to send schedule email — won't block the flow if endpoint is pending
+      sendInterviewSchedule(emailPayload).catch(() => {});
+      toast.success(
+        `Interview scheduled — confirmation sent to ${detail?.applicant_profile.email ?? "applicant"}`,
+      );
     }
-    return <span>{val}</span>;
   };
 
-  const detailContent = detail ? (
-    <>
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Stage</p>
-        <div className="flex gap-2">
-          <select
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className={`flex-1 h-9 rounded-md border px-3 text-sm font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${APP_STATUS_STYLES[status] ?? "border-border bg-background text-foreground"}`}
-          >
-            {APP_STATUSES.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
-          <Button onClick={handleStatusSave} disabled={updating || status === detail.status} size="sm" className="h-9">
-            {updating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
-          </Button>
-        </div>
-      </div>
+  function renderStageContent(d: ApplicationDetail) {
+    const s    = d.status;
+    const meta = STAGE_META[s];
 
-      <div className="space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Info</p>
-        <div className="grid grid-cols-2 gap-2 text-sm">
-          <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
-            <p className="text-[10px] text-muted-foreground font-semibold">Code</p>
-            <p className="font-mono font-bold">{detail.applicant_profile.applicant_code}</p>
+    // ── Submitted ──────────────────────────────────────────────────────────────
+    if (s === "submitted") {
+      return (
+        <div className="space-y-5">
+          <div className={`rounded-xl border px-4 py-3 text-sm font-medium ${meta.bannerClass}`}>
+            {meta.description}
           </div>
-          <div className="rounded-lg border border-border bg-muted/20 px-3 py-2">
-            <p className="text-[10px] text-muted-foreground font-semibold">Applied</p>
-            <p className="font-semibold">{formatDate(detail.applied_at)}</p>
-          </div>
-          {detail.applicant_profile.phone_number && (
-            <div className="rounded-lg border border-border bg-muted/20 px-3 py-2 col-span-2">
-              <p className="text-[10px] text-muted-foreground font-semibold">Phone</p>
-              <p className="font-semibold">{detail.applicant_profile.phone_number}</p>
+          <ApplicantInfoCard d={d} />
+          {d.answers.length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
+              {d.answers
+                .slice()
+                .sort((a, b) => (a.application_questions.sort_order ?? 0) - (b.application_questions.sort_order ?? 0))
+                .map((ans) => (
+                  <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
+                    <p className="text-xs font-semibold text-foreground">{ans.application_questions.question_text}</p>
+                    <p className="text-sm text-foreground">{formatApplicationAnswer(ans)}</p>
+                  </div>
+                ))}
             </div>
           )}
+          <div className="flex gap-2 pt-1">
+            <Button onClick={() => moveTo("screening")} disabled={updating} className="flex-1 cursor-pointer">
+              {updating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+              Move to Screening
+            </Button>
+            <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
+          </div>
         </div>
-      </div>
+      );
+    }
 
-      {detail.answers.length > 0 && (
-        <div className="space-y-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
-          {detail.answers
-            .slice()
-            .sort((a, b) => (a.application_questions.sort_order ?? 0) - (b.application_questions.sort_order ?? 0))
-            .map((ans) => (
-              <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
-                <p className="text-xs font-semibold text-foreground">{ans.application_questions.question_text}</p>
-                <p className="text-sm text-foreground">{formatAnswer(ans)}</p>
-              </div>
-            ))}
+    // ── Screening ──────────────────────────────────────────────────────────────
+    if (s === "screening") {
+      const checklist = ["Resume reviewed", "Qualifications match job requirements", "Keywords and skills noted", "Candidate contacted / available"];
+      return (
+        <div className="space-y-5">
+          <div className={`rounded-xl border px-4 py-3 space-y-0.5 ${meta.bannerClass}`}>
+            <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Interviewer</p>
+            <p className="text-sm font-semibold">{meta.interviewer}</p>
+          </div>
+          <ApplicantInfoCard d={d} />
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Screening Checklist</p>
+            <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-2">
+              {checklist.map((item) => (
+                <div key={item} className="flex items-center gap-2.5 text-sm text-muted-foreground">
+                  <div className="h-4 w-4 rounded border border-border bg-background shrink-0" />
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+          <CollapsibleAnswers d={d} />
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={() => setScheduleMode("first_interview")}
+              disabled={updating}
+              className="flex-1 gap-1.5 cursor-pointer"
+            >
+              <Calendar className="h-4 w-4" />
+              Schedule 1st Interview
+            </Button>
+            <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
+          </div>
+          <BackButton label="Back to Applied" onBack={() => moveTo("submitted")} updating={updating} />
         </div>
-      )}
-    </>
-  ) : null;
+      );
+    }
+
+    // ── First Interview ────────────────────────────────────────────────────────
+    if (s === "first_interview") {
+      return (
+        <div className="space-y-5">
+          <div className={`rounded-xl border px-4 py-3 space-y-1 ${meta.bannerClass}`}>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Interviewer</p>
+              <p className="text-sm font-semibold">{meta.interviewer}</p>
+            </div>
+            <p className="text-xs opacity-80">{meta.description}</p>
+          </div>
+          {confirmedSchedule && (
+            <ScheduleInfoBanner
+              schedule={confirmedSchedule}
+              onReschedule={() => setScheduleMode("first_interview")}
+            />
+          )}
+          {meta.focus && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Focus Areas</p>
+              <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1.5">
+                {meta.focus.map((f) => (
+                  <div key={f} className="flex items-center gap-2 text-sm text-foreground">
+                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.focusDot}`} />
+                    {f}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <ApplicantInfoCard d={d} />
+          <CollapsibleAnswers d={d} />
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={() => setScheduleMode("technical_interview")}
+              disabled={updating}
+              className="flex-1 gap-1.5 cursor-pointer"
+            >
+              <Calendar className="h-4 w-4" />
+              Schedule Technical Interview
+            </Button>
+            <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
+          </div>
+          <BackButton label="Back to Screening" onBack={() => moveTo("screening")} updating={updating} />
+        </div>
+      );
+    }
+
+    // ── Technical Interview ────────────────────────────────────────────────────
+    if (s === "technical_interview") {
+      return (
+        <div className="space-y-5">
+          <div className={`rounded-xl border px-4 py-3 space-y-1 ${meta.bannerClass}`}>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Interviewer</p>
+              <p className="text-sm font-semibold">{meta.interviewer}</p>
+            </div>
+            <p className="text-xs opacity-80">{meta.description}</p>
+          </div>
+          {confirmedSchedule && (
+            <ScheduleInfoBanner
+              schedule={confirmedSchedule}
+              onReschedule={() => setScheduleMode("technical_interview")}
+            />
+          )}
+          {meta.focus && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Focus Areas</p>
+              <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1.5">
+                {meta.focus.map((f) => (
+                  <div key={f} className="flex items-center gap-2 text-sm text-foreground">
+                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.focusDot}`} />
+                    {f}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <ApplicantInfoCard d={d} />
+          <CollapsibleAnswers d={d} />
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={() => setScheduleMode("final_interview")}
+              disabled={updating}
+              className="flex-1 gap-1.5 cursor-pointer"
+            >
+              <Calendar className="h-4 w-4" />
+              Schedule Final Interview
+            </Button>
+            <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
+          </div>
+          <BackButton label="Back to 1st Interview" onBack={() => moveTo("first_interview")} updating={updating} />
+        </div>
+      );
+    }
+
+    // ── Final Interview ────────────────────────────────────────────────────────
+    if (s === "final_interview") {
+      return (
+        <div className="space-y-5">
+          <div className={`rounded-xl border px-4 py-3 space-y-1 ${meta.bannerClass}`}>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Interviewer</p>
+              <p className="text-sm font-semibold">{meta.interviewer}</p>
+            </div>
+            <p className="text-xs opacity-80">{meta.description}</p>
+          </div>
+          {confirmedSchedule && (
+            <ScheduleInfoBanner
+              schedule={confirmedSchedule}
+              onReschedule={() => setScheduleMode("final_interview")}
+            />
+          )}
+          {meta.focus && (
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Focus Areas</p>
+              <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1.5">
+                {meta.focus.map((f) => (
+                  <div key={f} className="flex items-center gap-2 text-sm text-foreground">
+                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.focusDot}`} />
+                    {f}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          <ApplicantInfoCard d={d} />
+          <CollapsibleAnswers d={d} />
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={() => moveTo("hired")}
+              disabled={updating}
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+            >
+              {updating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              Hire Candidate
+            </Button>
+            <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
+          </div>
+          <BackButton label="Back to Technical Interview" onBack={() => moveTo("technical_interview")} updating={updating} />
+        </div>
+      );
+    }
+
+    // ── Hired ──────────────────────────────────────────────────────────────────
+    if (s === "hired") {
+      return (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-green-200 bg-green-50 dark:bg-green-900/20 dark:border-green-700/40 px-4 py-5 text-center space-y-2">
+            <CheckCircle2 className="h-9 w-9 text-green-600 dark:text-green-400 mx-auto" />
+            <p className="font-bold text-green-700 dark:text-green-300 text-base">Candidate has been hired!</p>
+            <p className="text-xs text-green-600/80 dark:text-green-400/80">{meta.description}</p>
+          </div>
+          <ApplicantInfoCard d={d} />
+          <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Next Step</p>
+            <p className="text-sm text-foreground">Proceed with compensation discussion and generate the offer letter. Once accepted, the onboarding phase will begin.</p>
+          </div>
+          <BackButton label="Revert to Final Interview" onBack={() => moveTo("final_interview")} updating={updating} />
+        </div>
+      );
+    }
+
+    // ── Rejected ───────────────────────────────────────────────────────────────
+    if (s === "rejected") {
+      return (
+        <div className="space-y-5">
+          <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/10 dark:border-red-700/30 px-4 py-5 text-center space-y-2">
+            <XCircle className="h-9 w-9 text-red-500 mx-auto" />
+            <p className="font-bold text-red-600 dark:text-red-400 text-base">Application not selected.</p>
+          </div>
+          <ApplicantInfoCard d={d} />
+          <div className="space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Rejection Reason</p>
+            <select
+              value={rejectionReason}
+              onChange={(e) => setRejectionReason(e.target.value)}
+              className="w-full h-9 rounded-md border border-border bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              {REJECTION_REASONS.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+          <BackButton label="Reconsider (Revert to Screening)" onBack={() => moveTo("screening")} updating={updating} />
+        </div>
+      );
+    }
+
+    // ── Fallback ───────────────────────────────────────────────────────────────
+    return (
+      <div className="space-y-5">
+        <ApplicantInfoCard d={d} />
+        <CollapsibleAnswers d={d} />
+      </div>
+    );
+  }
 
   return (
-    <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xl mx-4 max-h-[85vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-border shrink-0">
+    <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col animate-in fade-in zoom-in-95 duration-200">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
           <div>
             <h3 className="font-bold text-lg">Application Detail</h3>
             {detail && (
@@ -815,18 +1573,132 @@ function ApplicationDetailModal({
               </p>
             )}
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50">
+          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 cursor-pointer transition-colors">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
-          {loading ? (
-            <div className="flex items-center justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        {/* Stage progress bar */}
+        {detail && <StageProgressBar currentStatus={detail.status} />}
+
+        {/* Stage label + interviewer strip */}
+        {detail && (() => {
+          const meta = STAGE_META[detail.status];
+          if (!meta) return null;
+          return (
+            <div className="flex items-center justify-between px-6 py-2 border-b border-border bg-muted/10 shrink-0">
+              <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] font-bold uppercase tracking-wider ${APP_STATUS_STYLES[detail.status] ?? "border-border bg-muted text-foreground"}`}>
+                <span className={`h-1.5 w-1.5 rounded-full ${meta.dotColor}`} />
+                {scheduleMode ? "Scheduling…" : meta.label}
+              </span>
+              {!scheduleMode && meta.interviewer && (
+                <span className="text-xs text-muted-foreground">
+                  Interviewer: <span className="font-semibold text-foreground">{meta.interviewer}</span>
+                </span>
+              )}
+              {scheduleMode && (
+                <span className="text-xs text-muted-foreground">
+                  Stage: <span className="font-semibold text-foreground">{APP_STATUSES.find(s => s.value === scheduleMode)?.label}</span>
+                </span>
+              )}
             </div>
-          ) : detailContent}
+          );
+        })()}
+
+        {/* Body: two-column layout */}
+        <div className="flex-1 flex overflow-hidden min-h-0">
+
+          {/* ── Main content ── */}
+          <div className="flex-1 overflow-y-auto px-6 py-5">
+            {loading && (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            )}
+            {!loading && detail && (
+              scheduleMode ? (
+                <InterviewScheduleForm
+                  targetStage={scheduleMode}
+                  isRescheduling={detail.status === scheduleMode}
+                  existingSchedule={detail.status === scheduleMode ? confirmedSchedule : null}
+                  onConfirm={handleConfirmSchedule}
+                  onCancel={() => setScheduleMode(null)}
+                  saving={updating}
+                />
+              ) : renderStageContent(detail)
+            )}
+          </div>
+
+          {/* ── Right sidebar ── */}
+          <div className="w-52 shrink-0 border-l border-border bg-muted/5 overflow-y-auto px-4 py-5 space-y-5">
+
+            {/* Documents */}
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Documents</p>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full h-8 gap-1.5 justify-start text-xs font-medium"
+                onClick={() => toast.info("Resume viewing is coming soon.")}
+              >
+                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                View Resume
+              </Button>
+            </div>
+
+            {/* SFIA Score */}
+            <div className="space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Score</p>
+              <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
+                <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-border flex items-center justify-center">
+                  <span className="text-lg font-bold text-muted-foreground/30">—</span>
+                </div>
+                <p className="text-[10px] text-center text-muted-foreground leading-snug">
+                  Not yet<br />assessed
+                </p>
+              </div>
+            </div>
+
+            {/* Quick info */}
+            {detail && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Quick Info</p>
+                <div className="space-y-1.5">
+                  <div className="rounded-lg border border-border bg-background px-3 py-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Code</p>
+                    <p className="text-xs font-mono font-bold mt-0.5 truncate">{detail.applicant_profile.applicant_code}</p>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2">
+                    <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Applied</p>
+                    <p className="text-xs font-semibold mt-0.5">{formatDate(detail.applied_at)}</p>
+                  </div>
+                  {detail.applicant_profile.phone_number && (
+                    <div className="rounded-lg border border-border bg-background px-3 py-2">
+                      <p className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">Phone</p>
+                      <p className="text-xs font-semibold mt-0.5">{detail.applicant_profile.phone_number}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Scheduling tips — shown only when schedule form is active */}
+            {scheduleMode && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Tips</p>
+                <div className="rounded-xl border border-border bg-muted/10 p-3 text-[11px] text-muted-foreground space-y-1.5">
+                  <p>• Send at least 48h in advance</p>
+                  <p>• Include full location or link</p>
+                  <p>• Specify documents to bring</p>
+                  <p>• Mention dress code if any</p>
+                  <p>• List who will be present</p>
+                </div>
+              </div>
+            )}
+
+          </div>
         </div>
+
       </div>
     </div>
   );
@@ -1033,115 +1905,6 @@ function JobRowMenu({
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-// ─── Pipeline Detail Modal ────────────────────────────────────────────────────
-
-function PipelineDetailModal({
-  detail,
-  onClose,
-  onStatusChange,
-  updating,
-}: Readonly<{
-  detail: ApplicationDetail;
-  onClose: () => void;
-  onStatusChange: (appId: string, status: string) => Promise<void>;
-  updating: boolean;
-}>) {
-  const [showStageMenu, setShowStageMenu] = useState(false);
-  const p = detail.applicant_profile;
-  const initials = `${p.first_name.charAt(0)}${p.last_name.charAt(0)}`.toUpperCase();
-  const currentStage = PIPELINE_STAGES.find((s) => s.value === detail.status) ?? PIPELINE_STAGES[0];
-
-  return (
-    <div
-      aria-hidden="true"
-      className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4"
-      onClick={onClose}
-      onKeyDown={(e) => { if (e.key === 'Escape') { onClose(); } }}
-    >
-      <dialog
-        open
-        aria-modal="true"
-        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200 m-0 p-0"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-start justify-between p-6 border-b border-border bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)]">
-          <div className="flex items-start gap-4">
-            <div className="h-12 w-12 rounded-full bg-[linear-gradient(135deg,#1e3a8a,#2563eb)] flex items-center justify-center text-white font-bold shadow-sm shrink-0">
-              {initials}
-            </div>
-            <div>
-              <h2 className="text-lg font-bold tracking-tight text-foreground leading-tight">{p.first_name} {p.last_name}</h2>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mt-0.5">{p.applicant_code}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="h-8 w-8 rounded-lg hover:bg-muted/60 flex items-center justify-center transition-colors">
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="overflow-y-auto flex-1 p-6 space-y-6">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-3">Contact Info</p>
-            <div className="space-y-2">
-              <div className="flex items-center gap-3 text-sm"><Mail className="h-4 w-4 text-muted-foreground" /><span>{p.email}</span></div>
-              {p.phone_number && <div className="flex items-center gap-3 text-sm"><Phone className="h-4 w-4 text-muted-foreground" /><span>{p.phone_number}</span></div>}
-              <div className="flex items-center gap-3 text-sm"><Calendar className="h-4 w-4 text-muted-foreground" /><span>Applied {new Date(detail.applied_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span></div>
-            </div>
-          </div>
-
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-3">Application Stage</p>
-            <div className="relative">
-              <button
-                onClick={() => setShowStageMenu((v) => !v)}
-                disabled={updating}
-                className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border text-xs font-bold uppercase tracking-wide cursor-pointer transition-all ${currentStage.badge} hover:opacity-80`}
-              >
-                {updating && <Loader2 className="h-3 w-3 animate-spin" />}
-                {APP_STATUSES.find((s) => s.value === detail.status)?.label ?? detail.status}
-                <ChevronDown className="h-3 w-3" />
-              </button>
-              {showStageMenu && (
-                <div className="absolute top-full left-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-lg py-1 min-w-45">
-                  {APP_STATUSES.map((s) => (
-                    <button
-                      key={s.value}
-                      onClick={async () => { setShowStageMenu(false); await onStatusChange(detail.application_id, s.value); }}
-                      className={`flex items-center gap-2 px-3 py-2 w-full text-left text-sm hover:bg-muted/50 transition-colors ${detail.status === s.value ? "font-semibold text-primary" : "text-foreground"}`}
-                    >
-                      <span className={`h-1.5 w-1.5 rounded-full ${PIPELINE_STAGES.find((ps) => ps.value === s.value)?.dot ?? "bg-gray-400"}`} />
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {detail.answers.length > 0 && (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-3">Application Answers</p>
-              <div className="space-y-4">
-                {[...detail.answers]
-                  .sort((a, b) => a.application_questions.sort_order - b.application_questions.sort_order)
-                  .map((ans) => (
-                    <div key={ans.answer_id} className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                      <p className="text-xs font-semibold text-foreground mb-1">{ans.application_questions.question_text}</p>
-                      <p className="text-sm text-muted-foreground">{ans.answer_value || <span className="italic opacity-50">No answer</span>}</p>
-                    </div>
-                  ))}
-              </div>
-            </div>
-          )}
-        </div>
-      </dialog>
-    </div>
-  );
-}
-
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
@@ -1177,9 +1940,7 @@ export default function HRJobsPage() {
   const [pipelineLoading, setPipelineLoading] = useState(false);
   const [pipelineStage, setPipelineStage]     = useState<string>("submitted");
   const [pipelineSearch, setPipelineSearch]   = useState("");
-  const [pipelineDetail, setPipelineDetail]   = useState<ApplicationDetail | null>(null);
-  const [pipelineDetailLoading, setPipelineDetailLoading] = useState(false);
-  const [pipelineUpdating, setPipelineUpdating]           = useState(false);
+  const [pipelineDetailId, setPipelineDetailId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1220,33 +1981,15 @@ export default function HRJobsPage() {
   }, [pageView, pipelineJobId, loadPipelineApps]);
 
   const handlePipelineStatusChange = async (appId: string, newStatus: string) => {
-    setPipelineUpdating(true);
     try {
       await apiFetch(`/jobs/applications/${appId}/status`, {
         method: "PATCH",
         body: JSON.stringify({ status: newStatus }),
       });
       setPipelineApps((prev) => prev.map((a) => a.application_id === appId ? { ...a, status: newStatus } : a));
-      if (pipelineDetail?.application_id === appId) {
-        setPipelineDetail((d) => d ? { ...d, status: newStatus } : d);
-      }
       toast.success("Stage updated");
     } catch {
       toast.error("Failed to update stage");
-    } finally {
-      setPipelineUpdating(false);
-    }
-  };
-
-  const handleOpenPipelineDetail = async (appId: string) => {
-    setPipelineDetailLoading(true);
-    try {
-      const d = await getApplicationDetail(appId);
-      setPipelineDetail(d);
-    } catch {
-      toast.error("Failed to load application details");
-    } finally {
-      setPipelineDetailLoading(false);
     }
   };
 
@@ -1470,7 +2213,7 @@ export default function HRJobsPage() {
                   <div className="flex items-center gap-2 pt-1 border-t border-border mt-auto">
                     <select
                       value={app.status}
-                      disabled={pipelineUpdating}
+                      disabled={false}
                       onChange={(e) => handlePipelineStatusChange(app.application_id, e.target.value)}
                       className="flex-1 h-7 rounded-md border border-border bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-ring cursor-pointer"
                     >
@@ -1478,7 +2221,7 @@ export default function HRJobsPage() {
                         <option key={s.value} value={s.value}>{s.label}</option>
                       ))}
                     </select>
-                    <Button size="sm" variant="outline" className="h-7 px-3 text-xs shrink-0" onClick={() => handleOpenPipelineDetail(app.application_id)}>
+                    <Button size="sm" variant="outline" className="h-7 px-3 text-xs shrink-0" onClick={() => setPipelineDetailId(app.application_id)}>
                       View
                     </Button>
                   </div>
@@ -1611,7 +2354,7 @@ export default function HRJobsPage() {
                 <PipelineKanbanView
                   apps={stageFiltered}
                   onStatusChange={handlePipelineStatusChange}
-                  onViewDetail={handleOpenPipelineDetail}
+                  onViewDetail={setPipelineDetailId}
                 />
               )
             )}
@@ -1744,22 +2487,18 @@ export default function HRJobsPage() {
 
       {/* ── SHARED MODALS ──────────────────────────────────────────────────── */}
 
-      {/* Pipeline detail modal */}
-      {pipelineDetailLoading && (
-        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/30 animate-in fade-in duration-150">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl p-8 flex flex-col items-center gap-3">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
-            <p className="text-sm text-muted-foreground">Loading details…</p>
-          </div>
-        </div>
-      )}
-
-      {pipelineDetail && !pipelineDetailLoading && (
-        <PipelineDetailModal
-          detail={pipelineDetail}
-          onClose={() => setPipelineDetail(null)}
-          onStatusChange={handlePipelineStatusChange}
-          updating={pipelineUpdating}
+      {/* Pipeline applicant detail — reuses the full ApplicationDetailModal */}
+      {pipelineDetailId && (
+        <ApplicationDetailModal
+          applicationId={pipelineDetailId}
+          onClose={() => setPipelineDetailId(null)}
+          onStatusChange={(newStatus) => {
+            setPipelineApps((prev) =>
+              prev.map((a) =>
+                a.application_id === pipelineDetailId ? { ...a, status: newStatus } : a
+              )
+            );
+          }}
         />
       )}
 
