@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { AlertCircle, Upload, FileText, ExternalLink, X, History, FileUp, MoreVertical } from "lucide-react";
+import { uploadDocument } from "@/lib/onboardingApi";
+import { AlertCircle, Upload, FileText, X, History, FileUp, MoreVertical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { DocumentItem, FileUpload } from "@/types/onboarding.types";
+import { DocumentItem, DocumentSubmission, Remark } from "@/types/onboarding.types";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -19,79 +20,91 @@ import { formatFileSize, validateFile } from "./shared/utils";
 
 interface DocumentUploadProps {
   documents: DocumentItem[];
+  remarks: Remark[];
   onUpdate: (docs: DocumentItem[]) => void;
 }
 
 const ALLOWED_FILE_TYPES = new Set(["application/pdf"]);
 
-export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadProps>) {
+export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<DocumentUploadProps>) {
   const [uploadErrors, setUploadErrors] = useState<{ [key: string]: string }>({});
-  const [viewingSample, setViewingSample] = useState<{ title: string; url: string } | null>(null);
+  const [pendingFiles, setPendingFiles] = useState<{ [key: string]: File }>({});
+  const [uploading, setUploading] = useState<{ [key: string]: boolean }>({});
 
-  const handleFileUpload = (documentId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (onboardingItemId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const error = validateFile(file, ALLOWED_FILE_TYPES, "Invalid file type. Only PDF files are allowed.");
     if (error) {
-      setUploadErrors({ ...uploadErrors, [documentId]: error });
-      event.target.value = ""; // Reset input
+      setUploadErrors({ ...uploadErrors, [onboardingItemId]: error });
+      event.target.value = "";
       return;
     }
 
-    setUploadErrors({ ...uploadErrors, [documentId]: "" });
+    setUploadErrors({ ...uploadErrors, [onboardingItemId]: "" });
 
-    const newFile: FileUpload = {
-      id: Date.now().toString(),
-      name: file.name,
-      size: file.size,
-      uploadDate: new Date(),
+    // Store the actual File object for API upload, show preview via file metadata
+    setPendingFiles(prev => ({ ...prev, [onboardingItemId]: file }));
+    const preview: DocumentSubmission = {
+      submission_id: `preview-${Date.now()}`,
+      onboarding_item_id: onboardingItemId,
+      file_url: "",
+      file_name: file.name,
+      file_size_bytes: file.size,
+      file_type: file.type,
+      is_proof_of_receipt: false,
       status: "uploaded",
+      uploaded_at: new Date().toISOString(),
     };
 
     const updatedDocuments = documents.map((doc) => {
-      if (doc.id === documentId) {
-        return {
-          ...doc,
-          files: [newFile], // Only one file allowed
-          uploadHistory: [...doc.uploadHistory, newFile],
-          status: "pending" as const, // Stay pending until submitted
-        };
+      if (doc.onboarding_item_id === onboardingItemId) {
+        return { ...doc, files: [preview], status: "pending" as const };
       }
       return doc;
     });
 
     onUpdate(updatedDocuments);
-    event.target.value = ""; // Reset input
+    event.target.value = "";
   };
 
-  const handleCancelUpload = (documentId: string) => {
+  const handleCancelUpload = (onboardingItemId: string) => {
+    setPendingFiles(prev => { const n = { ...prev }; delete n[onboardingItemId]; return n; });
     const updatedDocuments = documents.map((doc) => {
-      if (doc.id === documentId) {
-        return {
-          ...doc,
-          files: [],
-          status: "pending" as const,
-        };
+      if (doc.onboarding_item_id === onboardingItemId) {
+        return { ...doc, files: [], status: "pending" as const };
       }
       return doc;
     });
-
     onUpdate(updatedDocuments);
   };
 
-  const handleSubmitForReview = (documentId: string) => {
-    const updatedDocuments = documents.map((doc) => {
-      if (doc.id === documentId && doc.files.length > 0) {
-        return {
-          ...doc,
-          status: "for-review" as const,
-        };
-      }
-      return doc;
-    });
+  const handleSubmitForReview = async (onboardingItemId: string) => {
+    const file = pendingFiles[onboardingItemId];
+    if (!file) return;
 
-    onUpdate(updatedDocuments);
+    setUploading(prev => ({ ...prev, [onboardingItemId]: true }));
+    try {
+      const submission = await uploadDocument(onboardingItemId, file, false);
+      setPendingFiles(prev => { const n = { ...prev }; delete n[onboardingItemId]; return n; });
+      const updatedDocuments = documents.map((doc) => {
+        if (doc.onboarding_item_id === onboardingItemId) {
+          return {
+            ...doc,
+            files: [submission],
+            upload_history: [...doc.upload_history, submission],
+            status: "submitted" as const,
+          };
+        }
+        return doc;
+      });
+      onUpdate(updatedDocuments);
+    } catch {
+      setUploadErrors(prev => ({ ...prev, [onboardingItemId]: "Upload failed. Please try again." }));
+    } finally {
+      setUploading(prev => ({ ...prev, [onboardingItemId]: false }));
+    }
   };
 
   return (
@@ -107,16 +120,13 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
         </TableHeader>
         <TableBody>
           {documents.map((doc) => (
-            <TableRow key={doc.id}>
+            <TableRow key={doc.onboarding_item_id}>
               <TableCell>
                 <div className="space-y-1">
                   <div className="flex items-center gap-1">
                     <span className="font-medium">{doc.title}</span>
-                    {doc.required && <span className="text-red-600 font-bold">*</span>}
+                    {doc.is_required && <span className="text-red-600 font-bold">*</span>}
                   </div>
-                  {doc.feedback && (
-                    <p className="text-xs text-red-600">{doc.feedback}</p>
-                  )}
                 </div>
               </TableCell>
               <TableCell>
@@ -124,8 +134,8 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
                   <div className="flex items-center gap-2">
                     <FileText className="size-4 text-blue-600" />
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{doc.files[0].name}</p>
-                      <p className="text-xs text-slate-500">{formatFileSize(doc.files[0].size)}</p>
+                      <p className="text-sm truncate">{doc.files[0].file_name}</p>
+                      <p className="text-xs text-slate-500">{formatFileSize(doc.files[0].file_size_bytes)}</p>
                     </div>
                   </div>
                 ) : (
@@ -140,34 +150,33 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
               </TableCell>
               <TableCell>
                 <div className="flex items-center gap-1">
-                  {/* Primary actions based on status */}
                   {(doc.status === "pending" || doc.status === "rejected") && doc.files.length === 0 && (
                     <>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        onClick={() => document.getElementById(`file-${doc.id}`)?.click()}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => document.getElementById(`file-${doc.onboarding_item_id}`)?.click()}
                       >
                         <Upload className="size-3 mr-1" />
                         Upload
                       </Button>
                       <input
-                        id={`file-${doc.id}`}
+                        id={`file-${doc.onboarding_item_id}`}
                         type="file"
                         className="hidden"
                         accept=".pdf"
-                        onChange={(e) => handleFileUpload(doc.id, e)}
+                        onChange={(e) => handleFileUpload(doc.onboarding_item_id, e)}
                       />
                     </>
                   )}
 
-                  {/* Cancel and Submit when file is uploaded but not submitted */}
                   {doc.status === "pending" && doc.files.length > 0 && (
                     <>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleCancelUpload(doc.id)}
+                        onClick={() => handleCancelUpload(doc.onboarding_item_id)}
+                        disabled={uploading[doc.onboarding_item_id]}
                       >
                         <X className="size-3 mr-1" />
                         Cancel
@@ -175,23 +184,23 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
                       <Button
                         variant="default"
                         size="sm"
-                        onClick={() => handleSubmitForReview(doc.id)}
+                        onClick={() => handleSubmitForReview(doc.onboarding_item_id)}
+                        disabled={uploading[doc.onboarding_item_id]}
                       >
-                        Submit
+                        {uploading[doc.onboarding_item_id] ? "Uploading..." : "Submit"}
                       </Button>
                     </>
                   )}
 
-                  {/* Reupload for rejected or for-review status */}
                   {(doc.status === "rejected" || doc.status === "for-review") && doc.files.length > 0 && (
                     <>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => {
-                          handleCancelUpload(doc.id);
+                          handleCancelUpload(doc.onboarding_item_id);
                           setTimeout(() => {
-                            document.getElementById(`file-${doc.id}`)?.click();
+                            document.getElementById(`file-${doc.onboarding_item_id}`)?.click();
                           }, 100);
                         }}
                       >
@@ -199,16 +208,15 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
                         Reupload
                       </Button>
                       <input
-                        id={`file-${doc.id}`}
+                        id={`file-${doc.onboarding_item_id}`}
                         type="file"
                         className="hidden"
                         accept=".pdf"
-                        onChange={(e) => handleFileUpload(doc.id, e)}
+                        onChange={(e) => handleFileUpload(doc.onboarding_item_id, e)}
                       />
                     </>
                   )}
 
-                  {/* More actions dropdown */}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="sm">
@@ -216,13 +224,7 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      {doc.sampleUrl && (
-                        <DropdownMenuItem onClick={() => setViewingSample({ title: doc.title, url: doc.sampleUrl! })}>
-                          <ExternalLink className="size-3 mr-2" />
-                          View Sample
-                        </DropdownMenuItem>
-                      )}
-                      {doc.uploadHistory.length > 0 && (
+                      {doc.upload_history.length > 0 && (
                         <Dialog>
                           <DialogTrigger asChild>
                             <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
@@ -237,13 +239,13 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
                             </DialogHeader>
                             <ScrollArea className="max-h-100">
                               <div className="space-y-2">
-                                {doc.uploadHistory.slice().reverse().map((file) => (
-                                  <div key={file.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
+                                {doc.upload_history.slice().reverse().map((file) => (
+                                  <div key={file.submission_id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
                                     <FileText className="size-6 text-blue-600" />
                                     <div className="flex-1">
-                                      <p className="text-sm font-medium">{file.name}</p>
+                                      <p className="text-sm font-medium">{file.file_name}</p>
                                       <p className="text-xs text-slate-500">
-                                        {formatFileSize(file.size)} • {file.uploadDate.toLocaleString()}
+                                        {formatFileSize(file.file_size_bytes)} • {new Date(file.uploaded_at).toLocaleString()}
                                       </p>
                                     </div>
                                     <StatusBadge status={file.status} />
@@ -263,8 +265,7 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
         </TableBody>
       </Table>
 
-      {/* Upload Errors */}
-      {Object.entries(uploadErrors).map(([docId, error]) => 
+      {Object.entries(uploadErrors).map(([docId, error]) =>
         error && (
           <Alert key={docId} variant="destructive">
             <AlertCircle className="size-4" />
@@ -273,31 +274,11 @@ export function DocumentUpload({ documents, onUpdate }: Readonly<DocumentUploadP
         )
       )}
 
-      {/* Remarks Section */}
-      <RemarksSection items={documents} />
+      <RemarksSection remarks={remarks} />
 
       <div className="text-xs text-slate-500 bg-slate-50 p-3 rounded border">
         <strong>File Requirements:</strong> PDF format only. Maximum file size: 10MB. Only one file per document.
       </div>
-
-      {/* Sample Document Viewer */}
-      {viewingSample && (
-        <Dialog open={true} onOpenChange={() => setViewingSample(null)}>
-          <DialogContent className="max-w-4xl">
-            <DialogHeader>
-              <DialogTitle>Sample Document - {viewingSample.title}</DialogTitle>
-              <DialogDescription>View the sample document for reference</DialogDescription>
-            </DialogHeader>
-            <div className="w-full max-h-150 overflow-auto bg-slate-50 rounded-lg p-4">
-              <img 
-                src={viewingSample.url} 
-                alt={`Sample ${viewingSample.title}`}
-                className="w-full h-auto rounded shadow-lg"
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
     </div>
   );
 }

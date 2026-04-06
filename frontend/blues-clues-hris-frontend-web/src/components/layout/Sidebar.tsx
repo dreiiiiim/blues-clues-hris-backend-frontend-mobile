@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
@@ -34,6 +34,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { getMySession } from "@/lib/onboardingApi";
 
 const ROLE_LABELS: Record<string, string> = {
   hr: "HR Portal",
@@ -57,6 +58,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "Dashboard", href: "/applicant/dashboard", icon: LayoutDashboard },
     { name: "Jobs", href: "/applicant/jobs", icon: Briefcase },
     { name: "My Applications", href: "/applicant/applications", icon: FileText },
+    { name: "My Profile", href: "/applicant/profile", icon: Users },
   ],
   employee: [
     { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
@@ -89,14 +91,31 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   ],
 };
 
-export function Sidebar({ persona = "applicant" }: { readonly persona?: PersonaType }) {
+export function Sidebar({
+  persona = "applicant",
+  additionalItems = [],
+}: {
+  readonly persona?: PersonaType;
+  readonly additionalItems?: { name: string; href: string; icon: React.ElementType }[];
+}) {
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);
+  const [onboardingDone, setOnboardingDone] = useState(false);
 
   useEffect(() => {
     setUser(getUserInfo());
   }, []);
+
+  // For employees: hide the Onboarding tab once their onboarding is approved
+  useEffect(() => {
+    if (persona !== "employee") return;
+    getMySession()
+      .then((session) => {
+        if (session?.status === "approved") setOnboardingDone(true);
+      })
+      .catch(() => {});
+  }, [persona]);
 
   const handleLogout = async () => {
     if (user?.role === "applicant") {
@@ -121,7 +140,10 @@ export function Sidebar({ persona = "applicant" }: { readonly persona?: PersonaT
     }`;
   };
 
-  const currentMenu = MENU_CONFIG[persona] || [];
+  const baseMenu = (MENU_CONFIG[persona] || []).filter(
+    (item) => !(onboardingDone && item.href === "/employee/onboarding"),
+  );
+  const currentMenu = [...baseMenu, ...additionalItems];
 
   return (
     <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen shrink-0 border-r border-sidebar-border">

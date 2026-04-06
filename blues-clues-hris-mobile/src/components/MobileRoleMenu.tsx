@@ -84,7 +84,7 @@ export function MobileRoleMenu({
     manager:      { Dashboard: "ManagerDashboard", Timekeeping: "ManagerTimekeeping", Team: "ManagerTeam" },
     hr:           { Dashboard: "HROfficerDashboard", Timekeeping: "HROfficerTimekeeping", Recruitment: "HROfficerRecruitment" },
     employee:     { Dashboard: "EmployeeDashboard", Timekeeping: "EmployeeTimekeeping" },
-    applicant:    { Dashboard: "ApplicantDashboard", Jobs: "ApplicantJobs", Applications: "ApplicantApplications" },
+    applicant:    { Dashboard: "ApplicantDashboard", Jobs: "ApplicantJobs", Applications: "ApplicantApplications", Resume: "ApplicantResumeUpload" },
   };
 
   const switchTo = (target: string) => {

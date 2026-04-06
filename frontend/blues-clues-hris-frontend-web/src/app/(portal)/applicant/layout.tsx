@@ -4,32 +4,44 @@ import Link from "next/link";
 import { useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getAccessToken } from "@/lib/authStorage";
-import { applicantRefreshApi } from "@/lib/authApi";
+import { applicantRefreshApi, applicantLogoutApi, getMyOnboarding } from "@/lib/authApi";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
-import { Briefcase, FileText, LayoutDashboard, LogOut, Menu, X } from "lucide-react";
+import { Briefcase, ClipboardList, FileText, LayoutDashboard, LogOut, Menu, Users, X } from "lucide-react";
 
 const APPLICANT_MENU = [
-  { name: "Dashboard", href: "/applicant/dashboard", icon: LayoutDashboard },
-  { name: "Jobs", href: "/applicant/jobs", icon: Briefcase },
+  { name: "Dashboard",    href: "/applicant/dashboard",    icon: LayoutDashboard },
+  { name: "Jobs",         href: "/applicant/jobs",         icon: Briefcase },
   { name: "Applications", href: "/applicant/applications", icon: FileText },
+  { name: "My Profile",   href: "/applicant/profile",      icon: Users },
 ];
+
+const ONBOARDING_ITEM = {
+  name: "Onboarding",
+  href: "/applicant/onboarding",
+  icon: ClipboardList,
+};
 
 export default function PortalLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   const pathname = usePathname();
   const router = useRouter();
   const isPublicPage = pathname.includes("/login") || pathname.includes("/verify-email");
   const [ready, setReady] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [onboardingVisible, setOnboardingVisible] = useState(false);
+
+  const visibleMenu = useMemo(() => {
+    return onboardingVisible ? [...APPLICANT_MENU, ONBOARDING_ITEM] : APPLICANT_MENU;
+  }, [onboardingVisible]);
 
   const activeHref = useMemo(() => {
-    const hit = APPLICANT_MENU.find((item) => pathname === item.href || pathname.startsWith(item.href + "/"));
+    const hit = visibleMenu.find((item) => pathname === item.href || pathname.startsWith(item.href + "/"));
     return hit?.href ?? "/applicant/dashboard";
-  }, [pathname]);
+  }, [pathname, visibleMenu]);
 
   useLayoutEffect(() => {
     if (isPublicPage) {
@@ -37,16 +49,23 @@ export default function PortalLayout({
       return;
     }
 
-    // Access token is in-memory only — always lost on page reload.
-    // Attempt a silent refresh via the HttpOnly cookie before redirecting.
-    if (getAccessToken()) {
+    const init = async () => {
+      if (!getAccessToken()) {
+        try {
+          await applicantRefreshApi();
+        } catch {
+          router.replace(`/applicant/login?redirect=${encodeURIComponent(pathname)}`);
+          return;
+        }
+      }
       setReady(true);
-      return;
-    }
+      // Silently check for onboarding record — don't block render
+      getMyOnboarding()
+        .then((record) => { if (record) setOnboardingVisible(true); })
+        .catch(() => {});
+    };
 
-    applicantRefreshApi()
-      .then(() => setReady(true))
-      .catch(() => router.replace("/applicant/login"));
+    init();
   }, [isPublicPage, router]);
 
   const handleMobileLogout = async () => {
@@ -64,7 +83,10 @@ export default function PortalLayout({
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden font-sans">
       <div className="hidden md:block">
-        <Sidebar persona="applicant" />
+        <Sidebar
+          persona="applicant"
+          additionalItems={onboardingVisible ? [ONBOARDING_ITEM] : []}
+        />
       </div>
 
       {mobileMenuOpen && (
@@ -89,7 +111,7 @@ export default function PortalLayout({
             </div>
 
             <nav className="pt-4 space-y-1.5">
-              {APPLICANT_MENU.map((item) => {
+              {visibleMenu.map((item) => {
                 const ItemIcon = item.icon;
                 const isActive = activeHref === item.href;
                 return (
@@ -146,9 +168,10 @@ export default function PortalLayout({
           </div>
         </main>
 
+        {/* Mobile bottom nav */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t border-border bg-background/95 backdrop-blur">
-          <div className="grid grid-cols-3 gap-1 px-2 py-2">
-            {APPLICANT_MENU.map((item) => {
+          <div className={`grid gap-1 px-2 py-2 ${onboardingVisible ? "grid-cols-5" : "grid-cols-4"}`}>
+            {visibleMenu.map((item) => {
               const ItemIcon = item.icon;
               const isActive = activeHref === item.href;
               return (

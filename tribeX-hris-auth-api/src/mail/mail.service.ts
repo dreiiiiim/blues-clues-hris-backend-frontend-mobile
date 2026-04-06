@@ -109,6 +109,8 @@ export class MailService {
     to: string;
     applicantName: string;
     jobTitle: string;
+    stageLabel?: string;
+    isReschedule?: boolean;
     scheduledDate: string;   // "YYYY-MM-DD"
     scheduledTime: string;   // "HH:MM"
     durationMinutes: number;
@@ -131,6 +133,20 @@ export class MailService {
       hour: 'numeric', minute: '2-digit',
     });
 
+    const action = opts.isReschedule ? 'Rescheduled' : 'Scheduled';
+    const stagePrefix = opts.stageLabel ? `${opts.stageLabel} ` : '';
+    const subjectLine = `${stagePrefix}Interview ${action} – ${opts.jobTitle}`;
+    const headerLine = opts.stageLabel ? `${opts.stageLabel} Interview ${action}` : `Interview ${action}`;
+    const bodyIntro = opts.isReschedule
+      ? `Hi <strong>${opts.applicantName}</strong>, your <strong>${opts.stageLabel ?? 'interview'}</strong> for <strong>${opts.jobTitle}</strong> has been rescheduled. Here are the updated details:`
+      : `Hi <strong>${opts.applicantName}</strong>, your <strong>${opts.stageLabel ?? 'interview'}</strong> for <strong>${opts.jobTitle}</strong> has been scheduled. Here are the details:`;
+
+    const rescheduleNotice = opts.isReschedule
+      ? `<div style="margin-bottom:16px;padding:12px 16px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;">
+           <p style="margin:0;font-size:13px;font-weight:600;color:#92400e;">Your interview schedule has been updated by HR. Please review the new details below.</p>
+         </div>`
+      : '';
+
     const locationRow = opts.meetingLink
       ? `<tr><td style="padding:8px 0;color:#6b7280;font-size:13px;">Meeting Link</td><td style="padding:8px 0;font-size:13px;"><a href="${opts.meetingLink}" style="color:#1e3a8a;">${opts.meetingLink}</a></td></tr>`
       : opts.location
@@ -147,16 +163,17 @@ export class MailService {
     await this.transporter.sendMail({
       from: this.from,
       to: opts.to,
-      subject: `Interview Scheduled – ${opts.jobTitle}`,
+      subject: subjectLine,
       html: `
         <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
           <div style="background:linear-gradient(135deg,#0f172a 0%,#172554 55%,#134e4a 100%);padding:32px 28px;">
             <p style="margin:0 0 4px;font-size:11px;font-weight:bold;text-transform:uppercase;color:rgba(255,255,255,0.5);letter-spacing:0.14em;">Blues Clues HRIS</p>
-            <h1 style="margin:0;font-size:22px;color:#ffffff;">Interview Scheduled</h1>
+            <h1 style="margin:0;font-size:22px;color:#ffffff;">${headerLine}</h1>
           </div>
           <div style="padding:28px;">
+            ${rescheduleNotice}
             <p style="margin:0 0 16px;font-size:14px;color:#374151;">
-              Hi <strong>${opts.applicantName}</strong>, your interview for <strong>${opts.jobTitle}</strong> has been scheduled. Here are the details:
+              ${bodyIntro}
             </p>
 
             <div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;padding:20px 24px;margin-bottom:20px;">
@@ -260,6 +277,63 @@ export class MailService {
           </div>
           <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 24px;">
             <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">Blues Clues HRIS · Automated notification</p>
+          </div>
+        </div>
+      `,
+    });
+  }
+
+  async sendInterviewCancellationEmail(opts: {
+    to: string;
+    applicantName: string;
+    jobTitle: string;
+    scheduledDate: string;
+    scheduledTime: string;
+    stageLabel: string;
+    reason?: string | null;
+  }): Promise<void> {
+    const fmtDate = new Date(`${opts.scheduledDate}T${opts.scheduledTime}`).toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+    const fmtTime = new Date(`2000-01-01T${opts.scheduledTime}`).toLocaleTimeString('en-US', {
+      hour: 'numeric', minute: '2-digit',
+    });
+
+    const reasonSection = opts.reason
+      ? `<div style="margin-top:16px;padding:14px;background:#fef9f0;border-radius:8px;border:1px solid #fde68a;">
+           <p style="margin:0 0 4px;font-size:11px;font-weight:bold;text-transform:uppercase;color:#92400e;letter-spacing:0.08em;">Note from HR</p>
+           <p style="margin:0;font-size:13px;color:#78350f;">${opts.reason}</p>
+         </div>`
+      : '';
+
+    await this.transporter.sendMail({
+      from: this.from,
+      to: opts.to,
+      subject: `Interview Cancelled – ${opts.jobTitle}`,
+      html: `
+        <div style="font-family:sans-serif;max-width:560px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+          <div style="background:linear-gradient(135deg,#0f172a 0%,#172554 55%,#134e4a 100%);padding:32px 28px;">
+            <p style="margin:0 0 4px;font-size:11px;font-weight:bold;text-transform:uppercase;color:rgba(255,255,255,0.5);letter-spacing:0.14em;">Blues Clues HRIS</p>
+            <h1 style="margin:0;font-size:22px;color:#ffffff;">Interview Cancelled</h1>
+          </div>
+          <div style="padding:28px;">
+            <p style="margin:0 0 16px;font-size:14px;color:#374151;">
+              Hi <strong>${opts.applicantName}</strong>, we're writing to let you know that your scheduled <strong>${opts.stageLabel}</strong> for <strong>${opts.jobTitle}</strong> has been cancelled.
+            </p>
+
+            <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:20px 24px;margin-bottom:16px;">
+              <p style="margin:0 0 4px;font-size:11px;font-weight:bold;text-transform:uppercase;color:#991b1b;letter-spacing:0.08em;">Cancelled Interview</p>
+              <p style="margin:4px 0 0;font-size:14px;font-weight:600;color:#7f1d1d;">${fmtDate} at ${fmtTime}</p>
+            </div>
+
+            ${reasonSection}
+
+            <p style="margin-top:20px;font-size:13px;color:#374151;">
+              Our team will be in touch soon regarding next steps. If you have questions, please reach out to your HR contact directly.
+            </p>
+          </div>
+          <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 28px;">
+            <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">Blues Clues HRIS · This is an automated notification</p>
           </div>
         </div>
       `,

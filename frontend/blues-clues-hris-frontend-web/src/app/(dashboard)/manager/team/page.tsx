@@ -10,9 +10,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Search, MoreHorizontal, X,
-  ChevronLeft, ChevronRight, Pencil, UserX, UserCheck,
+  ChevronLeft, ChevronRight, UserX, UserCheck,
   Filter, Download, Check, Mail, Eye,
-  Hash, User, Building2, Calendar, Shield, Loader2,
+  Hash, User, Building2, Calendar, Shield,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -154,14 +154,12 @@ function MenuRow({ icon: Icon, label, onClick, color }: {
 function RowMenu({
   employee,
   onView,
-  onEdit,
   onDeactivate,
   onReactivate,
   onResendInvite,
 }: {
   readonly employee: Employee;
   readonly onView: () => void;
-  readonly onEdit: () => void;
   readonly onDeactivate: () => void;
   readonly onReactivate: () => void;
   readonly onResendInvite: () => void;
@@ -207,8 +205,7 @@ function RowMenu({
           style={{ top: menuPos.top, right: menuPos.right }}
           className="fixed z-50 w-48 bg-card border border-border rounded-lg shadow-lg py-1 text-sm"
         >
-          <MenuRow icon={Eye}    label="View Profile" onClick={close(onView)} />
-          <MenuRow icon={Pencil} label="Edit Employee" onClick={close(onEdit)} />
+          <MenuRow icon={Eye} label="View Profile" onClick={close(onView)} />
           {employee.account_status === "Pending" && (
             <MenuRow icon={Mail} label="Resend Invite" onClick={close(onResendInvite)} color="text-blue-600" />
           )}
@@ -511,7 +508,6 @@ export default function ManagerTeamPage() {
   }, [searchParams]);
 
   const [viewEmployee, setViewEmployee]   = useState<Employee | null>(null);
-  const [editEmployee, setEditEmployee]   = useState<Employee | null>(null);
   const [confirmDeact, setConfirmDeact]   = useState<Employee | null>(null);
   const [showFilter, setShowFilter]       = useState(false);
   const [statusFilter, setStatusFilter]   = useState<Set<string>>(new Set());
@@ -589,11 +585,6 @@ export default function ManagerTeamPage() {
   const activeCount   = employees.filter(e => e.account_status === "Active").length;
   const pendingCount  = employees.filter(e => e.account_status === "Pending").length;
   const inactiveCount = employees.filter(e => e.account_status === "Inactive").length;
-
-  const handleEditSaved = (updated: Employee) => {
-    setEmployees(prev => prev.map(e => e.user_id === updated.user_id ? updated : e));
-    setEditEmployee(null);
-  };
 
   const handleResendInvite = async (employee: Employee) => {
     try {
@@ -839,7 +830,6 @@ export default function ManagerTeamPage() {
                     <RowMenu
                       employee={e}
                       onView={() => setViewEmployee(e)}
-                      onEdit={() => setEditEmployee(e)}
                       onDeactivate={() => setConfirmDeact(e)}
                       onReactivate={() => handleReactivate(e)}
                       onResendInvite={() => handleResendInvite(e)}
@@ -879,15 +869,6 @@ export default function ManagerTeamPage() {
           roles={roles}
           departments={departments}
           onClose={() => setViewEmployee(null)}
-        />
-      )}
-      {editEmployee && (
-        <EditEmployeeModal
-          employee={editEmployee}
-          roles={roles}
-          departments={departments}
-          onClose={() => setEditEmployee(null)}
-          onSaved={handleEditSaved}
         />
       )}
       {confirmDeact && (

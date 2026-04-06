@@ -5,17 +5,13 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Remark } from "@/types/onboarding.types";
 
 interface RemarksSectionProps {
-  items: Array<{ remarksHistory?: Remark[] }>;
+  remarks: Remark[];
 }
 
-export function RemarksSection({ items }: Readonly<RemarksSectionProps>) {
-  const allRemarks: Remark[] = [];
-  items.forEach((item) => {
-    if (item.remarksHistory && item.remarksHistory.length > 0) {
-      allRemarks.push(...item.remarksHistory);
-    }
-  });
-  const sortedRemarks = allRemarks.toSorted((a, b) => b.date.getTime() - a.date.getTime());
+export function RemarksSection({ remarks }: Readonly<RemarksSectionProps>) {
+  const sortedRemarks = [...remarks].sort(
+    (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 
   if (sortedRemarks.length === 0) return null;
 
@@ -31,17 +27,19 @@ export function RemarksSection({ items }: Readonly<RemarksSectionProps>) {
         <ScrollArea className="max-h-75">
           <div className="space-y-3">
             {sortedRemarks.map((remark) => (
-              <div key={remark.id} className="p-3 bg-slate-50 rounded-lg border">
+              <div key={remark.remark_id} className="p-3 bg-slate-50 rounded-lg border">
                 <div className="flex items-center justify-between mb-1">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-slate-700">{remark.author}</span>
                     <Badge variant="outline" className="text-xs">
-                      {remark.category}
+                      {remark.tab_tag}
                     </Badge>
                   </div>
-                  <span className="text-xs text-slate-500">{remark.date.toLocaleString()}</span>
+                  <span className="text-xs text-slate-500">
+                    {new Date(remark.created_at).toLocaleString()}
+                  </span>
                 </div>
-                <p className="text-sm text-slate-600">{remark.message}</p>
+                <p className="text-sm text-slate-600">{remark.remark_text}</p>
               </div>
             ))}
           </div>

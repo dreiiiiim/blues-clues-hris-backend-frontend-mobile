@@ -1,147 +1,142 @@
-// Shared types for the entire onboarding system
+// Shared types aligned to Supabase schema
 
-export type OnboardingStatus = "not-started" | "in-progress" | "for-review" | "approved" | "overdue";
-export type ItemStatus = "pending" | "submitted" | "for-review" | "approved" | "rejected" | "issued";
+export type OnboardingStatus = 'not-started' | 'in-progress' | 'for-review' | 'approved' | 'overdue';
+export type ItemStatus = 'pending' | 'submitted' | 'for-review' | 'approved' | 'rejected' | 'issued' | 'confirmed';
 
 export interface Remark {
-  id: string;
-  message: string;
-  date: Date;
+  remark_id: string;
+  tab_tag: 'Documents' | 'Tasks' | 'Equipment' | 'Profile' | 'Forms';
+  remark_text: string;
+  created_at: string;
   author: string;
-  category: "Documents" | "Tasks" | "Equipment" | "Profile" | "Forms";
 }
 
-export interface OnboardingItem {
-  id: string;
+export interface DocumentSubmission {
+  submission_id: string;
+  onboarding_item_id: string;
+  file_url: string;
+  file_name: string;
+  file_size_bytes: number;
+  file_type: string;
+  is_proof_of_receipt: boolean;
+  status: 'uploaded' | 'approved' | 'rejected';
+  uploaded_at: string;
+}
+
+export interface OnboardingItemBase {
+  onboarding_item_id: string;
   title: string;
   status: ItemStatus;
-  feedback?: string;
-  required: boolean;
-  remarksHistory?: Remark[];
-}
-
-export interface FileUpload {
-  id: string;
-  name: string;
-  size: number;
-  uploadDate: Date;
-  status: "uploaded" | "approved" | "rejected";
-}
-
-export interface DocumentItem extends OnboardingItem {
-  files: FileUpload[];
-  uploadHistory: FileUpload[];
-  sampleUrl?: string;
-}
-
-export interface TaskItem extends OnboardingItem {
-  description: string;
-  completed: boolean;
-  contentType: "document" | "video" | "form" | "acknowledgment";
-  content?: {
-    url?: string;
-    text?: string;
-    fields?: FormField[];
-  };
-}
-
-export interface FormField {
-  label: string;
+  is_required: boolean;
   type: string;
-  required: boolean;
+  description?: string;
+  rich_content?: string;
 }
 
-export interface EquipmentItem extends OnboardingItem {
-  description: string;
-  quantity: number;
-  proofOfReceipt: FileUpload[];
-  receiptConfirmed?: boolean;
-  deliveryMethod?: "office" | "delivery";
-  deliveryAddress?: string;
+export interface DocumentItem extends OnboardingItemBase {
+  files: DocumentSubmission[];
+  upload_history: DocumentSubmission[];
 }
 
-// New: HR Forms (separate from documents)
-export interface HRFormItem extends OnboardingItem {
-  description: string;
-  formType: "personal-info" | "emergency-contact" | "tax-form" | "benefits" | "direct-deposit";
-  fields: FormField[];
-  formData?: Record<string, any>;
+export interface TaskItem extends OnboardingItemBase {}
+
+export interface EquipmentItem extends OnboardingItemBase {
+  is_requested?: boolean;
+  delivery_method?: 'office' | 'delivery';
+  delivery_address?: string;
+  proof_of_receipt: DocumentSubmission[];
 }
 
-// New: Profile data
+export interface HRFormItem extends OnboardingItemBase {}
+
 export interface ProfileData {
-  photo?: FileUpload;
-  firstName: string;
-  lastName: string;
-  middleName?: string;
-  email: string;
-  phoneNumber: string;
-  address: string;
-  dateOfBirth?: Date;
-  placeOfBirth?: string;
-  nationality?: string;
-  civilStatus?: string;
-  emergencyContactName?: string;
-  emergencyContactRelationship?: string;
-  emergencyContactPhone?: string;
-  emergencyContactEmail?: string;
-  status: ItemStatus;
-  remarksHistory?: Remark[];
+  profile_id?: string;
+  session_id: string;
+  first_name: string;
+  middle_name?: string;
+  last_name: string;
+  email_address: string;
+  phone_number: string;
+  complete_address: string;
+  date_of_birth: string;
+  place_of_birth: string;
+  nationality: string;
+  civil_status: string;
+  contact_name: string;
+  relationship: string;
+  emergency_phone_number: string;
+  emergency_email_address?: string;
+  status: string;
 }
 
-// Template system
-export interface OnboardingTemplate {
-  id: string;
-  name: string;
-  description: string;
-  department: string;
-  position: string;
-  documents: DocumentItem[];
-  tasks: TaskItem[];
-  equipment: EquipmentItem[];
-  hrForms: HRFormItem[];
-  deadline: number; // days from start
-  isActive: boolean;
-  createdBy: string;
-  createdDate: Date;
-  lastModified: Date;
-}
-
-// Employee assignment
-export interface EmployeeAssignment {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  templateId: string;
-  templateName: string;
-  department: string;
-  position: string;
-  startDate: Date;
-  deadline: Date;
+export interface OnboardingSession {
+  session_id: string;
+  account_id: string;
+  template_id: string;
+  template_name: string | null;
+  employee_name: string | null;
+  employee_id: string | null;
+  assigned_position: string;
+  assigned_department: string;
   status: OnboardingStatus;
-  assignedBy: string;
-  assignedDate: Date;
+  progress_percentage: number;
+  deadline_date: string;
+  completed_at: string | null;
   documents: DocumentItem[];
   tasks: TaskItem[];
   equipment: EquipmentItem[];
-  hrForms: HRFormItem[];
-  profile: ProfileData;
-  overallProgress: number;
-  finalApprovalStatus: "pending" | "submitted-for-approval" | "approved" | "rejected";
-  finalApprovalDate?: Date;
-  finalApprovalBy?: string;
-  finalRemarks?: string;
+  hr_forms: HRFormItem[];
+  profile_items: OnboardingItemBase[];
+  welcome: OnboardingItemBase[];
+  profile: ProfileData | null;
+  remarks: Remark[];
 }
 
-// Notification system
-export interface Notification {
-  id: string;
-  type: "template-ready" | "employee-assigned" | "submission-review" | "approval-complete" | "rejection";
+export interface OnboardingSessionSummary {
+  session_id: string;
+  account_id: string;
+  template_id: string;
+  template_name: string | null;
+  employee_name: string | null;
+  assigned_position: string;
+  assigned_department: string;
+  status: OnboardingStatus;
+  progress_percentage: number;
+  deadline_date: string;
+  completed_at: string | null;
+}
+
+export interface TemplateItem {
+  item_id: string;
+  type: string;
+  tab_category: string;
   title: string;
-  message: string;
-  from: string;
-  to: string;
-  date: Date;
-  read: boolean;
-  relatedId?: string; // template ID or employee ID
+  description?: string;
+  is_required: boolean;
+}
+
+export interface OnboardingTemplate {
+  template_id: string;
+  name: string;
+  department_id: string;
+  position_id: string;
+  default_deadline_days: number;
+  created_at: string;
+  template_items: TemplateItem[];
+  position_name?: string | null;
+  department_name?: string | null;
+}
+
+export interface JobPosition {
+  position_id: string;
+  department_id: string;
+  position_name: string;
+  department_name?: string | null;
+  created_at: string;
+}
+
+export interface Department {
+  department_id: string;
+  department_name: string;
+  company_id: string;
 }

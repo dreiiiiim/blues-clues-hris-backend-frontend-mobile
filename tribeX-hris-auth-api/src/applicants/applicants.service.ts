@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ConflictException,
   InternalServerErrorException,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -299,6 +300,133 @@ export class ApplicantsService {
     }
 
     return { message: 'A new verification email has been sent. Please check your inbox.' };
+  }
+
+  async getMe(applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    // Try progressively simpler SELECTs — columns may not exist yet pre-migration
+    const selectCols = [
+      'applicant_id, first_name, middle_name, last_name, email, phone_number, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, applicant_code, avatar_url, resume_url, resume_name, resume_uploaded_at',
+      'applicant_id, first_name, middle_name, last_name, email, phone_number, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, applicant_code, avatar_url',
+      'applicant_id, first_name, last_name, email, phone_number, applicant_code',
+    ];
+
+    let profile: Record<string, any> | null = null;
+
+    for (const cols of selectCols) {
+      const { data, error } = await (supabase as any)
+        .from('applicant_profile')
+        .select(cols)
+        .eq('applicant_id', applicantId)
+        .maybeSingle();
+      if (!error && data) {
+        profile = data as Record<string, any>;
+        break;
+      }
+    }
+
+    if (!profile) throw new NotFoundException('Profile not found');
+
+    // resume_url is stored as a file path — generate a fresh 7-day signed URL on every fetch
+    if (profile['resume_url'] && !profile['resume_url'].startsWith('https://')) {
+      const { data: urlData } = await supabase.storage
+        .from('applicant-resumes')
+        .createSignedUrl(profile['resume_url'], 60 * 60 * 24 * 7);
+      if (urlData?.signedUrl) {
+        profile['resume_url'] = urlData.signedUrl;
+      }
+    }
+
+    return profile;
+  }
+
+  async uploadResume(applicantId: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded.');
+
+    const allowedTypes = [
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid file type. Only PDF, DOC, and DOCX are allowed.');
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException('File is too large. Maximum size is 5MB.');
+    }
+
+    const supabase = this.supabaseService.getClient();
+
+    const filePath = `${applicantId}/${Date.now()}_${file.originalname}`;
+    const { error: uploadErr } = await supabase.storage
+      .from('applicant-resumes')
+      .upload(filePath, file.buffer, { contentType: file.mimetype, upsert: true });
+
+    if (uploadErr) throw new BadRequestException(`Upload failed: ${uploadErr.message}`);
+
+    // Store the file PATH (not a signed URL) so the reference never expires.
+    // A fresh signed URL is generated on every getMe() call.
+    const now = new Date().toISOString();
+
+    const { error: updateError } = await supabase
+      .from('applicant_profile')
+      .update({ resume_url: filePath, resume_name: file.originalname, resume_uploaded_at: now })
+      .eq('applicant_id', applicantId);
+
+    if (updateError) throw new InternalServerErrorException('Failed to save resume metadata.');
+
+    // Generate a signed URL to return immediately to the caller
+    const { data: urlData } = await supabase.storage
+      .from('applicant-resumes')
+      .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+
+    return {
+      resume_url: urlData?.signedUrl ?? filePath,
+      resume_name: file.originalname,
+      resume_uploaded_at: now,
+    };
+  }
+
+  async deleteResume(applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { error } = await supabase
+      .from('applicant_profile')
+      .update({ resume_url: null, resume_name: null, resume_uploaded_at: null })
+      .eq('applicant_id', applicantId);
+    if (error) throw new InternalServerErrorException('Failed to delete resume.');
+    return { message: 'Resume deleted' };
+  }
+
+  async updateMe(applicantId: string, body: {
+    first_name?: string;
+    middle_name?: string;
+    last_name?: string;
+    phone_number?: string;
+    personal_email?: string;
+    date_of_birth?: string;
+    place_of_birth?: string;
+    nationality?: string;
+    civil_status?: string;
+    complete_address?: string;
+    avatar_url?: string;
+  }) {
+    const allowed = ['first_name','middle_name','last_name','phone_number','personal_email','date_of_birth','place_of_birth','nationality','civil_status','complete_address','avatar_url'];
+    const patch: Record<string,any> = {};
+    for (const key of allowed) {
+      if (body[key as keyof typeof body] !== undefined) patch[key] = body[key as keyof typeof body];
+    }
+    if (Object.keys(patch).length === 0) return { message: 'Nothing to update' };
+
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('applicant_profile')
+      .update(patch)
+      .eq('applicant_id', applicantId)
+      .select('applicant_id, first_name, middle_name, last_name, email, phone_number, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, avatar_url, resume_url, resume_name, resume_uploaded_at')
+      .maybeSingle();
+    if (error) throw new InternalServerErrorException('Failed to update profile');
+    return data;
   }
 
   async logout(refreshToken: string, accessToken?: string) {

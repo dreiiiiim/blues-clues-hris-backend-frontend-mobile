@@ -1,18 +1,20 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Loader2, FileText, MapPin, Briefcase, CheckCircle2, X, Calendar,
   ChevronRight, ClipboardList, Clock, Trophy, Mic, Cpu,
   Search, Filter, SortAsc, SortDesc, TrendingUp, CheckCheck, XCircle,
   RotateCcw, DollarSign, AlarmClock, Video, Phone, Building2, Link2,
-  User, MessageSquare, AlertCircle,
+  User, MessageSquare, AlertCircle, ThumbsUp, ThumbsDown, CalendarClock,
 } from "lucide-react";
 import {
-  getMyApplications, getMyApplicationDetail,
-  type MyApplication, type ApplicationDetail, type InterviewSchedule,
+  getMyApplications, getMyApplicationDetail, respondToInterview,
+  type MyApplication, type ApplicationDetail, type InterviewSchedule, type InterviewAction,
 } from "@/lib/authApi";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -133,7 +135,13 @@ function ApplicationCard({ app, onView }: { readonly app: MyApplication; readonl
   else if (app.status === "rejected") iconContainerClass = "bg-red-500/10 text-red-500 border border-red-200/60 dark:border-red-700/40";
 
   return (
-    <div className={`bg-card border rounded-2xl shadow-sm overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer ${cardBorderClass}`}>
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={() => onView(app.application_id)}
+      onKeyDown={(e) => e.key === "Enter" && onView(app.application_id)}
+      className={`bg-card border rounded-2xl shadow-sm overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer ${cardBorderClass}`}
+    >
       {/* Status color bar — thicker + gradient for hired/rejected */}
       <div className={`h-1.5 w-full ${statusBarClass}`} />
 
@@ -197,7 +205,7 @@ function ApplicationCard({ app, onView }: { readonly app: MyApplication; readonl
           <Button
             size="sm" variant="ghost"
             className="h-8 px-3 gap-1.5 text-xs font-semibold text-muted-foreground border border-transparent hover:bg-primary/5 hover:border-primary/30 hover:text-primary transition-all cursor-pointer"
-            onClick={() => onView(app.application_id)}
+            onClick={(e) => { e.stopPropagation(); onView(app.application_id); }}
           >
             View Details <ChevronRight className="h-3.5 w-3.5" />
           </Button>
@@ -235,8 +243,35 @@ const FORMAT_LABELS: Record<string, string> = {
 
 const INTERVIEW_STAGES = new Set(["first_interview", "technical_interview", "final_interview"]);
 
-function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedule | null | undefined; readonly status: string }) {
+type ActionMode = "accept" | "decline" | "reschedule" | null;
+
+const ACTION_CONFIG = {
+  accept:     { label: "Accept",              icon: ThumbsUp,      color: "text-green-600",  bg: "bg-green-50 border-green-200",  btnClass: "bg-green-600 hover:bg-green-700 text-white",  placeholder: "Confirm you will attend and share any notes for HR…" },
+  decline:    { label: "Decline",             icon: ThumbsDown,    color: "text-red-600",    bg: "bg-red-50 border-red-200",      btnClass: "bg-red-600 hover:bg-red-700 text-white",      placeholder: "Explain why you are unable to attend this interview…" },
+  reschedule: { label: "Request Reschedule",  icon: CalendarClock, color: "text-amber-600",  bg: "bg-amber-50 border-amber-200",  btnClass: "bg-amber-600 hover:bg-amber-700 text-white",  placeholder: "Explain why you need to reschedule and provide your preferred dates/times…" },
+} as const;
+
+const RESPONSE_DISPLAY: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; banner: string; dot: string }> = {
+  accepted:             { label: "You accepted this interview",             icon: CheckCircle2,  banner: "bg-green-50 border-green-200 text-green-700",  dot: "bg-green-500"  },
+  declined:             { label: "You declined this interview",             icon: ThumbsDown,    banner: "bg-red-50 border-red-200 text-red-700",        dot: "bg-red-500"    },
+  reschedule_requested: { label: "Reschedule requested — awaiting HR reply", icon: CalendarClock, banner: "bg-amber-50 border-amber-200 text-amber-700",  dot: "bg-amber-500"  },
+};
+
+function InterviewTab({
+  schedule,
+  status,
+  applicationId,
+  onResponded,
+}: {
+  readonly schedule: InterviewSchedule | null | undefined;
+  readonly status: string;
+  readonly applicationId: string;
+  readonly onResponded: (updated: Partial<InterviewSchedule>) => void;
+}) {
   const isInterviewStage = INTERVIEW_STAGES.has(status);
+  const [actionMode, setActionMode] = useState<ActionMode>(null);
+  const [reason, setReason]         = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   if (!isInterviewStage) {
     return (
@@ -264,7 +299,7 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
     );
   }
 
-  const FormatIcon = FORMAT_ICONS[schedule.format] ?? Calendar;
+  const FormatIcon  = FORMAT_ICONS[schedule.format] ?? Calendar;
   const formatLabel = FORMAT_LABELS[schedule.format] ?? schedule.format;
 
   const dateStr = schedule.scheduled_date
@@ -276,9 +311,81 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
     ? new Date(`2000-01-01T${schedule.scheduled_time}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
     : "—";
 
+  const existingResponse = schedule.applicant_response ?? null;
+  const responseDisplay  = existingResponse ? RESPONSE_DISPLAY[existingResponse] : null;
+
+  // Detect if HR rescheduled: updated_at is significantly later than created_at
+  const wasRescheduledByHR =
+    !existingResponse &&
+    !!schedule.updated_at &&
+    !!schedule.created_at &&
+    new Date(schedule.updated_at).getTime() - new Date(schedule.created_at).getTime() > 30_000;
+
+  async function handleSubmit() {
+    if (!actionMode) return;
+    const trimmed = reason.trim();
+    if (!trimmed) {
+      toast.error("Reason is required.");
+      return;
+    }
+    const actionMap: Record<ActionMode & string, InterviewAction> = {
+      accept:     "accepted",
+      decline:    "declined",
+      reschedule: "reschedule_requested",
+    };
+    setSubmitting(true);
+    try {
+      await respondToInterview(applicationId, actionMap[actionMode], trimmed, schedule?.stage ?? undefined);
+      toast.success(`Response submitted — ${ACTION_CONFIG[actionMode].label.toLowerCase()}.`);
+      onResponded({
+        applicant_response:      actionMap[actionMode],
+        applicant_response_note: trimmed,
+        applicant_responded_at:  new Date().toISOString(),
+      });
+      setActionMode(null);
+      setReason("");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to submit response.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const cfg = actionMode ? ACTION_CONFIG[actionMode] : null;
+
   return (
-    <div className="space-y-4">
-      {/* Date & Time banner */}
+    <div className="space-y-4 animate-in fade-in duration-300">
+
+      {/* ── Response banner (if already responded) ── */}
+      {responseDisplay && (
+        <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${responseDisplay.banner}`}>
+          <responseDisplay.icon className="h-4 w-4 mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold leading-snug">{responseDisplay.label}</p>
+            {schedule.applicant_response_note && (
+              <p className="text-xs mt-1 opacity-80 leading-relaxed">&ldquo;{schedule.applicant_response_note}&rdquo;</p>
+            )}
+            {schedule.applicant_responded_at && (
+              <p className="text-[10px] font-bold uppercase tracking-wide mt-1.5 opacity-60">
+                Responded {fmtDate(schedule.applicant_responded_at)}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Rescheduled by HR banner ── */}
+      {wasRescheduledByHR && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 flex items-start gap-3">
+          <RotateCcw className="h-4 w-4 mt-0.5 text-amber-600 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-amber-700 leading-snug">HR has updated your interview schedule</p>
+            <p className="text-xs text-amber-600 mt-0.5">Please review the new details below and submit your response.</p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Date & Time banner ── */}
       <div className="rounded-xl border border-primary/20 bg-primary/5 px-5 py-4 flex items-center gap-4">
         <div className="h-12 w-12 rounded-xl bg-primary/10 border border-primary/20 flex flex-col items-center justify-center shrink-0">
           <Calendar className="h-5 w-5 text-primary" />
@@ -292,7 +399,7 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
         </div>
       </div>
 
-      {/* Format */}
+      {/* ── Format ── */}
       <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-center gap-3">
         <div className="h-8 w-8 rounded-lg bg-blue-50 border border-blue-200 flex items-center justify-center shrink-0">
           <FormatIcon className="h-4 w-4 text-blue-600" />
@@ -303,7 +410,7 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
         </div>
       </div>
 
-      {/* Location or Meeting Link */}
+      {/* ── Location / Meeting link ── */}
       {(schedule.location || schedule.meeting_link) && (
         <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-center gap-3">
           <div className="h-8 w-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
@@ -314,12 +421,8 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
               {schedule.meeting_link ? "Meeting Link" : "Location"}
             </p>
             {schedule.meeting_link ? (
-              <a
-                href={schedule.meeting_link}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-sm font-semibold text-primary hover:underline truncate block"
-              >
+              <a href={schedule.meeting_link} target="_blank" rel="noopener noreferrer"
+                className="text-sm font-semibold text-primary hover:underline truncate block">
                 {schedule.meeting_link}
               </a>
             ) : (
@@ -329,7 +432,7 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
         </div>
       )}
 
-      {/* Interviewer */}
+      {/* ── Interviewer ── */}
       <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-center gap-3">
         <div className="h-8 w-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0">
           <User className="h-4 w-4 text-muted-foreground" />
@@ -343,7 +446,7 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
         </div>
       </div>
 
-      {/* Notes */}
+      {/* ── Notes from HR ── */}
       {schedule.notes && (
         <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 flex items-start gap-3">
           <div className="h-8 w-8 rounded-lg bg-muted/40 flex items-center justify-center shrink-0 mt-0.5">
@@ -355,16 +458,139 @@ function InterviewTab({ schedule, status }: { readonly schedule: InterviewSchedu
           </div>
         </div>
       )}
+
+      {/* ── Action buttons ── */}
+      {!existingResponse && !actionMode && (
+        <div className="pt-1">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-3">Your Response</p>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              onClick={() => setActionMode("accept")}
+              className="flex flex-col items-center gap-1.5 rounded-xl border-2 border-green-200 bg-green-50 px-3 py-3 hover:bg-green-100 hover:border-green-300 transition-all duration-150 cursor-pointer group"
+            >
+              <div className="h-8 w-8 rounded-full bg-green-100 group-hover:bg-green-200 border border-green-300 flex items-center justify-center transition-colors">
+                <ThumbsUp className="h-4 w-4 text-green-600" />
+              </div>
+              <span className="text-[11px] font-bold text-green-700">Accept</span>
+            </button>
+            <button
+              onClick={() => setActionMode("decline")}
+              className="flex flex-col items-center gap-1.5 rounded-xl border-2 border-red-200 bg-red-50 px-3 py-3 hover:bg-red-100 hover:border-red-300 transition-all duration-150 cursor-pointer group"
+            >
+              <div className="h-8 w-8 rounded-full bg-red-100 group-hover:bg-red-200 border border-red-300 flex items-center justify-center transition-colors">
+                <ThumbsDown className="h-4 w-4 text-red-600" />
+              </div>
+              <span className="text-[11px] font-bold text-red-700">Decline</span>
+            </button>
+            <button
+              onClick={() => setActionMode("reschedule")}
+              className="flex flex-col items-center gap-1.5 rounded-xl border-2 border-amber-200 bg-amber-50 px-3 py-3 hover:bg-amber-100 hover:border-amber-300 transition-all duration-150 cursor-pointer group"
+            >
+              <div className="h-8 w-8 rounded-full bg-amber-100 group-hover:bg-amber-200 border border-amber-300 flex items-center justify-center transition-colors">
+                <CalendarClock className="h-4 w-4 text-amber-600" />
+              </div>
+              <span className="text-[11px] font-bold text-amber-700">Reschedule</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Reason form ── */}
+      {actionMode && cfg && (
+        <div className={`rounded-xl border-2 p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200 ${cfg.bg}`}>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <cfg.icon className={`h-4 w-4 ${cfg.color}`} />
+              <p className={`text-sm font-bold ${cfg.color}`}>{cfg.label}</p>
+            </div>
+            <button
+              onClick={() => { setActionMode(null); setReason(""); }}
+              className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-black/10 transition-colors cursor-pointer"
+              aria-label="Cancel"
+            >
+              <X className="h-3.5 w-3.5 text-muted-foreground" />
+            </button>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground flex items-center gap-1">
+              Reason
+              <span className="text-red-500">*</span>
+            </label>
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder={cfg.placeholder}
+              rows={3}
+              className="resize-none text-sm bg-white/80 border-border focus-visible:ring-primary/20"
+            />
+            <p className="text-[10px] text-muted-foreground">Required — this will be sent to the HR team.</p>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              onClick={handleSubmit}
+              disabled={submitting || !reason.trim()}
+              className={`h-9 px-4 text-xs font-semibold flex-1 ${cfg.btnClass}`}
+            >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
+              {submitting ? "Submitting…" : `Submit ${cfg.label}`}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => { setActionMode(null); setReason(""); }}
+              disabled={submitting}
+              className="h-9 px-4 text-xs"
+            >
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Change response (already responded) ── */}
+      {existingResponse && (
+        <button
+          onClick={() => { setActionMode(null); setReason(""); }}
+          className="w-full text-xs text-muted-foreground hover:text-primary transition-colors text-center cursor-pointer py-1 underline underline-offset-2"
+        >
+          Need to change your response? Contact HR directly.
+        </button>
+      )}
     </div>
   );
 }
 
-function DetailModal({ detail, onClose }: { readonly detail: DetailWithJob; readonly onClose: () => void }) {
-  const [tab, setTab] = useState<"job" | "answers" | "interview">("job");
+function DetailModal({ detail, onClose, initialTab }: { readonly detail: DetailWithJob; readonly onClose: () => void; readonly initialTab?: "job" | "answers" | "interview" }) {
+  const [tab, setTab] = useState<"job" | "answers" | "interview">(initialTab ?? "job");
+  // Prefer the schedule for the current application status (stage), fall back to latest
+  const [schedule, setSchedule] = useState<InterviewSchedule | null | undefined>(
+    detail.interview_schedules?.[detail.status] ?? detail.interview_schedule
+  );
   const cfg    = STATUS_CONFIG[detail.status] ?? STATUS_CONFIG["submitted"];
   const job    = detail.job_postings;
   const sorted = [...detail.answers].sort((a, b) => a.application_questions.sort_order - b.application_questions.sort_order);
-  const hasInterview = INTERVIEW_STAGES.has(detail.status);
+
+  // Re-fetch the latest schedule when the user switches to the interview tab
+  const fetchSchedule = useCallback(async () => {
+    try {
+      const fresh = await getMyApplicationDetail(detail.application_id);
+      const freshSchedule = fresh.interview_schedules?.[detail.status] ?? fresh.interview_schedule ?? null;
+      setSchedule(freshSchedule ?? null);
+    } catch {
+      // silently ignore — stale data is still better than an error
+    }
+  }, [detail.application_id, detail.status]);
+
+  useEffect(() => {
+    if (tab === "interview") {
+      fetchSchedule();
+    }
+  }, [tab, fetchSchedule]);
+
+  function handleResponded(updated: Partial<InterviewSchedule>) {
+    setSchedule((prev) => prev ? { ...prev, ...updated } : prev);
+  }
 
   return (
     <div role="presentation" className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
@@ -412,48 +638,70 @@ function DetailModal({ detail, onClose }: { readonly detail: DetailWithJob; read
             </button>
           </div>
 
-          <div className="relative flex items-center gap-0">
-            <button
-              onClick={() => setTab("job")}
-              className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
-                tab === "job"
-                  ? "border-white text-white"
-                  : "border-transparent text-white/45 hover:text-white/75"
-              }`}
-            >
-              Job Details
-            </button>
-            {hasInterview && (
-              <button
-                onClick={() => setTab("interview")}
-                className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
-                  tab === "interview"
-                    ? "border-white text-white"
-                    : "border-transparent text-white/45 hover:text-white/75"
-                }`}
-              >
-                Interview
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tab === "interview" ? "bg-white/20 text-white" : "bg-white/10 text-white/50"}`}>
-                  {detail.interview_schedule ? "Scheduled" : "Pending"}
-                </span>
-              </button>
+        </div>
+
+        {/* ── Tab bar — white, always visible ── */}
+        <div className="flex items-center border-b border-border bg-card shrink-0 px-2">
+          <button
+            onClick={() => setTab("job")}
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 transition-all cursor-pointer -mb-px ${
+              tab === "job"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+            }`}
+          >
+            <Briefcase className="h-3.5 w-3.5" />
+            Job Details
+          </button>
+          <button
+            onClick={() => setTab("interview")}
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 transition-all cursor-pointer -mb-px ${
+              tab === "interview"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+            }`}
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            Interview
+            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+              tab === "interview"
+                ? (schedule?.applicant_response === "accepted" ? "bg-green-100 text-green-700 border-green-200"
+                  : schedule?.applicant_response === "declined" ? "bg-red-100 text-red-700 border-red-200"
+                  : schedule?.applicant_response === "reschedule_requested" ? "bg-amber-100 text-amber-700 border-amber-200"
+                  : schedule ? "bg-primary/10 text-primary border-primary/20"
+                  : "bg-muted text-muted-foreground border-border")
+                : (schedule?.applicant_response === "accepted" ? "bg-green-100 text-green-700 border-green-200"
+                  : schedule?.applicant_response === "declined" ? "bg-red-100 text-red-700 border-red-200"
+                  : schedule?.applicant_response === "reschedule_requested" ? "bg-amber-100 text-amber-700 border-amber-200"
+                  : schedule ? "bg-blue-100 text-blue-700 border-blue-200"
+                  : "bg-muted text-muted-foreground border-border")
+            }`}>
+              {schedule?.applicant_response === "accepted" ? "Accepted"
+                : schedule?.applicant_response === "declined" ? "Declined"
+                : schedule?.applicant_response === "reschedule_requested" ? "Reschedule"
+                : schedule ? "Scheduled"
+                : INTERVIEW_STAGES.has(detail.status) ? "Pending"
+                : "—"}
+            </span>
+          </button>
+          <button
+            onClick={() => setTab("answers")}
+            className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 transition-all cursor-pointer -mb-px ${
+              tab === "answers"
+                ? "border-primary text-primary"
+                : "border-transparent text-muted-foreground hover:text-foreground hover:border-border"
+            }`}
+          >
+            <ClipboardList className="h-3.5 w-3.5" />
+            My Answers
+            {sorted.length > 0 && (
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full border ${
+                tab === "answers" ? "bg-primary/10 text-primary border-primary/20" : "bg-muted text-muted-foreground border-border"
+              }`}>
+                {sorted.length}
+              </span>
             )}
-            <button
-              onClick={() => setTab("answers")}
-              className={`px-4 py-2.5 text-xs font-semibold border-b-2 transition-all flex items-center gap-1.5 cursor-pointer ${
-                tab === "answers"
-                  ? "border-white text-white"
-                  : "border-transparent text-white/45 hover:text-white/75"
-              }`}
-            >
-              My Answers
-              {sorted.length > 0 && (
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${tab === "answers" ? "bg-white/20 text-white" : "bg-white/10 text-white/50"}`}>
-                  {sorted.length}
-                </span>
-              )}
-            </button>
-          </div>
+          </button>
         </div>
 
         {/* Body */}
@@ -525,7 +773,12 @@ function DetailModal({ detail, onClose }: { readonly detail: DetailWithJob; read
 
           {/* ── INTERVIEW TAB ── */}
           {tab === "interview" && (
-            <InterviewTab schedule={detail.interview_schedule} status={detail.status} />
+            <InterviewTab
+              schedule={schedule}
+              status={detail.status}
+              applicationId={detail.application_id}
+              onResponded={handleResponded}
+            />
           )}
 
           {/* ── MY ANSWERS TAB ── */}
@@ -567,10 +820,12 @@ function DetailModal({ detail, onClose }: { readonly detail: DetailWithJob; read
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ApplicantApplicationsPage() {
+  const searchParams = useSearchParams();
   const [applications, setApplications] = useState<MyApplication[]>([]);
   const [loading, setLoading]             = useState(true);
   const [detail, setDetail]               = useState<ApplicationDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [openInitialTab, setOpenInitialTab] = useState<"job" | "answers" | "interview" | undefined>(undefined);
   const [search, setSearch]               = useState("");
   const [filterStatus, setFilterStatus]   = useState<FilterStatus>("all");
   const [sort, setSort]                   = useState<SortKey>("date_desc");
@@ -582,8 +837,9 @@ export default function ApplicantApplicationsPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const handleViewDetails = async (appId: string) => {
+  const handleViewDetails = useCallback(async (appId: string, tab?: "job" | "answers" | "interview") => {
     setDetailLoading(true);
+    setOpenInitialTab(tab);
     try {
       const d = await getMyApplicationDetail(appId);
       setDetail(d);
@@ -592,7 +848,16 @@ export default function ApplicantApplicationsPage() {
     } finally {
       setDetailLoading(false);
     }
-  };
+  }, []);
+
+  // Auto-open application from ?open= query param (e.g., from notification bell)
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (openId && !detail && !loading) {
+      handleViewDetails(openId, "interview");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, searchParams]);
 
   // ── Derived stats ──────────────────────────────────────────────────────────
   const total    = applications.length;
@@ -850,7 +1115,7 @@ export default function ApplicantApplicationsPage() {
 
       {/* Detail modal */}
       {detail && !detailLoading && (
-        <DetailModal detail={detail} onClose={() => setDetail(null)} />
+        <DetailModal detail={detail} onClose={() => { setDetail(null); setOpenInitialTab(undefined); }} initialTab={openInitialTab} />
       )}
     </div>
   );

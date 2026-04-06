@@ -1,7 +1,9 @@
 "use client";
 
+import React from "react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useSearchParams } from "next/navigation";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import { getUserInfo } from "@/lib/authStorage";
 import { authFetch } from "@/lib/authApi";
@@ -14,11 +16,12 @@ import {
   Briefcase, MapPin, Users, XCircle, Loader2, CheckCircle, Link2, Copy, Check,
   ArrowRight, GripVertical, Trash2, ChevronDown, Pencil, RefreshCw, FileText,
   KanbanSquare, List, Mail, Phone, Calendar, Clock, Mic, Cpu, Trophy, CheckCircle2,
-  LayoutGrid, Send, RotateCcw,
+  LayoutGrid, Send, RotateCcw, Zap, BookOpen, Heart, Tag, Lightbulb,
 } from "lucide-react";
 import { PipelineKanbanView } from "./_components/PipelineKanbanView";
 import {
-  getApplicationDetail, getMyCompany, sendInterviewSchedule,
+  getApplicationDetail, getMyCompany, sendInterviewSchedule, resendInterviewEmail,
+  cancelInterviewSchedule,
   type ApplicationDetail,
 } from "@/lib/authApi";
 import { toast } from "sonner";
@@ -36,6 +39,7 @@ interface JobPosting {
   posted_at: string;
   closes_at: string | null;
   department_id: string | null;
+  applicant_count?: number;
 }
 
 interface Application {
@@ -68,6 +72,12 @@ const JOB_STATUS_STYLES: Record<string, string> = {
   open:   "bg-green-100 text-green-700 border-green-200",
   closed: "bg-red-100 text-red-700 border-red-200",
   draft:  "bg-amber-100 text-amber-700 border-amber-200",
+};
+
+const JOB_STATUS_ICONS: Record<string, React.ElementType> = {
+  open:   CheckCircle,
+  closed: XCircle,
+  draft:  Clock,
 };
 
 const APP_STATUSES = [
@@ -135,6 +145,42 @@ function formatDate(dateStr: string) {
   });
 }
 
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const d = Math.floor(diff / 86_400_000);
+  if (d === 0) return "Today";
+  if (d === 1) return "Yesterday";
+  if (d < 7)  return `${d}d ago`;
+  if (d < 30) return `${Math.floor(d / 7)}w ago`;
+  return `${Math.floor(d / 30)}mo ago`;
+}
+
+function daysUntil(dateStr: string): number {
+  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86_400_000);
+}
+
+function computeEndTime(startTime: string, durationMinutes: number): string {
+  if (!startTime) return "";
+  const [h, m] = startTime.split(":").map(Number);
+  const total = h * 60 + m + durationMinutes;
+  return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function computeDuration(startTime: string, endTime: string): number {
+  if (!startTime || !endTime) return 0;
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  return eh * 60 + em - (sh * 60 + sm);
+}
+
+function formatDuration(minutes: number): string {
+  if (minutes <= 0) return "";
+  if (minutes < 60) return `${minutes} min`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m ? `${h}h ${m}m` : `${h}h`;
+}
+
 function newQuestion(): Question {
   return {
     id: crypto.randomUUID(),
@@ -161,8 +207,10 @@ function StatCard({ label, value, sub, color }: Readonly<{ label: string; value:
 
 function StatusBadge({ status }: Readonly<{ status: string }>) {
   const style = JOB_STATUS_STYLES[status] ?? "bg-gray-100 text-gray-700 border-gray-200";
+  const Icon  = JOB_STATUS_ICONS[status];
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${style}`}>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${style}`}>
+      {Icon && <Icon className="h-3 w-3" />}
       {status}
     </span>
   );
@@ -708,21 +756,26 @@ const STAGE_STEPS = [
 const STAGE_META: Record<string, {
   dotColor: string;
   bannerClass: string;
+  gradientClass: string;
   label: string;
+  stageNumber?: number;
   interviewer?: string;
-  focus?: string[];
-  focusDot?: string;
+  focus?: { label: string; icon: React.ElementType }[];
+  hint?: string;
+  scheduleLabel?: string;
   description: string;
 }> = {
   submitted: {
     dotColor: "bg-blue-500",
     bannerClass: "border-blue-200 bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:border-blue-700/40 dark:text-blue-300",
+    gradientClass: "bg-[linear-gradient(155deg,rgba(59,130,246,0.08),transparent)]",
     label: "New Application",
     description: "Review this application and move to screening when ready.",
   },
   screening: {
     dotColor: "bg-amber-500",
     bannerClass: "border-amber-200 bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:border-amber-700/40 dark:text-amber-300",
+    gradientClass: "bg-[linear-gradient(155deg,rgba(245,158,11,0.08),transparent)]",
     label: "Pre-Interview Review",
     interviewer: "HR Personnel",
     description: "Conduct initial review before scheduling the first interview.",
@@ -730,39 +783,62 @@ const STAGE_META: Record<string, {
   first_interview: {
     dotColor: "bg-purple-500",
     bannerClass: "border-purple-200 bg-purple-50 text-purple-700 dark:bg-purple-900/20 dark:border-purple-700/40 dark:text-purple-300",
+    gradientClass: "bg-[linear-gradient(155deg,rgba(168,85,247,0.08),transparent)]",
     label: "HR Screening Interview",
+    stageNumber: 1,
     interviewer: "HR Personnel",
-    focus: ["Keywords & skills verification", "Position fit assessment", "Candidate profiling"],
-    focusDot: "bg-purple-500",
+    scheduleLabel: "1st Interview",
+    focus: [
+      { label: "Keywords & Skills", icon: Tag },
+      { label: "Position Fit", icon: Briefcase },
+      { label: "Candidate Profile", icon: Users },
+    ],
+    hint: "Verify the candidate's availability and confirm application details are complete before proceeding.",
     description: "CV validation and initial profiling.",
   },
   technical_interview: {
     dotColor: "bg-indigo-500",
     bannerClass: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:border-indigo-700/40 dark:text-indigo-300",
+    gradientClass: "bg-[linear-gradient(155deg,rgba(99,102,241,0.08),transparent)]",
     label: "Technical Assessment",
+    stageNumber: 2,
     interviewer: "Technical Hiring Manager",
-    focus: ["Technical skills evaluation", "Problem-solving ability", "Domain knowledge"],
-    focusDot: "bg-indigo-500",
-    description: "~50% of candidates reach this stage.",
+    scheduleLabel: "Technical Interview",
+    focus: [
+      { label: "Technical Skills", icon: Cpu },
+      { label: "Problem Solving", icon: Lightbulb },
+      { label: "Domain Knowledge", icon: BookOpen },
+    ],
+    hint: "Request a portfolio or code sample before this interview. ~50% of candidates reach this stage.",
+    description: "Deep technical evaluation of skills and domain knowledge.",
   },
   final_interview: {
     dotColor: "bg-violet-500",
     bannerClass: "border-violet-200 bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:border-violet-700/40 dark:text-violet-300",
+    gradientClass: "bg-[linear-gradient(155deg,rgba(139,92,246,0.08),transparent)]",
     label: "Cultural Fit Interview",
+    stageNumber: 3,
     interviewer: "Hiring Manager's Boss",
-    focus: ["Culture fit assessment", "Team compatibility", "Final suitability"],
-    focusDot: "bg-violet-500",
-    description: "This is the final interview stage. Make a hiring decision after this.",
+    scheduleLabel: "Final Interview",
+    focus: [
+      { label: "Culture Fit", icon: Heart },
+      { label: "Team Compatibility", icon: Users },
+      { label: "Final Suitability", icon: Trophy },
+    ],
+    hint: "Align with the hiring manager before this interview. A hiring decision follows immediately after.",
+    description: "Final stage — make your hiring decision after this interview.",
   },
   hired: {
     dotColor: "bg-green-500",
     bannerClass: "border-green-200 bg-green-50 text-green-700 dark:bg-green-900/20 dark:border-green-700/40 dark:text-green-300",
+    gradientClass: "bg-[linear-gradient(155deg,rgba(34,197,94,0.08),transparent)]",
     label: "Hired",
     description: "Proceed with compensation discussion and offer letter. Hiring triggers the onboarding phase.",
   },
   rejected: {
     dotColor: "bg-red-500",
     bannerClass: "border-red-200 bg-red-50 text-red-600 dark:bg-red-900/10 dark:border-red-700/30 dark:text-red-400",
+    gradientClass: "bg-[linear-gradient(155deg,rgba(239,68,68,0.06),transparent)]",
     label: "Not Selected",
     description: "This application has not been selected.",
   },
@@ -931,18 +1007,236 @@ function BackButton({ label, onBack, updating }: { readonly label: string; reado
   );
 }
 
+// ─── Forward Move Confirmation Dialog ────────────────────────────────────────
+
+function MoveConfirmDialog({
+  targetLabel,
+  applicantName,
+  isHire,
+  onConfirm,
+  onCancel,
+  updating,
+}: Readonly<{
+  targetLabel: string;
+  applicantName: string;
+  isHire?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  updating: boolean;
+}>) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
+        <div className="px-5 py-5 space-y-4">
+          {/* Icon + title */}
+          <div className="flex items-start gap-3">
+            <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${isHire ? "bg-green-100 dark:bg-green-900/30" : "bg-primary/10"}`}>
+              {isHire
+                ? <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
+                : <ArrowRight className="h-5 w-5 text-primary" />
+              }
+            </div>
+            <div>
+              <p className="font-bold text-sm text-foreground">
+                {isHire ? "Confirm Hire" : "Confirm Stage Move"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {isHire
+                  ? <>Move <strong>{applicantName}</strong> to <strong>Hired</strong>?</>
+                  : <>Move <strong>{applicantName}</strong> to <strong>{targetLabel}</strong>?</>
+                }
+              </p>
+            </div>
+          </div>
+
+          {/* Warning */}
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-700/40 dark:bg-amber-900/20 px-3.5 py-3">
+            <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              {isHire
+                ? <><strong>This action is permanent.</strong> Once hired, this applicant cannot be moved back to any interview stage.</>
+                : <><strong>This action cannot be undone.</strong> Once moved forward, you will not be able to move this applicant back to a previous stage.</>}
+            </p>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onCancel} disabled={updating} className="flex-1 cursor-pointer">
+              Cancel
+            </Button>
+            <Button
+              onClick={onConfirm}
+              disabled={updating}
+              className={`flex-1 cursor-pointer gap-1.5 ${isHire ? "bg-green-600 hover:bg-green-700 text-white" : ""}`}
+            >
+              {updating && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isHire ? "Confirm Hire" : `Move to ${targetLabel}`}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Schedule Summary Confirmation Dialog ─────────────────────────────────────
+
+function ScheduleSummaryDialog({
+  schedule,
+  targetStage,
+  applicantEmail,
+  isRescheduling,
+  onConfirm,
+  onCancel,
+  saving,
+}: Readonly<{
+  schedule: InterviewSchedule;
+  targetStage: string;
+  applicantEmail: string;
+  isRescheduling: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  saving: boolean;
+}>) {
+  const stageLabel = APP_STATUSES.find((s) => s.value === targetStage)?.label ?? targetStage;
+  const formatLabel = FORMAT_LABELS[schedule.format] ?? schedule.format;
+  const venue = schedule.format === "video" ? schedule.meetingLink : schedule.location;
+
+  const fmtDate = (() => {
+    try {
+      return new Date(`${schedule.date}T${schedule.time}`).toLocaleDateString("en-PH", {
+        weekday: "long", year: "numeric", month: "long", day: "numeric",
+      });
+    } catch { return schedule.date; }
+  })();
+  const fmtTime = (() => {
+    try {
+      return new Date(`2000-01-01T${schedule.time}`).toLocaleTimeString("en-PH", {
+        hour: "numeric", minute: "2-digit",
+      });
+    } catch { return schedule.time; }
+  })();
+  const fmtEndTime = (() => {
+    try {
+      return new Date(`2000-01-01T${schedule.endTime}`).toLocaleTimeString("en-PH", {
+        hour: "numeric", minute: "2-digit",
+      });
+    } catch { return schedule.endTime; }
+  })();
+  const summaryDuration = formatDuration(computeDuration(schedule.time, schedule.endTime));
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
+
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-border">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">
+            {isRescheduling ? "Confirm Reschedule" : "Review & Confirm"}
+          </p>
+          <h3 className="font-bold text-base text-foreground">{stageLabel}</h3>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {isRescheduling
+              ? "Review the updated schedule before sending the updated invite."
+              : "Review the interview details before sending the invite to the applicant."}
+          </p>
+        </div>
+
+        {/* Schedule summary */}
+        <div className="px-5 py-4 space-y-2.5">
+          <div className="rounded-xl border border-border bg-muted/10 divide-y divide-border overflow-hidden">
+            {/* Date / Time */}
+            <div className="flex items-center gap-3 px-3.5 py-2.5">
+              <Calendar className="h-3.5 w-3.5 text-primary shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground">{fmtDate}</p>
+                <p className="text-[11px] text-muted-foreground">
+                  {fmtTime} → {fmtEndTime}
+                  {summaryDuration && <span className="ml-1.5 font-semibold text-primary">({summaryDuration})</span>}
+                </p>
+              </div>
+            </div>
+            {/* Format / Venue */}
+            <div className="flex items-center gap-3 px-3.5 py-2.5">
+              <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground">{formatLabel}</p>
+                {venue && <p className="text-[11px] text-muted-foreground truncate">{venue}</p>}
+              </div>
+            </div>
+            {/* Interviewer */}
+            <div className="flex items-center gap-3 px-3.5 py-2.5">
+              <Users className="h-3.5 w-3.5 text-primary shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-foreground">{schedule.interviewer}</p>
+                {schedule.interviewerTitle && (
+                  <p className="text-[11px] text-muted-foreground">{schedule.interviewerTitle}</p>
+                )}
+              </div>
+            </div>
+            {/* Notes */}
+            {schedule.notes && (
+              <div className="flex items-start gap-3 px-3.5 py-2.5">
+                <FileText className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />
+                <p className="text-[11px] text-muted-foreground leading-snug">{schedule.notes}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Sending to */}
+          <div className="flex items-center gap-2 rounded-lg bg-muted/30 px-3 py-2">
+            <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <p className="text-xs text-muted-foreground">
+              Invite will be sent to <span className="font-semibold text-foreground">{applicantEmail}</span>
+            </p>
+          </div>
+
+          {/* Warning */}
+          <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 dark:border-amber-700/40 dark:bg-amber-900/20 px-3.5 py-3">
+            <Clock className="h-3.5 w-3.5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <p className="text-xs text-amber-700 dark:text-amber-300">
+              {isRescheduling
+                ? <>This will send an updated invite to the applicant. The stage will <strong>not</strong> change.</>
+                : <>Sending this invite will advance the applicant to <strong>{stageLabel}</strong>. <strong>Once the invite is sent, you will no longer be able to move this applicant back to a previous stage.</strong></>
+              }
+            </p>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex gap-2 px-5 pb-5">
+          <Button variant="outline" onClick={onCancel} disabled={saving} className="flex-1 cursor-pointer">
+            ← Edit
+          </Button>
+          <Button onClick={onConfirm} disabled={saving} className="flex-1 gap-1.5 cursor-pointer">
+            {saving
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <Send className="h-4 w-4" />
+            }
+            {isRescheduling ? "Send Updated Invite" : "Confirm & Send Invite"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Interview Schedule Types & Helpers ──────────────────────────────────────
 
 interface InterviewSchedule {
   date: string;
   time: string;
-  duration: string;
+  endTime: string;
   format: string; // "in_person" | "video" | "phone"
   location: string;
   meetingLink: string;
   interviewer: string;
   interviewerTitle: string;
   notes: string;
+  // Applicant response fields (populated from API)
+  applicantResponse?: "accepted" | "declined" | "reschedule_requested" | null;
+  applicantResponseNote?: string | null;
+  applicantRespondedAt?: string | null;
 }
 
 const FORMAT_LABELS: Record<string, string> = {
@@ -953,29 +1247,85 @@ const FORMAT_LABELS: Record<string, string> = {
 
 // ─── Schedule Info Banner ─────────────────────────────────────────────────────
 
+const RESPONSE_BADGE: Record<string, { label: string; classes: string }> = {
+  accepted:             { label: "Accepted",            classes: "bg-green-100 text-green-700 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-700/40" },
+  declined:             { label: "Declined",            classes: "bg-red-100 text-red-600 border-red-200 dark:bg-red-900/20 dark:text-red-400 dark:border-red-700/30" },
+  reschedule_requested: { label: "Reschedule Requested", classes: "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-300 dark:border-amber-700/30" },
+};
+
 function ScheduleInfoBanner({
+  applicationId,
   schedule,
   onReschedule,
-}: Readonly<{ schedule: InterviewSchedule; onReschedule: () => void }>) {
+}: Readonly<{ applicationId: string; schedule: InterviewSchedule; onReschedule: () => void }>) {
+  const [resending, setResending] = useState(false);
   const venue = schedule.format === "video" ? schedule.meetingLink : schedule.location;
+  const responseBadge = schedule.applicantResponse ? RESPONSE_BADGE[schedule.applicantResponse] : null;
+  const noResponse = !schedule.applicantResponse;
+
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      await resendInterviewEmail(applicationId);
+      toast.success("Interview email resent to applicant");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to resend email");
+    } finally {
+      setResending(false);
+    }
+  };
+
   return (
     <div className="rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-700/40 dark:bg-blue-900/20 px-4 py-3 space-y-2.5">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300">
-          Interview Scheduled
-        </p>
-        <button
-          onClick={onReschedule}
-          className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 transition-colors"
-        >
-          <RotateCcw className="h-3 w-3" /> Reschedule
-        </button>
+      {/* Header row */}
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-blue-700 dark:text-blue-300">
+            Interview Scheduled
+          </p>
+          {responseBadge ? (
+            <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-bold uppercase tracking-wide ${responseBadge.classes}`}>
+              {responseBadge.label}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-slate-200 bg-slate-100 text-slate-500 text-[10px] font-bold uppercase tracking-wide dark:border-slate-600/40 dark:bg-slate-700/30 dark:text-slate-400">
+              Awaiting Response
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {noResponse && (
+            <button
+              onClick={handleResend}
+              disabled={resending}
+              className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 disabled:opacity-50 transition-colors cursor-pointer"
+            >
+              {resending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Mail className="h-3 w-3" />}
+              {resending ? "Sending…" : "Resend Email"}
+            </button>
+          )}
+          <button
+            onClick={onReschedule}
+            className="inline-flex items-center gap-1 text-[10px] font-semibold text-blue-600 hover:text-blue-800 dark:text-blue-400 transition-colors cursor-pointer"
+          >
+            <RotateCcw className="h-3 w-3" /> Reschedule
+          </button>
+        </div>
       </div>
+
+      {/* Schedule details */}
       <div className="space-y-1.5 text-sm text-blue-800 dark:text-blue-200">
         <div className="flex items-center gap-2">
           <Calendar className="h-3.5 w-3.5 shrink-0 opacity-70" />
           <span>
-            {schedule.date} at {schedule.time} · {schedule.duration} min
+            {schedule.date} · {(() => {
+            try { return new Date(`2000-01-01T${schedule.time}`).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }); } catch { return schedule.time; }
+          })()} → {(() => {
+            try { return new Date(`2000-01-01T${schedule.endTime}`).toLocaleTimeString("en-PH", { hour: "numeric", minute: "2-digit" }); } catch { return schedule.endTime; }
+          })()}
+          {formatDuration(computeDuration(schedule.time, schedule.endTime)) && (
+            <span className="ml-1 opacity-70">({formatDuration(computeDuration(schedule.time, schedule.endTime))})</span>
+          )}
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -998,6 +1348,122 @@ function ScheduleInfoBanner({
           </div>
         )}
       </div>
+
+      {/* Applicant response note (if declined or reschedule requested) */}
+      {schedule.applicantResponse && schedule.applicantResponseNote && (
+        <div className={`rounded-lg border px-3 py-2 text-xs space-y-0.5 ${
+          schedule.applicantResponse === "accepted"
+            ? "border-green-200 bg-green-50 text-green-700 dark:border-green-700/30 dark:bg-green-900/20 dark:text-green-300"
+            : schedule.applicantResponse === "declined"
+            ? "border-red-200 bg-red-50 text-red-600 dark:border-red-700/30 dark:bg-red-900/10 dark:text-red-400"
+            : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700/30 dark:bg-amber-900/20 dark:text-amber-300"
+        }`}>
+          <p className="font-bold uppercase tracking-wide text-[10px] opacity-70">Applicant Note</p>
+          <p>{schedule.applicantResponseNote}</p>
+          {schedule.applicantRespondedAt && (
+            <p className="opacity-60 mt-0.5">{new Date(schedule.applicantRespondedAt).toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric", hour: "2-digit", minute: "2-digit" })}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── No Schedule Empty State ──────────────────────────────────────────────────
+
+function NoScheduleCard({
+  stageLabel,
+  onSchedule,
+}: Readonly<{ stageLabel: string; onSchedule: () => void }>) {
+  return (
+    <button
+      type="button"
+      onClick={onSchedule}
+      className="w-full rounded-xl border-2 border-dashed border-primary/20 bg-primary/5 px-4 py-5 text-center hover:border-primary/40 hover:bg-primary/8 transition-all group cursor-pointer animate-in fade-in duration-200"
+    >
+      <div className="flex flex-col items-center gap-2">
+        <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center group-hover:bg-primary/15 transition-colors">
+          <Calendar className="h-5 w-5 text-primary/60 group-hover:text-primary transition-colors" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
+            Schedule {stageLabel}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Click to set date, time, format & interviewer — an invite will be sent to the applicant
+          </p>
+        </div>
+      </div>
+    </button>
+  );
+}
+
+// ─── Interview Stage Focus Area Grid ─────────────────────────────────────────
+
+function FocusAreaGrid({
+  focus,
+  colorClass,
+  bgClass,
+  borderClass,
+}: Readonly<{
+  focus: { label: string; icon: React.ElementType }[];
+  colorClass: string;
+  bgClass: string;
+  borderClass: string;
+}>) {
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Focus Areas</p>
+      <div className="grid grid-cols-3 gap-2">
+        {focus.map(({ label, icon: Icon }) => (
+          <div
+            key={label}
+            className={`rounded-xl border px-2.5 py-3 flex flex-col items-center gap-1.5 text-center ${bgClass} ${borderClass}`}
+          >
+            <Icon className={`h-4 w-4 ${colorClass}`} />
+            <p className={`text-[10px] font-bold leading-tight ${colorClass}`}>{label}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─── Interview Stage Header ───────────────────────────────────────────────────
+
+function InterviewStageHeader({
+  meta,
+  stageIcon: Icon,
+  scheduleLabel,
+}: Readonly<{
+  meta: typeof STAGE_META[string];
+  stageIcon: React.ElementType;
+  scheduleLabel: string;
+}>) {
+  return (
+    <div className={`rounded-xl border px-4 py-3.5 space-y-2 ${meta.bannerClass} ${meta.gradientClass}`}>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <div className="h-8 w-8 rounded-lg bg-current/10 flex items-center justify-center opacity-80">
+            <Icon className="h-4 w-4" />
+          </div>
+          <div>
+            {meta.stageNumber && (
+              <p className="text-[9px] font-bold uppercase tracking-widest opacity-60">
+                Interview Stage {meta.stageNumber} of 3
+              </p>
+            )}
+            <p className="text-sm font-bold leading-tight">{scheduleLabel}</p>
+          </div>
+        </div>
+      </div>
+      {meta.interviewer && (
+        <div className="flex items-center gap-1.5 opacity-80">
+          <Users className="h-3 w-3 shrink-0" />
+          <p className="text-xs font-medium">{meta.interviewer}</p>
+        </div>
+      )}
+      <p className="text-xs opacity-70">{meta.description}</p>
     </div>
   );
 }
@@ -1023,7 +1489,7 @@ function InterviewScheduleForm({
 
   const [form, setForm] = useState<InterviewSchedule>(
     existingSchedule ?? {
-      date: "", time: "", duration: "60", format: "in_person",
+      date: "", time: "", endTime: "", format: "in_person",
       location: "", meetingLink: "", interviewer: "", interviewerTitle: "", notes: "",
     }
   );
@@ -1033,13 +1499,27 @@ function InterviewScheduleForm({
       setForm((p) => ({ ...p, [k]: e.target.value }));
   }
 
+  const durationMins = computeDuration(form.time, form.endTime);
+  const durationLabel = formatDuration(durationMins);
+  const timeInvalid = !!(form.time && form.endTime && durationMins <= 0);
+
   const handleSubmit = () => {
-    if (!form.date || !form.time || !form.interviewer) {
-      toast.error("Date, time, and interviewer name are required.");
+    if (!form.date || !form.time || !form.endTime || !form.interviewer) {
+      toast.error("Date, start time, end time, and interviewer name are required.");
+      return;
+    }
+    if (durationMins <= 0) {
+      toast.error("End time must be after start time.");
       return;
     }
     onConfirm(form);
   };
+
+  const FORMAT_OPTIONS = [
+    { value: "in_person", label: "In-person",  Icon: MapPin },
+    { value: "video",     label: "Video Call",  Icon: Link2 },
+    { value: "phone",     label: "Phone Call",  Icon: Phone },
+  ] as const;
 
   return (
     <div className="space-y-4 animate-in fade-in duration-200">
@@ -1056,52 +1536,81 @@ function InterviewScheduleForm({
         </p>
       </div>
 
-      {/* Date + Time */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Date *
-          </label>
-          <Input type="date" value={form.date} onChange={field("date")} className="h-9" />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Time *
-          </label>
-          <Input type="time" value={form.time} onChange={field("time")} className="h-9" />
-        </div>
+      {/* Date — full width */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Date *
+        </label>
+        <Input type="date" value={form.date} onChange={field("date")} className="h-9" />
       </div>
 
-      {/* Duration + Format */}
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1.5">
+      {/* Time range */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between">
           <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Duration
+            Interview Time *
           </label>
-          <select
-            value={form.duration}
-            onChange={field("duration")}
-            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <option value="30">30 minutes</option>
-            <option value="60">1 hour</option>
-            <option value="90">1.5 hours</option>
-            <option value="120">2 hours</option>
-          </select>
+          {durationLabel && !timeInvalid && (
+            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
+              <Clock className="h-3 w-3" />
+              {durationLabel}
+            </span>
+          )}
         </div>
-        <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Format
-          </label>
-          <select
-            value={form.format}
-            onChange={field("format")}
-            className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          >
-            <option value="in_person">In-person</option>
-            <option value="video">Video Call</option>
-            <option value="phone">Phone Call</option>
-          </select>
+        <div className="grid grid-cols-[1fr_24px_1fr] items-center gap-2">
+          <div className="relative">
+            <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              type="time"
+              value={form.time}
+              onChange={field("time")}
+              className="h-10 pl-8 text-sm"
+              placeholder="Start"
+            />
+          </div>
+          <div className="flex items-center justify-center">
+            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+          </div>
+          <div className="relative">
+            <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              type="time"
+              value={form.endTime}
+              onChange={field("endTime")}
+              className={`h-10 pl-8 text-sm ${timeInvalid ? "border-destructive focus-visible:ring-destructive/50" : ""}`}
+              placeholder="End"
+            />
+          </div>
+        </div>
+        {timeInvalid && (
+          <p className="text-[11px] text-destructive">End time must be after start time.</p>
+        )}
+      </div>
+
+      {/* Format — icon button group */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Format
+        </label>
+        <div className="grid grid-cols-3 gap-2">
+          {FORMAT_OPTIONS.map(({ value, label, Icon }) => {
+            const selected = form.format === value;
+            return (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setForm((p) => ({ ...p, format: value }))}
+                className={`flex flex-col items-center gap-1.5 rounded-xl border px-3 py-3 transition-all cursor-pointer ${
+                  selected
+                    ? "border-primary bg-primary/10 text-primary shadow-sm"
+                    : "border-border bg-muted/10 text-muted-foreground hover:border-primary/40 hover:bg-muted/30"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                <span className="text-[11px] font-semibold">{label}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1212,21 +1721,73 @@ function ApplicationDetailModal({
   applicationId,
   onClose,
   onStatusChange,
+  initialScheduleStage,
 }: Readonly<{
   applicationId: string;
   onClose: () => void;
   onStatusChange: (newStatus: string) => void;
+  initialScheduleStage?: string;
 }>) {
   const [detail, setDetail]                   = useState<ApplicationDetail | null>(null);
   const [loading, setLoading]                 = useState(true);
   const [updating, setUpdating]               = useState(false);
   const [rejectionReason, setRejectionReason] = useState(REJECTION_REASONS[0]);
-  const [scheduleMode, setScheduleMode]       = useState<string | null>(null);
-  const [confirmedSchedule, setConfirmedSchedule] = useState<InterviewSchedule | null>(null);
+  const [scheduleMode, setScheduleMode]             = useState<string | null>(initialScheduleStage ?? null);
+  // Per-stage confirmed schedules — each interview stage tracks its own schedule independently
+  const [confirmedSchedules, setConfirmedSchedules] = useState<Record<string, InterviewSchedule | null>>({});
+  // Pending forward move — shows MoveConfirmDialog when set
+  const [pendingMove, setPendingMove]               = useState<string | null>(null);
+  // Pending schedule — shows ScheduleSummaryDialog when set
+  const [pendingSchedule, setPendingSchedule]       = useState<InterviewSchedule | null>(null);
 
   useEffect(() => {
     getApplicationDetail(applicationId)
-      .then((d) => setDetail(d))
+      .then((d) => {
+        setDetail(d);
+        // Seed per-stage schedules from backend
+        if (d.interview_schedules && Object.keys(d.interview_schedules).length > 0) {
+          const seeded: Record<string, InterviewSchedule | null> = {};
+          for (const [stage, s] of Object.entries(d.interview_schedules)) {
+            seeded[stage] = {
+              date:              s.scheduled_date,
+              time:              s.scheduled_time,
+              endTime:           computeEndTime(s.scheduled_time, s.duration_minutes ?? 60),
+              format:            s.format,
+              location:          s.location ?? "",
+              meetingLink:       s.meeting_link ?? "",
+              interviewer:       s.interviewer_name,
+              interviewerTitle:  s.interviewer_title ?? "",
+              notes:             s.notes ?? "",
+              applicantResponse:     s.applicant_response ?? null,
+              applicantResponseNote: s.applicant_response_note ?? null,
+              applicantRespondedAt:  s.applicant_responded_at ?? null,
+            };
+          }
+          setConfirmedSchedules(seeded);
+        } else if (d.interview_schedule) {
+          // Fallback: single schedule — seed to current application status if it's an interview stage
+          const interviewStages = ['first_interview', 'technical_interview', 'final_interview'];
+          if (interviewStages.includes(d.status)) {
+            const s = d.interview_schedule;
+            setConfirmedSchedules({
+              [d.status]: {
+                date:              s.scheduled_date,
+                time:              s.scheduled_time,
+                endTime:           computeEndTime(s.scheduled_time, s.duration_minutes ?? 60),
+                format:            s.format,
+                location:          s.location ?? "",
+                meetingLink:       s.meeting_link ?? "",
+                interviewer:       s.interviewer_name,
+                interviewerTitle:  s.interviewer_title ?? "",
+                notes:             s.notes ?? "",
+                applicantResponse:     s.applicant_response ?? null,
+                applicantResponseNote: s.applicant_response_note ?? null,
+                applicantRespondedAt:  s.applicant_responded_at ?? null,
+              },
+            });
+          }
+        }
+      })
       .catch((err: any) => toast.error(err.message || "Failed to load details"))
       .finally(() => setLoading(false));
   }, [applicationId]);
@@ -1256,32 +1817,34 @@ function ApplicationDetailModal({
     const targetStatus   = scheduleMode;
     const isRescheduling = detail?.status === targetStatus;
     setScheduleMode(null);
-    setConfirmedSchedule(schedule);
+    // Update only the targeted stage's schedule, preserving other stages
+    setConfirmedSchedules((prev) => ({ ...prev, [targetStatus]: schedule }));
 
     // Build the schedule payload for the backend email trigger
     const emailPayload = {
-      application_id:    applicationId,
-      scheduled_date:    schedule.date,
-      scheduled_time:    schedule.time,
-      duration_minutes:  parseInt(schedule.duration, 10) || 60,
-      format:            schedule.format,
-      location:          (schedule.format !== "video" && schedule.location) ? schedule.location : null,
-      meeting_link:      (schedule.format === "video" && schedule.meetingLink) ? schedule.meetingLink : null,
-      interviewer_name:  schedule.interviewer,
-      interviewer_title: schedule.interviewerTitle || null,
-      notes:             schedule.notes || null,
+      application_id:     applicationId,
+      stage:              targetStatus,
+      scheduled_date:     schedule.date,
+      scheduled_time:     schedule.time,
+      duration_minutes:   computeDuration(schedule.time, schedule.endTime) || 60,
+      format:             schedule.format,
+      location:           (schedule.format !== "video" && schedule.location) ? schedule.location : null,
+      meeting_link:       (schedule.format === "video" && schedule.meetingLink) ? schedule.meetingLink : null,
+      interviewer_name:   schedule.interviewer,
+      interviewer_title:  schedule.interviewerTitle || null,
+      notes:              schedule.notes || null,
+      scheduled_by_email: getUserInfo()?.email ?? null,
     };
 
+    const stageLabel = STAGE_META[targetStatus]?.scheduleLabel ?? targetStatus;
     if (isRescheduling) {
-      // Silently attempt to send reschedule email
       sendInterviewSchedule(emailPayload).catch(() => {});
-      toast.success("Interview rescheduled — updated invite sent to applicant");
+      toast.success(`${stageLabel} rescheduled — updated invite sent to applicant`);
     } else {
       await moveTo(targetStatus, true);
-      // Silently attempt to send schedule email — won't block the flow if endpoint is pending
       sendInterviewSchedule(emailPayload).catch(() => {});
       toast.success(
-        `Interview scheduled — confirmation sent to ${detail?.applicant_profile.email ?? "applicant"}`,
+        `${stageLabel} scheduled — confirmation sent to ${detail?.applicant_profile.email ?? "applicant"}`,
       );
     }
   };
@@ -1313,8 +1876,7 @@ function ApplicationDetailModal({
             </div>
           )}
           <div className="flex gap-2 pt-1">
-            <Button onClick={() => moveTo("screening")} disabled={updating} className="flex-1 cursor-pointer">
-              {updating && <Loader2 className="h-4 w-4 animate-spin mr-2" />}
+            <Button onClick={() => setPendingMove("screening")} disabled={updating} className="flex-1 cursor-pointer">
               Move to Screening
             </Button>
             <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
@@ -1363,36 +1925,46 @@ function ApplicationDetailModal({
 
     // ── First Interview ────────────────────────────────────────────────────────
     if (s === "first_interview") {
+      const schedule = confirmedSchedules.first_interview ?? null;
       return (
-        <div className="space-y-5">
-          <div className={`rounded-xl border px-4 py-3 space-y-1 ${meta.bannerClass}`}>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Interviewer</p>
-              <p className="text-sm font-semibold">{meta.interviewer}</p>
-            </div>
-            <p className="text-xs opacity-80">{meta.description}</p>
-          </div>
-          {confirmedSchedule && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          <InterviewStageHeader meta={meta} stageIcon={Mic} scheduleLabel={meta.scheduleLabel ?? "1st Interview"} />
+
+          {/* Schedule state */}
+          {schedule ? (
             <ScheduleInfoBanner
-              schedule={confirmedSchedule}
+              applicationId={applicationId}
+              schedule={schedule}
               onReschedule={() => setScheduleMode("first_interview")}
             />
+          ) : (
+            <NoScheduleCard
+              stageLabel={meta.scheduleLabel ?? "1st Interview"}
+              onSchedule={() => setScheduleMode("first_interview")}
+            />
           )}
+
+          {/* Focus areas */}
           {meta.focus && (
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Focus Areas</p>
-              <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1.5">
-                {meta.focus.map((f) => (
-                  <div key={f} className="flex items-center gap-2 text-sm text-foreground">
-                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.focusDot}`} />
-                    {f}
-                  </div>
-                ))}
-              </div>
+            <FocusAreaGrid
+              focus={meta.focus}
+              colorClass="text-purple-700 dark:text-purple-300"
+              bgClass="bg-purple-50 dark:bg-purple-900/20"
+              borderClass="border-purple-200 dark:border-purple-700/40"
+            />
+          )}
+
+          {/* Hint */}
+          {meta.hint && (
+            <div className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+              <Zap className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">{meta.hint}</p>
             </div>
           )}
+
           <ApplicantInfoCard d={d} />
           <CollapsibleAnswers d={d} />
+
           <div className="flex gap-2 pt-1">
             <Button
               onClick={() => setScheduleMode("technical_interview")}
@@ -1404,43 +1976,55 @@ function ApplicationDetailModal({
             </Button>
             <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
           </div>
-          <BackButton label="Back to Screening" onBack={() => moveTo("screening")} updating={updating} />
+          {!schedule && (
+            <BackButton label="Back to Screening" onBack={() => moveTo("screening")} updating={updating} />
+          )}
         </div>
       );
     }
 
     // ── Technical Interview ────────────────────────────────────────────────────
     if (s === "technical_interview") {
+      const schedule = confirmedSchedules.technical_interview ?? null;
       return (
-        <div className="space-y-5">
-          <div className={`rounded-xl border px-4 py-3 space-y-1 ${meta.bannerClass}`}>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Interviewer</p>
-              <p className="text-sm font-semibold">{meta.interviewer}</p>
-            </div>
-            <p className="text-xs opacity-80">{meta.description}</p>
-          </div>
-          {confirmedSchedule && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          <InterviewStageHeader meta={meta} stageIcon={Cpu} scheduleLabel={meta.scheduleLabel ?? "Technical Interview"} />
+
+          {/* Schedule state */}
+          {schedule ? (
             <ScheduleInfoBanner
-              schedule={confirmedSchedule}
+              applicationId={applicationId}
+              schedule={schedule}
               onReschedule={() => setScheduleMode("technical_interview")}
             />
+          ) : (
+            <NoScheduleCard
+              stageLabel={meta.scheduleLabel ?? "Technical Interview"}
+              onSchedule={() => setScheduleMode("technical_interview")}
+            />
           )}
+
+          {/* Focus areas */}
           {meta.focus && (
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Focus Areas</p>
-              <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1.5">
-                {meta.focus.map((f) => (
-                  <div key={f} className="flex items-center gap-2 text-sm text-foreground">
-                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.focusDot}`} />
-                    {f}
-                  </div>
-                ))}
-              </div>
+            <FocusAreaGrid
+              focus={meta.focus}
+              colorClass="text-indigo-700 dark:text-indigo-300"
+              bgClass="bg-indigo-50 dark:bg-indigo-900/20"
+              borderClass="border-indigo-200 dark:border-indigo-700/40"
+            />
+          )}
+
+          {/* Hint */}
+          {meta.hint && (
+            <div className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+              <Zap className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">{meta.hint}</p>
             </div>
           )}
+
           <ApplicantInfoCard d={d} />
           <CollapsibleAnswers d={d} />
+
           <div className="flex gap-2 pt-1">
             <Button
               onClick={() => setScheduleMode("final_interview")}
@@ -1452,55 +2036,69 @@ function ApplicationDetailModal({
             </Button>
             <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
           </div>
-          <BackButton label="Back to 1st Interview" onBack={() => moveTo("first_interview")} updating={updating} />
+          {!schedule && (
+            <BackButton label="Back to 1st Interview" onBack={() => moveTo("first_interview")} updating={updating} />
+          )}
         </div>
       );
     }
 
     // ── Final Interview ────────────────────────────────────────────────────────
     if (s === "final_interview") {
+      const schedule = confirmedSchedules.final_interview ?? null;
       return (
-        <div className="space-y-5">
-          <div className={`rounded-xl border px-4 py-3 space-y-1 ${meta.bannerClass}`}>
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-widest opacity-70">Interviewer</p>
-              <p className="text-sm font-semibold">{meta.interviewer}</p>
-            </div>
-            <p className="text-xs opacity-80">{meta.description}</p>
-          </div>
-          {confirmedSchedule && (
+        <div className="space-y-4 animate-in fade-in duration-200">
+          <InterviewStageHeader meta={meta} stageIcon={Trophy} scheduleLabel={meta.scheduleLabel ?? "Final Interview"} />
+
+          {/* Schedule state */}
+          {schedule ? (
             <ScheduleInfoBanner
-              schedule={confirmedSchedule}
+              applicationId={applicationId}
+              schedule={schedule}
               onReschedule={() => setScheduleMode("final_interview")}
             />
+          ) : (
+            <NoScheduleCard
+              stageLabel={meta.scheduleLabel ?? "Final Interview"}
+              onSchedule={() => setScheduleMode("final_interview")}
+            />
           )}
+
+          {/* Focus areas */}
           {meta.focus && (
-            <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Focus Areas</p>
-              <div className="rounded-xl border border-border bg-muted/10 px-4 py-3 space-y-1.5">
-                {meta.focus.map((f) => (
-                  <div key={f} className="flex items-center gap-2 text-sm text-foreground">
-                    <div className={`h-1.5 w-1.5 rounded-full shrink-0 ${meta.focusDot}`} />
-                    {f}
-                  </div>
-                ))}
-              </div>
+            <FocusAreaGrid
+              focus={meta.focus}
+              colorClass="text-violet-700 dark:text-violet-300"
+              bgClass="bg-violet-50 dark:bg-violet-900/20"
+              borderClass="border-violet-200 dark:border-violet-700/40"
+            />
+          )}
+
+          {/* Hint */}
+          {meta.hint && (
+            <div className="flex items-start gap-2 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+              <Zap className="h-3.5 w-3.5 text-muted-foreground shrink-0 mt-0.5" />
+              <p className="text-xs text-muted-foreground">{meta.hint}</p>
             </div>
           )}
+
           <ApplicantInfoCard d={d} />
           <CollapsibleAnswers d={d} />
+
           <div className="flex gap-2 pt-1">
             <Button
-              onClick={() => moveTo("hired")}
+              onClick={() => setPendingMove("hired")}
               disabled={updating}
-              className="flex-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+              className="flex-1 bg-green-600 hover:bg-green-700 text-white gap-1.5 cursor-pointer"
             >
-              {updating ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <CheckCircle2 className="h-4 w-4 mr-2" />}
+              <CheckCircle2 className="h-4 w-4" />
               Hire Candidate
             </Button>
             <RejectButton onReject={() => moveTo("rejected")} updating={updating} />
           </div>
-          <BackButton label="Back to Technical Interview" onBack={() => moveTo("technical_interview")} updating={updating} />
+          {!schedule && (
+            <BackButton label="Back to Technical Interview" onBack={() => moveTo("technical_interview")} updating={updating} />
+          )}
         </div>
       );
     }
@@ -1519,7 +2117,6 @@ function ApplicationDetailModal({
             <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Next Step</p>
             <p className="text-sm text-foreground">Proceed with compensation discussion and generate the offer letter. Once accepted, the onboarding phase will begin.</p>
           </div>
-          <BackButton label="Revert to Final Interview" onBack={() => moveTo("final_interview")} updating={updating} />
         </div>
       );
     }
@@ -1620,8 +2217,8 @@ function ApplicationDetailModal({
                 <InterviewScheduleForm
                   targetStage={scheduleMode}
                   isRescheduling={detail.status === scheduleMode}
-                  existingSchedule={detail.status === scheduleMode ? confirmedSchedule : null}
-                  onConfirm={handleConfirmSchedule}
+                  existingSchedule={confirmedSchedules[scheduleMode] ?? null}
+                  onConfirm={(schedule) => setPendingSchedule(schedule)}
                   onCancel={() => setScheduleMode(null)}
                   saving={updating}
                 />
@@ -1635,15 +2232,21 @@ function ApplicationDetailModal({
             {/* Documents */}
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Documents</p>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full h-8 gap-1.5 justify-start text-xs font-medium"
-                onClick={() => toast.info("Resume viewing is coming soon.")}
-              >
-                <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                View Resume
-              </Button>
+              {detail?.applicant_profile.resume_url ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full h-8 gap-1.5 justify-start text-xs font-medium"
+                  onClick={() => window.open(detail.applicant_profile.resume_url!, "_blank")}
+                >
+                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                  View Resume
+                </Button>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border px-3 py-2 text-center">
+                  <p className="text-[10px] text-muted-foreground">No resume uploaded</p>
+                </div>
+              )}
             </div>
 
             {/* SFIA Score */}
@@ -1700,6 +2303,40 @@ function ApplicationDetailModal({
         </div>
 
       </div>
+
+      {/* ── Forward Move Confirmation ─────────────────────────────────────── */}
+      {pendingMove && detail && (
+        <MoveConfirmDialog
+          targetLabel={APP_STATUSES.find((s) => s.value === pendingMove)?.label ?? pendingMove}
+          applicantName={`${detail.applicant_profile.first_name} ${detail.applicant_profile.last_name}`}
+          isHire={pendingMove === "hired"}
+          onConfirm={async () => {
+            const target = pendingMove;
+            setPendingMove(null);
+            await moveTo(target);
+          }}
+          onCancel={() => setPendingMove(null)}
+          updating={updating}
+        />
+      )}
+
+      {/* ── Schedule Summary Confirmation ────────────────────────────────── */}
+      {pendingSchedule && scheduleMode && detail && (
+        <ScheduleSummaryDialog
+          schedule={pendingSchedule}
+          targetStage={scheduleMode}
+          applicantEmail={detail.applicant_profile.email}
+          isRescheduling={detail.status === scheduleMode}
+          onConfirm={async () => {
+            const schedule = pendingSchedule;
+            setPendingSchedule(null);
+            await handleConfirmSchedule(schedule);
+          }}
+          onCancel={() => setPendingSchedule(null)}
+          saving={updating}
+        />
+      )}
+
     </div>
   );
 }
@@ -1917,6 +2554,7 @@ const STATUS_FILTERS: { value: StatusFilter; label: string }[] = [
 export default function HRJobsPage() {
   const user = getUserInfo();
   useWelcomeToast(user?.name || "HR Officer", "Recruitment");
+  const searchParams = useSearchParams();
 
   const [jobs, setJobs]                     = useState<JobPosting[]>([]);
   const [loading, setLoading]               = useState(true);
@@ -1940,7 +2578,8 @@ export default function HRJobsPage() {
   const [pipelineLoading, setPipelineLoading] = useState(false);
   const [pipelineStage, setPipelineStage]     = useState<string>("submitted");
   const [pipelineSearch, setPipelineSearch]   = useState("");
-  const [pipelineDetailId, setPipelineDetailId] = useState<string | null>(null);
+  const [pipelineDetailId, setPipelineDetailId]         = useState<string | null>(null);
+  const [pendingScheduleStage, setPendingScheduleStage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1955,6 +2594,15 @@ export default function HRJobsPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Auto-open application detail modal when navigated from a notification link
+  useEffect(() => {
+    const appId = searchParams.get("application");
+    if (appId) {
+      setPageView("pipeline");
+      setPipelineDetailId(appId);
+    }
+  }, [searchParams]);
 
   // Auto-select first job for pipeline once jobs load
   useEffect(() => {
@@ -2071,44 +2719,108 @@ export default function HRJobsPage() {
     </tr>
   ) : (
     <>
-      {paged.map((job) => (
-        <tr key={job.job_posting_id} className="hover:bg-primary/5 transition-colors">
-          <td className="px-5 py-4">
-            <div className="flex items-center gap-2">
-              <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                <Briefcase className="h-4 w-4" />
+      {paged.map((job) => {
+        const d = job.closes_at ? daysUntil(job.closes_at) : null;
+        const isUrgent  = d !== null && d >= 0 && d <= 5;
+        const isOverdue = d !== null && d < 0;
+
+        return (
+          <tr
+            key={job.job_posting_id}
+            onClick={() => { setPageView("pipeline"); setPipelineJobId(job.job_posting_id); }}
+            className="hover:bg-primary/5 transition-colors cursor-pointer group"
+          >
+            {/* Job Title */}
+            <td className="px-5 py-4">
+              <div className="flex items-center gap-2">
+                <div className="h-8 w-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                  <Briefcase className="h-4 w-4" />
+                </div>
+                <div>
+                  <p className="font-semibold text-foreground leading-none group-hover:text-primary transition-colors">{job.title}</p>
+                  {job.salary_range && <p className="text-[11px] text-muted-foreground mt-0.5">{job.salary_range}</p>}
+                </div>
               </div>
-              <div>
-                <p className="font-semibold text-foreground leading-none">{job.title}</p>
-                {job.salary_range && <p className="text-[11px] text-muted-foreground mt-0.5">{job.salary_range}</p>}
+            </td>
+
+            {/* Location */}
+            <td className="px-5 py-4">
+              {job.location
+                ? <span className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{job.location}</span>
+                : <span className="text-xs text-muted-foreground">—</span>}
+            </td>
+
+            {/* Type */}
+            <td className="px-5 py-4">
+              <span className="text-xs font-semibold text-foreground">{job.employment_type ?? "—"}</span>
+            </td>
+
+            {/* Applicants */}
+            <td className="px-5 py-4" onClick={(e) => { e.stopPropagation(); setViewApplicants(job); }}>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold border transition-all
+                  bg-blue-50 text-blue-700 border-blue-200
+                  hover:bg-blue-100 hover:border-blue-300 hover:shadow-sm
+                  dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-700/40
+                  cursor-pointer"
+              >
+                <Users className="h-3 w-3" />
+                {job.applicant_count ?? 0}
+              </button>
+            </td>
+
+            {/* Status */}
+            <td className="px-5 py-4">
+              {(closingId === job.job_posting_id || reopeningId === job.job_posting_id)
+                ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                : <StatusBadge status={job.status} />}
+            </td>
+
+            {/* Timeline */}
+            <td className="px-5 py-4">
+              <div className="space-y-1">
+                <p className="text-[11px] text-muted-foreground">Posted {timeAgo(job.posted_at)}</p>
+                {job.closes_at && (
+                  isUrgent ? (
+                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full
+                      bg-red-50 text-red-600 border border-red-200
+                      dark:bg-red-900/20 dark:text-red-400 dark:border-red-700/40">
+                      <Clock className="h-2.5 w-2.5" /> Closes in {d}d
+                    </span>
+                  ) : isOverdue ? (
+                    <p className="text-[11px] text-muted-foreground/50">Closed {formatDate(job.closes_at)}</p>
+                  ) : (
+                    <p className="text-[11px] text-muted-foreground/60">Closes {formatDate(job.closes_at)}</p>
+                  )
+                )}
               </div>
-            </div>
-          </td>
-          <td className="px-5 py-4">
-            {job.location ? (
-              <span className="flex items-center gap-1 text-xs text-muted-foreground"><MapPin className="h-3 w-3 shrink-0" />{job.location}</span>
-            ) : <span className="text-xs text-muted-foreground">—</span>}
-          </td>
-          <td className="px-5 py-4"><span className="text-xs font-semibold text-foreground">{job.employment_type ?? "—"}</span></td>
-          <td className="px-5 py-4">
-            {(closingId === job.job_posting_id || reopeningId === job.job_posting_id)
-              ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-              : <StatusBadge status={job.status} />}
-          </td>
-          <td className="px-5 py-4"><span className="text-xs text-muted-foreground">{formatDate(job.posted_at)}</span></td>
-          <td className="px-5 py-4"><span className="text-xs text-muted-foreground">{job.closes_at ? formatDate(job.closes_at) : "—"}</span></td>
-          <td className="px-5 py-4 text-right">
-            <JobRowMenu
-              job={job}
-              onViewApplicants={() => setViewApplicants(job)}
-              onClose={() => handleClosePosting(job)}
-              onReopen={() => handleReopenPosting(job)}
-              onEdit={() => setEditJob(job)}
-              onManageForm={() => setManageFormJob(job)}
-            />
-          </td>
-        </tr>
-      ))}
+            </td>
+
+            {/* Actions */}
+            <td className="px-5 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-end gap-1.5">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2.5 text-xs gap-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  onClick={(e) => { e.stopPropagation(); setPageView("pipeline"); setPipelineJobId(job.job_posting_id); }}
+                >
+                  <KanbanSquare className="h-3 w-3" /> Pipeline
+                </Button>
+                <JobRowMenu
+                  job={job}
+                  onViewApplicants={() => setViewApplicants(job)}
+                  onClose={() => handleClosePosting(job)}
+                  onReopen={() => handleReopenPosting(job)}
+                  onEdit={() => setEditJob(job)}
+                  onManageForm={() => setManageFormJob(job)}
+                />
+              </div>
+            </td>
+          </tr>
+        );
+      })}
     </>
   );
   const jobTableRows = loading ? (
@@ -2355,6 +3067,10 @@ export default function HRJobsPage() {
                   apps={stageFiltered}
                   onStatusChange={handlePipelineStatusChange}
                   onViewDetail={setPipelineDetailId}
+                  onScheduleNeeded={(appId, stage) => {
+                    setPipelineDetailId(appId);
+                    setPendingScheduleStage(stage);
+                  }}
                 />
               )
             )}
@@ -2449,16 +3165,16 @@ export default function HRJobsPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
           <table className="w-full text-sm text-left">
-            <thead className="text-[10px] font-bold text-muted-foreground bg-muted/40 border-b border-border uppercase tracking-widest">
+            <thead className="text-[10px] font-bold text-muted-foreground bg-muted/40 border-b border-border uppercase tracking-widest sticky top-0 z-10">
               <tr>
                 <th className="px-5 py-3">Job Title</th>
                 <th className="px-5 py-3">Location</th>
                 <th className="px-5 py-3">Type</th>
+                <th className="px-5 py-3">Applicants</th>
                 <th className="px-5 py-3">Status</th>
-                <th className="px-5 py-3">Posted</th>
-                <th className="px-5 py-3">Closes</th>
+                <th className="px-5 py-3">Timeline</th>
                 <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
@@ -2491,7 +3207,8 @@ export default function HRJobsPage() {
       {pipelineDetailId && (
         <ApplicationDetailModal
           applicationId={pipelineDetailId}
-          onClose={() => setPipelineDetailId(null)}
+          initialScheduleStage={pendingScheduleStage ?? undefined}
+          onClose={() => { setPipelineDetailId(null); setPendingScheduleStage(null); }}
           onStatusChange={(newStatus) => {
             setPipelineApps((prev) =>
               prev.map((a) =>

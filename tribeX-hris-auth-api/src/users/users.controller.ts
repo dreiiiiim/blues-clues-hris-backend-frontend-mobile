@@ -5,6 +5,7 @@ import {
   Put,
   Patch,
   Delete,
+  HttpCode,
   Param,
   Body,
   Req,
@@ -199,5 +200,17 @@ export class UsersController {
       req.user.company_id,
       req.user.sub_userid,
     );
+  }
+
+  @Get('me')
+  @HttpCode(200)
+  getMe(@Req() req: any) {
+    return this.usersService.getMe(req.user.sub_userid);
+  }
+
+  @Patch('me')
+  @HttpCode(200)
+  updateMe(@Req() req: any, @Body() body: any) {
+    return this.usersService.updateMe(req.user.sub_userid, body);
   }
 }

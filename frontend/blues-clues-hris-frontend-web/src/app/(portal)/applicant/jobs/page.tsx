@@ -37,6 +37,10 @@ function isNewJob(postedAt: string): boolean {
   return (Date.now() - new Date(postedAt).getTime()) < 7 * 24 * 60 * 60 * 1000;
 }
 
+function daysUntil(dateStr: string): number {
+  return Math.ceil((new Date(dateStr).getTime() - Date.now()) / 86_400_000);
+}
+
 // ─── Application Form ─────────────────────────────────────────────────────────
 
 function ApplicationForm({
@@ -570,7 +574,7 @@ export default function ApplicantJobsPage() {
                         </h3>
                         <div className="flex items-center gap-1 shrink-0">
                           {isNew && (
-                            <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-green-500/15 text-green-600 border border-green-500/20">
+                            <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md bg-green-500 text-white shadow-sm">
                               New
                             </span>
                           )}
@@ -603,15 +607,39 @@ export default function ApplicantJobsPage() {
                         )}
                       </div>
 
-                      <div className="flex items-center gap-2.5 mt-2">
-                        {job.location && (
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <MapPin className="h-2.5 w-2.5 shrink-0" />
-                            <span className="truncate max-w-22.5">{job.location}</span>
-                          </span>
-                        )}
+                      {job.description && (
+                        <p className="text-[11px] text-muted-foreground/70 leading-snug mt-1.5 line-clamp-2">
+                          {job.description}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-between mt-2 gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          {job.location && (
+                            <span className="flex items-center gap-1 text-[11px] text-muted-foreground shrink-0">
+                              <MapPin className="h-2.5 w-2.5 shrink-0" />
+                              <span className="truncate max-w-24">{job.location}</span>
+                            </span>
+                          )}
+                          <span className="text-[10px] text-muted-foreground/50">{timeAgo(job.posted_at)}</span>
+                        </div>
+                        {job.closes_at && (() => {
+                          const d = daysUntil(job.closes_at);
+                          if (d < 0) return null;
+                          if (d <= 5) return (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0
+                              bg-red-50 text-red-600 border border-red-100
+                              dark:bg-red-900/20 dark:text-red-400 dark:border-red-800/40">
+                              <Clock className="h-2.5 w-2.5" /> {d}d left
+                            </span>
+                          );
+                          return (
+                            <span className="text-[10px] text-muted-foreground/40 shrink-0">
+                              Closes {new Date(job.closes_at).toLocaleDateString("en-PH", { month: "short", day: "numeric" })}
+                            </span>
+                          );
+                        })()}
                       </div>
-                      <p className="text-[10px] text-muted-foreground/50 mt-1.5">{timeAgo(job.posted_at)}</p>
                     </div>
                   </div>
 

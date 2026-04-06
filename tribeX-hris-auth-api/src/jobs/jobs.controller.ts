@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -25,6 +26,7 @@ import { SetQuestionsDto } from './dto/create-questions.dto';
 import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { SaveManualRankingDto } from './dto/save-manual-ranking.dto';
 import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
+import { InterviewResponseDto } from './dto/interview-response.dto';
 
 const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
 
@@ -69,6 +71,25 @@ export class JobsController {
     return this.jobsService.getMyApplicationDetail(applicationId, req.user.sub_userid);
   }
 
+  @Get('applicant/my-interview-schedules')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @ApiOperation({ summary: 'Applicant: Get all interview schedules across all applications' })
+  getMyInterviewSchedules(@Req() req: any) {
+    return this.jobsService.getMyInterviewSchedules(req.user.sub_userid);
+  }
+
+  @Post('applicant/my-applications/:applicationId/interview-response')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Applicant: Accept, decline, or request reschedule for an interview' })
+  respondToInterview(
+    @Param('applicationId') applicationId: string,
+    @Body() dto: InterviewResponseDto,
+    @Req() req: any,
+  ) {
+    return this.jobsService.respondToInterview(applicationId, req.user.sub_userid, dto);
+  }
+
   // ---------------------------------------------------------------------------
   // HR APPLICATION DETAIL — must be before /:id to avoid param collision
   // ---------------------------------------------------------------------------
@@ -104,6 +125,40 @@ export class JobsController {
     @Req() req: any,
   ) {
     return this.jobsService.scheduleInterview(applicationId, dto, req.user.company_id);
+  }
+
+  @Post('applications/:applicationId/interview-schedule/resend')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'HR: Resend the interview schedule email to the applicant' })
+  resendInterviewEmail(
+    @Param('applicationId') applicationId: string,
+    @Req() req: any,
+  ) {
+    return this.jobsService.resendInterviewEmail(applicationId, req.user.company_id);
+  }
+
+  @Delete('applications/:applicationId/interview-schedule/:stage')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'HR: Cancel an interview schedule for a specific stage and notify the applicant' })
+  cancelInterviewSchedule(
+    @Param('applicationId') applicationId: string,
+    @Param('stage') stage: string,
+    @Query('reason') reason: string | undefined,
+    @Req() req: any,
+  ) {
+    return this.jobsService.cancelInterviewSchedule(applicationId, stage, req.user.company_id, reason);
+  }
+
+  @Get('hr/interview-notifications')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Get applicant interview responses (accepted / declined / reschedule_requested)' })
+  getHRInterviewNotifications(@Req() req: any) {
+    return this.jobsService.getHRInterviewNotifications(req.user.company_id);
   }
 
   // ---------------------------------------------------------------------------

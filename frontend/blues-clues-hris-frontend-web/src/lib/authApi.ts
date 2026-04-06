@@ -54,7 +54,7 @@ export async function applicantRegisterApi(
   return data as { applicant_id: string; email: string; message: string };
 }
 
-export async function applicantLoginApi(body: { email: string; password: string }) {
+export async function applicantLoginApi(body: { email: string; password: string; rememberMe?: boolean }) {
   const res = await fetch(`${API_BASE_URL}/applicants/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -68,20 +68,7 @@ export async function applicantLoginApi(body: { email: string; password: string 
   return data as { access_token: string };
 }
 
-// TODO (Sprint 2 - Backend): implement Google OAuth endpoint
-// Expected endpoint: POST /api/tribeX/auth/v1/auth/google
-//
-// Request payload:
-// { token: string } — Google ID token from @react-oauth/google credentialResponse.credential
-//
-// Expected response (same shape as loginApi):
-// { access_token: string }
-//
-// Backend should:
-// 1. Verify the Google token via Google's tokeninfo API or googleapis SDK
-// 2. Find or create the user record matched by Google email
-// 3. Ensure the user has an active staff role (reject applicants)
-// 4. Return access_token same as regular login (refresh_token via HttpOnly cookie)
+
 export async function googleLoginApi(googleToken: string) {
   const res = await fetch(`${API_BASE_URL}/auth/google`, {
     method: "POST",
@@ -197,16 +184,18 @@ export async function applyToJob(
 // ─── Interview Schedule (Email + Notification trigger) ───────────────────────
 
 export interface InterviewSchedulePayload {
-  application_id:    string;
-  scheduled_date:    string;         // "YYYY-MM-DD"
-  scheduled_time:    string;         // "HH:MM"
-  duration_minutes:  number;
-  format:            string;         // "in_person" | "video" | "phone"
-  location?:         string | null;
-  meeting_link?:     string | null;
-  interviewer_name:  string;
+  application_id:     string;
+  scheduled_date:     string;         // "YYYY-MM-DD"
+  scheduled_time:     string;         // "HH:MM"
+  duration_minutes:   number;
+  format:             string;         // "in_person" | "video" | "phone"
+  location?:          string | null;
+  meeting_link?:      string | null;
+  interviewer_name:   string;
   interviewer_title?: string | null;
-  notes?:            string | null;
+  notes?:             string | null;
+  stage?:             string | null;  // "first_interview" | "technical_interview" | "final_interview"
+  scheduled_by_email?: string | null;
 }
 
 /**
@@ -229,6 +218,56 @@ export async function sendInterviewSchedule(
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error((data as { message?: string })?.message || "Failed to send interview schedule");
+  }
+}
+
+export type HRInterviewNotification = {
+  schedule_id:             string;
+  application_id:          string;
+  scheduled_date:          string;
+  scheduled_time:          string;
+  format:                  string;
+  interviewer_name:        string;
+  applicant_response:      "accepted" | "declined" | "reschedule_requested";
+  applicant_response_note: string | null;
+  applicant_responded_at:  string | null;
+  job_title:               string;
+  first_name:              string;
+  last_name:               string;
+  email:                   string;
+};
+
+export async function getHRInterviewNotifications(): Promise<HRInterviewNotification[]> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/hr/interview-notifications`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to fetch notifications");
+  return data as HRInterviewNotification[];
+}
+
+export async function cancelInterviewSchedule(
+  applicationId: string,
+  stage: string,
+  reason?: string,
+): Promise<void> {
+  const params = reason ? `?reason=${encodeURIComponent(reason)}` : "";
+  const res = await authFetch(
+    `${API_BASE_URL}/jobs/applications/${applicationId}/interview-schedule/${stage}${params}`,
+    { method: "DELETE" },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message || "Failed to cancel interview schedule");
+  }
+}
+
+export async function resendInterviewEmail(applicationId: string): Promise<void> {
+  const res = await authFetch(
+    `${API_BASE_URL}/jobs/applications/${applicationId}/interview-schedule/resend`,
+    { method: "POST" },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message || "Failed to resend interview email");
   }
 }
 
@@ -290,18 +329,58 @@ export type ApplicationQuestion = {
 };
 
 export type InterviewSchedule = {
-  application_id:   string;
-  scheduled_date:   string;        // "YYYY-MM-DD"
-  scheduled_time:   string;        // "HH:MM"
-  duration_minutes: number;
-  format:           string;        // "in_person" | "video" | "phone"
-  location:         string | null;
-  meeting_link:     string | null;
-  interviewer_name: string;
-  interviewer_title: string | null;
-  notes:            string | null;
-  created_at?:      string;
+  schedule_id?:            string;
+  application_id:          string;
+  stage?:                  string | null;   // "first_interview" | "technical_interview" | "final_interview"
+  scheduled_date:          string;          // "YYYY-MM-DD"
+  scheduled_time:          string;          // "HH:MM"
+  duration_minutes:        number;
+  format:                  string;          // "in_person" | "video" | "phone"
+  location:                string | null;
+  meeting_link:            string | null;
+  interviewer_name:        string;
+  interviewer_title:       string | null;
+  notes:                   string | null;
+  created_at?:             string;
+  updated_at?:             string;
+  applicant_response?:     'accepted' | 'declined' | 'reschedule_requested' | null;
+  applicant_response_note?: string | null;
+  applicant_responded_at?: string | null;
 };
+
+export type MyInterviewSchedule = InterviewSchedule & {
+  job_title:          string;
+  application_status: string;
+};
+
+export type InterviewAction = 'accepted' | 'declined' | 'reschedule_requested';
+
+export async function respondToInterview(
+  applicationId: string,
+  action: InterviewAction,
+  note: string,
+  stage?: string,
+): Promise<void> {
+  const res = await authFetch(
+    `${API_BASE_URL}/jobs/applicant/my-applications/${applicationId}/interview-response`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, note, ...(stage ? { stage } : {}) }),
+    },
+  );
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message || "Failed to submit response");
+  }
+}
+
+export async function getMyInterviewSchedules(): Promise<MyInterviewSchedule[]> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/applicant/my-interview-schedules`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to fetch interview schedules");
+  return data as MyInterviewSchedule[];
+}
 
 export type ApplicationDetail = {
   application_id: string;
@@ -314,6 +393,9 @@ export type ApplicationDetail = {
     email: string;
     phone_number: string | null;
     applicant_code: string;
+    resume_url: string | null;
+    resume_name: string | null;
+    resume_uploaded_at: string | null;
   };
   answers: {
     answer_id: string;
@@ -326,8 +408,10 @@ export type ApplicationDetail = {
       sort_order: number;
     };
   }[];
-  // Populated by backend when an interview has been scheduled
+  // Latest schedule (backwards compat)
   interview_schedule?: InterviewSchedule | null;
+  // Per-stage schedules map: stage → schedule
+  interview_schedules?: Record<string, InterviewSchedule>;
 };
 
 // ---------------------------------------------------------------------------
@@ -346,6 +430,220 @@ export async function getPublicCareers(slug: string): Promise<PublicCareersPage>
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || 'Company not found');
   return data as PublicCareersPage;
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding API helpers (applicant-facing)
+// ---------------------------------------------------------------------------
+
+export type OnboardingSubmission = {
+  submission_id: string;
+  applicant_id: string;
+  application_id: string;
+  job_posting_id: string;
+  company_id: string;
+  status: 'pending' | 'draft' | 'submitted' | 'approved' | 'rejected';
+  first_name: string | null;
+  last_name: string | null;
+  phone: string | null;
+  address: string | null;
+  date_of_birth: string | null;
+  nationality: string | null;
+  civil_status: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_relationship: string | null;
+  preferred_username: string | null;
+  department_id: string | null;
+  start_date: string | null;
+  hr_notes: string | null;
+  submitted_at: string | null;
+  reviewed_at: string | null;
+  created_at: string;
+  updated_at: string;
+  job_postings?: { title: string } | null;
+};
+
+export type HROnboardingSubmission = OnboardingSubmission & {
+  applicant_profile: { first_name: string; last_name: string; email: string; phone_number: string | null };
+  job_postings: { title: string } | null;
+};
+
+// ---------------------------------------------------------------------------
+// Profile API helpers
+// ---------------------------------------------------------------------------
+
+export type ApplicantProfile = {
+  applicant_id: string;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  email: string;
+  phone_number: string | null;
+  personal_email: string | null;
+  date_of_birth: string | null;
+  place_of_birth: string | null;
+  nationality: string | null;
+  civil_status: string | null;
+  complete_address: string | null;
+  applicant_code: string | null;
+  avatar_url: string | null;
+  resume_url: string | null;
+  resume_name: string | null;
+  resume_uploaded_at: string | null;
+};
+
+export type EmployeeProfile = {
+  user_id: string;
+  employee_id: string | null;
+  first_name: string;
+  middle_name: string | null;
+  last_name: string;
+  email: string;
+  username: string | null;
+  department_id: string | null;
+  start_date: string | null;
+  personal_email: string | null;
+  date_of_birth: string | null;
+  place_of_birth: string | null;
+  nationality: string | null;
+  civil_status: string | null;
+  complete_address: string | null;
+  bank_name: string | null;
+  bank_account_number: string | null;
+  bank_account_name: string | null;
+  avatar_url: string | null;
+};
+
+export async function getApplicantProfile(): Promise<ApplicantProfile> {
+  const res = await authFetch(`${API_BASE_URL}/applicants/me`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch profile');
+  return data as ApplicantProfile;
+}
+
+export async function uploadApplicantResume(file: File): Promise<{ resume_url: string; resume_name: string; resume_uploaded_at: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await authFetch(`${API_BASE_URL}/applicants/me/resume`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Upload failed');
+  return data as { resume_url: string; resume_name: string; resume_uploaded_at: string };
+}
+
+export async function deleteApplicantResume(): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/applicants/me/resume`, { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message || 'Delete failed');
+  }
+}
+
+export async function updateApplicantProfile(body: Partial<Omit<ApplicantProfile, 'applicant_id' | 'email' | 'applicant_code'>>): Promise<ApplicantProfile> {
+  const res = await authFetch(`${API_BASE_URL}/applicants/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to update profile');
+  return data as ApplicantProfile;
+}
+
+export async function getEmployeeProfile(): Promise<EmployeeProfile> {
+  const res = await authFetch(`${API_BASE_URL}/users/me`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch profile');
+  return data as EmployeeProfile;
+}
+
+export async function updateEmployeeProfile(body: Partial<Omit<EmployeeProfile, 'user_id' | 'employee_id' | 'email' | 'username' | 'first_name' | 'last_name' | 'department_id' | 'start_date'>>): Promise<EmployeeProfile> {
+  const res = await authFetch(`${API_BASE_URL}/users/me`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to update profile');
+  return data as EmployeeProfile;
+}
+
+export async function getMyOnboarding(): Promise<OnboardingSubmission | null> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/my-onboarding`);
+  if (res.status === 404) return null;
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch onboarding');
+  return (data as OnboardingSubmission | null) ?? null;
+}
+
+export async function saveOnboarding(
+  body: Partial<Omit<OnboardingSubmission, 'submission_id' | 'applicant_id' | 'application_id' | 'job_posting_id' | 'company_id' | 'status' | 'hr_notes' | 'submitted_at' | 'reviewed_at' | 'created_at' | 'updated_at'>>,
+): Promise<OnboardingSubmission> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/my-onboarding`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to save onboarding');
+  return data as OnboardingSubmission;
+}
+
+export async function submitOnboarding(): Promise<OnboardingSubmission> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/my-onboarding/submit`, { method: 'POST' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to submit onboarding');
+  return data as OnboardingSubmission;
+}
+
+// ---------------------------------------------------------------------------
+// Onboarding API helpers (HR-facing)
+// ---------------------------------------------------------------------------
+
+export async function getHROnboardingSubmissions(status?: string): Promise<HROnboardingSubmission[]> {
+  const url = status
+    ? `${API_BASE_URL}/onboarding/submissions?status=${encodeURIComponent(status)}`
+    : `${API_BASE_URL}/onboarding/submissions`;
+  const res = await authFetch(url);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch submissions');
+  return data as HROnboardingSubmission[];
+}
+
+export async function getHROnboardingSubmission(submissionId: string): Promise<HROnboardingSubmission> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/submissions/${submissionId}`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch submission');
+  return data as HROnboardingSubmission;
+}
+
+export async function approveOnboardingSubmission(
+  submissionId: string,
+  roleId: string,
+): Promise<{ user_id: string; employee_id: string; email: string; invite_expires_at: string }> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/submissions/${submissionId}/approve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role_id: roleId }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to approve onboarding');
+  return data as { user_id: string; employee_id: string; email: string; invite_expires_at: string };
+}
+
+export async function rejectOnboardingSubmission(submissionId: string, hrNotes: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/submissions/${submissionId}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hr_notes: hrNotes }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message || 'Failed to reject onboarding');
+  }
 }
 
 export async function getMyCompany(): Promise<{ company_id: string; company_name: string; slug: string }> {
@@ -392,11 +690,11 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
 
     return second;
   } catch {
-    // refresh failed: session is fully expired — clear storage and send to correct login page
+    // Save role BEFORE clearing storage — getUserInfo() returns null after clear
+    const roleBeforeClear = getUserInfo()?.role;
     clearAuthStorage();
     if (globalThis.window !== undefined) {
-      const userInfo = getUserInfo();
-      globalThis.location.href = userInfo?.role === "applicant" ? "/applicant/login" : "/login";
+      globalThis.location.href = roleBeforeClear === "applicant" ? "/applicant/login" : "/login";
     }
     return first;
   }

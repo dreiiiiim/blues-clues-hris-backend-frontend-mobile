@@ -1,8 +1,9 @@
 import { useState } from "react";
+import { requestEquipment, uploadDocument, confirmTask } from "@/lib/onboardingApi";
 import { CheckCircle, AlertCircle, Upload, FileText, Eye, MapPin, Truck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { EquipmentItem, FileUpload } from "@/types/onboarding.types";
+import { EquipmentItem, DocumentSubmission, Remark } from "@/types/onboarding.types";
 import { StatusIcon } from "./shared/StatusIcon";
 import { StatusBadge } from "./shared/StatusBadge";
 import { RemarksSection } from "./shared/RemarksSection";
@@ -16,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 
 interface EquipmentRequestProps {
   equipment: EquipmentItem[];
+  remarks: Remark[];
   onUpdateEquipment: (equipment: EquipmentItem[]) => void;
 }
 
@@ -28,25 +30,28 @@ const ALLOWED_FILE_TYPES = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ]);
 
-export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<EquipmentRequestProps>) {
+export function EquipmentRequest({ equipment, remarks, onUpdateEquipment }: Readonly<EquipmentRequestProps>) {
   const [uploadErrors, setUploadErrors] = useState<{ [key: string]: string }>({});
   const [deliveryDialogOpen, setDeliveryDialogOpen] = useState(false);
   const [deliveryMethod, setDeliveryMethod] = useState<"office" | "delivery">("office");
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const [uploadingProof, setUploadingProof] = useState<{ [key: string]: boolean }>({});
+  const [confirmingReceipt, setConfirmingReceipt] = useState<{ [key: string]: boolean }>({});
 
-  const handleCheckboxChange = (equipmentId: string, checked: boolean) => {
+  const handleCheckboxChange = (onboardingItemId: string, checked: boolean) => {
     if (checked) {
-      setSelectedItems([...selectedItems, equipmentId]);
+      setSelectedItems([...selectedItems, onboardingItemId]);
     } else {
-      setSelectedItems(selectedItems.filter(id => id !== equipmentId));
+      setSelectedItems(selectedItems.filter(id => id !== onboardingItemId));
     }
-    
+
     const updatedEquipment = equipment.map((item) => {
-      if (item.id === equipmentId) {
+      if (item.onboarding_item_id === onboardingItemId) {
         return {
           ...item,
-          quantity: checked ? 1 : 0,
+          is_requested: checked,
         };
       }
       return item;
@@ -59,78 +64,102 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
     setDeliveryDialogOpen(true);
   };
 
-  const handleBulkSubmitRequest = () => {
+  const handleBulkSubmitRequest = async () => {
     if (deliveryMethod === "delivery" && !deliveryAddress.trim()) {
       alert("Please provide a delivery address");
       return;
     }
 
-    const updatedEquipment = equipment.map((item) => {
-      if (selectedItems.includes(item.id) && item.quantity > 0) {
-        return {
-          ...item,
-          status: "for-review" as const,
-          deliveryMethod,
-          deliveryAddress: deliveryMethod === "delivery" ? deliveryAddress : undefined,
-        };
-      }
-      return item;
-    });
+    setSubmitting(true);
+    try {
+      const itemsToSubmit = equipment.filter(
+        item => selectedItems.includes(item.onboarding_item_id) && item.is_requested
+      );
 
-    onUpdateEquipment(updatedEquipment);
-    setDeliveryDialogOpen(false);
-    setDeliveryAddress("");
-    setSelectedItems([]);
+      await Promise.all(
+        itemsToSubmit.map(item =>
+          requestEquipment(item.onboarding_item_id, true, deliveryMethod, deliveryMethod === 'delivery' ? deliveryAddress : undefined)
+        )
+      );
+
+      const updatedEquipment = equipment.map((item) => {
+        if (selectedItems.includes(item.onboarding_item_id) && item.is_requested) {
+          return {
+            ...item,
+            status: "for-review" as const,
+            delivery_method: deliveryMethod,
+          };
+        }
+        return item;
+      });
+
+      onUpdateEquipment(updatedEquipment);
+      setDeliveryDialogOpen(false);
+      setDeliveryAddress("");
+      setSelectedItems([]);
+    } catch {
+      alert("Failed to submit equipment request. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
-  const handleProofUpload = (equipmentId: string, event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleProofUpload = async (onboardingItemId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     const error = validateFileUtil(file, ALLOWED_FILE_TYPES, "Invalid file type. Only PDF, JPG, PNG, DOC, and DOCX files are allowed.");
     if (error) {
-      setUploadErrors({ ...uploadErrors, [equipmentId]: error });
+      setUploadErrors({ ...uploadErrors, [onboardingItemId]: error });
+      event.target.value = "";
       return;
     }
 
-    setUploadErrors({ ...uploadErrors, [equipmentId]: "" });
-
-    const newFile: FileUpload = {
-      id: Date.now().toString(),
-      name: file.name,
-      size: file.size,
-      uploadDate: new Date(),
-      status: "uploaded",
-    };
-
-    const updatedEquipment = equipment.map((item) => {
-      if (item.id === equipmentId) {
-        return {
-          ...item,
-          proofOfReceipt: [...(item.proofOfReceipt || []), newFile],
-        };
-      }
-      return item;
-    });
-
-    onUpdateEquipment(updatedEquipment);
+    setUploadErrors({ ...uploadErrors, [onboardingItemId]: "" });
+    setUploadingProof(prev => ({ ...prev, [onboardingItemId]: true }));
+    try {
+      const submission = await uploadDocument(onboardingItemId, file, true);
+      const updatedEquipment = equipment.map((item) => {
+        if (item.onboarding_item_id === onboardingItemId) {
+          return {
+            ...item,
+            proof_of_receipt: [...(item.proof_of_receipt || []), submission],
+          };
+        }
+        return item;
+      });
+      onUpdateEquipment(updatedEquipment);
+    } catch {
+      setUploadErrors(prev => ({ ...prev, [onboardingItemId]: "Upload failed. Please try again." }));
+    } finally {
+      setUploadingProof(prev => ({ ...prev, [onboardingItemId]: false }));
+      event.target.value = "";
+    }
   };
 
-  const handleConfirmReceipt = (equipmentId: string) => {
-    const updatedEquipment = equipment.map((item) => {
-      if (item.id === equipmentId && (item.proofOfReceipt?.length || 0) > 0) {
-        return {
-          ...item,
-          status: "approved" as const,
-        };
-      }
-      return item;
-    });
-    onUpdateEquipment(updatedEquipment);
+  const handleConfirmReceipt = async (onboardingItemId: string) => {
+    setConfirmingReceipt(prev => ({ ...prev, [onboardingItemId]: true }));
+    try {
+      await confirmTask(onboardingItemId);
+      const updatedEquipment = equipment.map((item) => {
+        if (item.onboarding_item_id === onboardingItemId && (item.proof_of_receipt?.length || 0) > 0) {
+          return {
+            ...item,
+            status: "approved" as const,
+          };
+        }
+        return item;
+      });
+      onUpdateEquipment(updatedEquipment);
+    } catch {
+      alert("Failed to confirm receipt. Please try again.");
+    } finally {
+      setConfirmingReceipt(prev => ({ ...prev, [onboardingItemId]: false }));
+    }
   };
 
   const pendingSelectedCount = equipment.filter(
-    item => selectedItems.includes(item.id) && item.quantity > 0 && (item.status === "pending" || item.status === "submitted")
+    item => selectedItems.includes(item.onboarding_item_id) && item.is_requested && (item.status === "pending" || item.status === "submitted")
   ).length;
 
   return (
@@ -149,16 +178,16 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
         </TableHeader>
         <TableBody>
           {equipment.map((item) => (
-            <TableRow key={item.id}>
+            <TableRow key={item.onboarding_item_id}>
               <TableCell>
                 {(item.status === "pending" || item.status === "submitted") && (
                   <Checkbox
-                    id={`equip-${item.id}`}
-                    checked={item.quantity === 1}
-                    onCheckedChange={(checked) => handleCheckboxChange(item.id, checked as boolean)}
+                    id={`equip-${item.onboarding_item_id}`}
+                    checked={item.is_requested === true}
+                    onCheckedChange={(checked) => handleCheckboxChange(item.onboarding_item_id, checked as boolean)}
                   />
                 )}
-                {(item.status === "for-review" || item.status === "issued" || item.status === "approved") && item.quantity === 1 && (
+                {(item.status === "for-review" || item.status === "issued" || item.status === "approved") && item.is_requested && (
                   <CheckCircle className="size-4 text-green-600" />
                 )}
               </TableCell>
@@ -166,34 +195,26 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{item.title}</span>
-                    {item.required && <span className="text-red-600 font-bold">*</span>}
+                    {item.is_required && <span className="text-red-600 font-bold">*</span>}
                   </div>
-                  {item.feedback && (
-                    <p className="text-xs text-red-600">{item.feedback}</p>
-                  )}
                 </div>
               </TableCell>
               <TableCell>
                 <span className="text-sm text-slate-600">{item.description}</span>
               </TableCell>
               <TableCell>
-                {item.deliveryMethod ? (
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-1 text-sm">
-                      {item.deliveryMethod === "office" ? (
-                        <>
-                          <MapPin className="size-3 text-blue-600" />
-                          <span>Office Pickup</span>
-                        </>
-                      ) : (
-                        <>
-                          <Truck className="size-3 text-green-600" />
-                          <span>Delivery</span>
-                        </>
-                      )}
-                    </div>
-                    {item.deliveryMethod === "delivery" && item.deliveryAddress && (
-                      <p className="text-xs text-slate-500 line-clamp-2">{item.deliveryAddress}</p>
+                {item.delivery_method ? (
+                  <div className="flex items-center gap-1 text-sm">
+                    {item.delivery_method === "office" ? (
+                      <>
+                        <MapPin className="size-3 text-blue-600" />
+                        <span>Office Pickup</span>
+                      </>
+                    ) : (
+                      <>
+                        <Truck className="size-3 text-green-600" />
+                        <span>Delivery</span>
+                      </>
                     )}
                   </div>
                 ) : (
@@ -209,11 +230,11 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
               <TableCell>
                 {item.status === "issued" && (
                   <div className="space-y-2">
-                    {(item.proofOfReceipt?.length || 0) > 0 ? (
+                    {(item.proof_of_receipt?.length || 0) > 0 ? (
                       <div className="flex items-center gap-2">
                         <FileText className="size-4 text-blue-600" />
-                        <span className="text-sm">{item.proofOfReceipt?.length} file(s)</span>
-                        {item.proofOfReceipt && item.proofOfReceipt.length > 0 && (
+                        <span className="text-sm">{item.proof_of_receipt?.length} file(s)</span>
+                        {item.proof_of_receipt && item.proof_of_receipt.length > 0 && (
                           <Dialog>
                             <DialogTrigger asChild>
                               <Button variant="ghost" size="sm" className="h-6 px-2">
@@ -227,13 +248,13 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
                               </DialogHeader>
                               <ScrollArea className="max-h-100">
                                 <div className="space-y-2">
-                                  {item.proofOfReceipt.map((file) => (
-                                    <div key={file.id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
+                                  {item.proof_of_receipt.map((file) => (
+                                    <div key={file.submission_id} className="flex items-center gap-3 p-3 bg-slate-50 rounded-lg border">
                                       <FileText className="size-6 text-blue-600" />
                                       <div className="flex-1">
-                                        <p className="text-sm font-medium">{file.name}</p>
+                                        <p className="text-sm font-medium">{file.file_name}</p>
                                         <p className="text-xs text-slate-500">
-                                          {formatFileSize(file.size)} • {file.uploadDate.toLocaleString()}
+                                          {formatFileSize(file.file_size_bytes)} • {new Date(file.uploaded_at).toLocaleString()}
                                         </p>
                                       </div>
                                     </div>
@@ -246,26 +267,27 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
                       </div>
                     ) : (
                       <>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => document.getElementById(`proof-${item.id}`)?.click()}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={uploadingProof[item.onboarding_item_id]}
+                          onClick={() => document.getElementById(`proof-${item.onboarding_item_id}`)?.click()}
                         >
                           <Upload className="size-3 mr-1" />
-                          Upload
+                          {uploadingProof[item.onboarding_item_id] ? "Uploading..." : "Upload"}
                         </Button>
                         <input
-                          id={`proof-${item.id}`}
+                          id={`proof-${item.onboarding_item_id}`}
                           type="file"
                           className="hidden"
                           accept=".pdf,.jpg,.jpeg,.png"
-                          onChange={(e) => handleProofUpload(item.id, e)}
+                          onChange={(e) => handleProofUpload(item.onboarding_item_id, e)}
                         />
                       </>
                     )}
                   </div>
                 )}
-                {(item.status === "approved" && (item.proofOfReceipt?.length || 0) > 0) && (
+                {(item.status === "approved" && (item.proof_of_receipt?.length || 0) > 0) && (
                   <div className="flex items-center gap-2">
                     <CheckCircle className="size-4 text-green-600" />
                     <span className="text-sm text-green-600">Confirmed</span>
@@ -276,13 +298,14 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
                 )}
               </TableCell>
               <TableCell>
-                {item.status === "issued" && (item.proofOfReceipt?.length || 0) > 0 && (
+                {item.status === "issued" && (item.proof_of_receipt?.length || 0) > 0 && (
                   <Button
-                    onClick={() => handleConfirmReceipt(item.id)}
+                    onClick={() => handleConfirmReceipt(item.onboarding_item_id)}
                     size="sm"
                     variant="default"
+                    disabled={confirmingReceipt[item.onboarding_item_id]}
                   >
-                    Confirm Receipt
+                    {confirmingReceipt[item.onboarding_item_id] ? "Confirming..." : "Confirm Receipt"}
                   </Button>
                 )}
               </TableCell>
@@ -303,12 +326,11 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
               How would you like to receive this equipment?
             </DialogDescription>
           </DialogHeader>
-          
+
           <div className="space-y-4 py-4">
             <div className="space-y-3">
               <Label>Delivery Method</Label>
-              
-              {/* Office Pickup Option */}
+
               <button
                 type="button"
                 className={`w-full text-left border-2 rounded-lg p-4 cursor-pointer transition-all ${
@@ -338,7 +360,6 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
                 </div>
               </button>
 
-              {/* Delivery Option */}
               <button
                 type="button"
                 className={`w-full text-left border-2 rounded-lg p-4 cursor-pointer transition-all ${
@@ -369,7 +390,6 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
               </button>
             </div>
 
-            {/* Delivery Address Field */}
             {deliveryMethod === "delivery" && (
               <div className="space-y-2">
                 <Label htmlFor="delivery-address">Delivery Address *</Label>
@@ -389,18 +409,17 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
           </div>
 
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeliveryDialogOpen(false)}>
+            <Button variant="outline" onClick={() => setDeliveryDialogOpen(false)} disabled={submitting}>
               Cancel
             </Button>
-            <Button onClick={handleBulkSubmitRequest}>
-              Confirm & Submit
+            <Button onClick={handleBulkSubmitRequest} disabled={submitting}>
+              {submitting ? "Submitting..." : "Confirm & Submit"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Upload Errors */}
-      {Object.entries(uploadErrors).map(([equipId, error]) => 
+      {Object.entries(uploadErrors).map(([equipId, error]) =>
         error && (
           <Alert key={equipId} variant="destructive">
             <AlertCircle className="size-4" />
@@ -409,10 +428,8 @@ export function EquipmentRequest({ equipment, onUpdateEquipment }: Readonly<Equi
         )
       )}
 
-      {/* Remarks Section */}
-      <RemarksSection items={equipment} />
+      <RemarksSection remarks={remarks} />
 
-      {/* Submit Selected Items Button */}
       {pendingSelectedCount > 0 && (
         <div className="flex items-center justify-between bg-blue-50 border-2 border-blue-200 p-4 rounded-lg">
           <div className="flex items-center gap-2">

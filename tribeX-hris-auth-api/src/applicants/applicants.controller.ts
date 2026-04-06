@@ -4,16 +4,24 @@ import {
   Controller,
   Post,
   Get,
+  Patch,
+  Delete,
   Body,
   Query,
   HttpCode,
   HttpStatus,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   Req,
   Res,
   Headers,
   UnauthorizedException,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
+import { ApiConsumes } from '@nestjs/swagger';
+import { ApplicantJwtAuthGuard } from '../auth/applicant-jwt-auth.guard';
 import type { Request, Response } from 'express';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApplicantsService } from './applicants.service';
@@ -21,16 +29,17 @@ import { CreateApplicantDto } from './dto/create-applicant.dto';
 import { ApplicantLoginDto } from './dto/applicant-login.dto';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 
+
 const APPLICANT_COOKIE = 'applicant_refresh_token';
 
-function cookieOptions() {
+function cookieOptions(rememberMe = false) {
   const isProd = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? 'none' : 'lax',
-    maxAge: 7 * 24 * 60 * 60 * 1000,   // 7 days
-    path: '/api/tribeX/auth/applicants', // scoped to applicant routes only
+    maxAge: (rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000,
+    path: '/',
   } as const;
 }
 
@@ -56,7 +65,7 @@ export class ApplicantsController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const { access_token, refresh_token } = await this.applicantsService.login(dto);
-    res.cookie(APPLICANT_COOKIE, refresh_token, cookieOptions());
+    res.cookie(APPLICANT_COOKIE, refresh_token, cookieOptions(dto.rememberMe));
     return { access_token, refresh_token };
   }
 
@@ -87,7 +96,7 @@ export class ApplicantsController {
 
     const isProd = process.env.NODE_ENV === 'production';
     res.clearCookie(APPLICANT_COOKIE, {
-      path: '/api/tribeX/auth/applicants',
+      path: '/',
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
     } as const);
@@ -108,5 +117,39 @@ export class ApplicantsController {
   @ApiOperation({ summary: 'Resend verification email to an unverified applicant' })
   resendVerification(@Body() body: { email: string }) {
     return this.applicantsService.resendVerification(body.email);
+  }
+
+  @Get('me')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Get own applicant profile' })
+  getMe(@Req() req: any) {
+    return this.applicantsService.getMe(req.user.sub_userid);
+  }
+
+  @Patch('me')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Update own applicant profile' })
+  updateMe(@Req() req: any, @Body() body: any) {
+    return this.applicantsService.updateMe(req.user.sub_userid, body);
+  }
+
+  @Post('me/resume')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Upload or replace applicant resume (PDF/DOC/DOCX, max 5MB)' })
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  uploadResume(@Req() req: any, @UploadedFile() file: Express.Multer.File) {
+    return this.applicantsService.uploadResume(req.user.sub_userid, file);
+  }
+
+  @Delete('me/resume')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Delete applicant resume' })
+  deleteResume(@Req() req: any) {
+    return this.applicantsService.deleteResume(req.user.sub_userid);
   }
 }

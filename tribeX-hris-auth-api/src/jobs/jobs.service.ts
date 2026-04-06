@@ -19,6 +19,7 @@ import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { ManualRankingItemDto } from './dto/save-manual-ranking.dto';
 import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
 import { InterviewResponseDto } from './dto/interview-response.dto';
+import { OnboardingService } from '../onboarding/onboarding.service';
 
 type RankingMode = 'sfia' | 'manual';
 
@@ -105,6 +106,7 @@ export class JobsService {
     private readonly supabaseService: SupabaseService,
     private readonly auditService: AuditService,
     private readonly mailService: MailService,
+    private readonly onboardingService: OnboardingService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -159,12 +161,16 @@ export class JobsService {
 
     const { data, error } = await supabase
       .from('job_postings')
-      .select('*')
+      .select('*, job_applications(count)')
       .eq('company_id', companyId)
       .order('posted_at', { ascending: false });
 
     if (error) throw new InternalServerErrorException(error.message);
-    return data ?? [];
+    return (data ?? []).map((row: any) => ({
+      ...row,
+      applicant_count: (row.job_applications as { count: number }[])?.[0]?.count ?? 0,
+      job_applications: undefined,
+    }));
   }
 
   async findOnePosting(jobPostingId: string, companyId: string) {
@@ -516,7 +522,7 @@ export class JobsService {
       .from('job_applications')
       .select(`
         application_id, status, applied_at, job_posting_id,
-        applicant_profile (first_name, last_name, email, phone_number, applicant_code)
+        applicant_profile (first_name, last_name, email, phone_number, applicant_code, resume_url, resume_name, resume_uploaded_at)
       `)
       .eq('application_id', applicationId)
       .maybeSingle();
@@ -537,7 +543,27 @@ export class JobsService {
       .eq('application_id', applicationId)
       .order('application_questions(sort_order)');
 
-    return { ...app, answers: answers ?? [] };
+    // Get all interview schedules for this application, keyed by stage
+    const { data: schedules } = await supabase
+      .from('interview_schedules')
+      .select('application_id, stage, scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes, created_at, applicant_response, applicant_response_note, applicant_responded_at')
+      .eq('application_id', applicationId)
+      .order('created_at', { ascending: false });
+
+    // Build a map: stage → schedule. Also expose the latest as interview_schedule for backwards compat.
+    const interview_schedules: Record<string, any> = {};
+    for (const s of (schedules ?? [])) {
+      const key = s.stage ?? 'first_interview';
+      interview_schedules[key] = s;
+    }
+    const latestSchedule = (schedules ?? [])[0] ?? null;
+
+    return {
+      ...app,
+      answers: answers ?? [],
+      interview_schedule: latestSchedule,
+      interview_schedules,
+    };
   }
 
   async updateApplicationStatus(applicationId: string, status: string, companyId: string) {
@@ -545,7 +571,7 @@ export class JobsService {
 
     const { data: app, error: appError } = await supabase
       .from('job_applications')
-      .select('application_id, job_posting_id')
+      .select('application_id, job_posting_id, applicant_id')
       .eq('application_id', applicationId)
       .maybeSingle();
 
@@ -554,12 +580,49 @@ export class JobsService {
     if (app) {
       await this.findOnePosting(app.job_posting_id, companyId);
 
+      // Enforce one-hire-per-company constraint
+      if (status === 'hired') {
+        const { data: hiredApps } = await supabase
+          .from('job_applications')
+          .select('application_id, job_posting_id')
+          .eq('applicant_id', app.applicant_id)
+          .eq('status', 'hired')
+          .neq('application_id', applicationId);
+
+        if (hiredApps && hiredApps.length > 0) {
+          const hiredPostingIds = hiredApps.map((a: any) => a.job_posting_id);
+          const { data: inSameCompany } = await supabase
+            .from('job_postings')
+            .select('job_posting_id')
+            .in('job_posting_id', hiredPostingIds)
+            .eq('company_id', companyId)
+            .limit(1);
+
+          if (inSameCompany && inSameCompany.length > 0) {
+            throw new ConflictException(
+              'This applicant has already been hired for a position at this company. An applicant can only be hired once per company.',
+            );
+          }
+        }
+      }
+
       const { error } = await supabase
         .from('job_applications')
         .update({ status })
         .eq('application_id', applicationId);
 
       if (error) throw new InternalServerErrorException(error.message);
+
+      // When an applicant is hired, auto-create their onboarding record
+      if (status === 'hired') {
+        await this.onboardingService.createOnboardingRecord({
+          applicationId: app.application_id,
+          applicantId:   app.applicant_id,
+          jobPostingId:  app.job_posting_id,
+          companyId,
+        });
+      }
+
       return { message: 'Application status updated' };
     }
 
@@ -599,7 +662,22 @@ export class JobsService {
 
     await this.findOnePosting(app.job_posting_id, companyId);
 
-    // Upsert: replace any existing schedule for this application (latest wins)
+    // Upsert per stage — one schedule row per (application, stage)
+    // NOTE: Supabase requires a unique constraint on (application_id, stage) for this to work.
+    // Run this migration if not already done:
+    //   ALTER TABLE interview_schedules ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'first_interview';
+    //   CREATE UNIQUE INDEX IF NOT EXISTS interview_schedules_app_stage_key ON interview_schedules (application_id, stage);
+    const stage = dto.stage ?? 'first_interview';
+
+    // Detect reschedule: check if a schedule already exists for this stage
+    const { data: existingSchedule } = await supabase
+      .from('interview_schedules')
+      .select('schedule_id')
+      .eq('application_id', applicationId)
+      .eq('stage', stage)
+      .maybeSingle();
+    const isReschedule = !!existingSchedule;
+
     const scheduleId = crypto.randomUUID();
     const { error: insertError } = await supabase
       .from('interview_schedules')
@@ -607,6 +685,7 @@ export class JobsService {
         schedule_id:        scheduleId,
         application_id:     applicationId,
         company_id:         companyId,
+        stage,
         scheduled_date:     dto.scheduled_date,
         scheduled_time:     dto.scheduled_time,
         duration_minutes:   dto.duration_minutes,
@@ -622,9 +701,16 @@ export class JobsService {
         applicant_response_note: null,
         applicant_responded_at:  null,
         updated_at:         new Date().toISOString(),
-      }, { onConflict: 'application_id' });
+      }, { onConflict: 'application_id,stage' });
 
     if (insertError) throw new InternalServerErrorException(insertError.message);
+
+    // Update application status to match the scheduled stage so the
+    // applicant's notification bell reflects the current interview stage.
+    await supabase
+      .from('job_applications')
+      .update({ status: stage })
+      .eq('application_id', applicationId);
 
     // Fetch applicant info for the email
     const { data: profile } = await supabase
@@ -641,10 +727,17 @@ export class JobsService {
 
     if (profile?.email) {
       const applicantName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Applicant';
+      const stageLabelMap: Record<string, string> = {
+        first_interview:     '1st Interview',
+        technical_interview: 'Technical Interview',
+        final_interview:     'Final Interview',
+      };
       await this.mailService.sendInterviewScheduleEmail({
         to:               profile.email,
         applicantName,
         jobTitle:         posting?.title ?? 'the position',
+        stageLabel:       stageLabelMap[stage] ?? stage,
+        isReschedule,
         scheduledDate:    dto.scheduled_date,
         scheduledTime:    dto.scheduled_time,
         durationMinutes:  dto.duration_minutes,
@@ -666,6 +759,141 @@ export class JobsService {
     return { message: 'Interview scheduled and email sent', schedule_id: scheduleId };
   }
 
+  async cancelInterviewSchedule(applicationId: string, stage: string, companyId: string, reason?: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: app, error: appError } = await supabase
+      .from('job_applications')
+      .select('application_id, job_posting_id, applicant_id')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (appError) throw new InternalServerErrorException(appError.message);
+    if (!app) throw new NotFoundException('Application not found');
+
+    await this.findOnePosting(app.job_posting_id, companyId);
+
+    // Find the schedule for this specific stage
+    const { data: schedule } = await supabase
+      .from('interview_schedules')
+      .select('scheduled_date, scheduled_time, duration_minutes, format')
+      .eq('application_id', applicationId)
+      .eq('stage', stage)
+      .maybeSingle();
+
+    if (!schedule) {
+      // No schedule found — nothing to cancel, just return success
+      return { message: 'No schedule found for this stage' };
+    }
+
+    // Delete the schedule row for this stage
+    const { error: deleteError } = await supabase
+      .from('interview_schedules')
+      .delete()
+      .eq('application_id', applicationId)
+      .eq('stage', stage);
+
+    if (deleteError) throw new InternalServerErrorException(deleteError.message);
+
+    // Send cancellation email to applicant
+    const { data: profile } = await supabase
+      .from('applicant_profile')
+      .select('first_name, last_name, email')
+      .eq('applicant_id', app.applicant_id)
+      .maybeSingle();
+
+    const { data: posting } = await supabase
+      .from('job_postings')
+      .select('title')
+      .eq('job_posting_id', app.job_posting_id)
+      .maybeSingle();
+
+    const stageLabelMap: Record<string, string> = {
+      first_interview:     '1st Interview',
+      technical_interview: 'Technical Interview',
+      final_interview:     'Final Interview',
+    };
+
+    if (profile?.email) {
+      const applicantName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Applicant';
+      await this.mailService.sendInterviewCancellationEmail({
+        to:            profile.email,
+        applicantName,
+        jobTitle:      posting?.title ?? 'the position',
+        scheduledDate: schedule.scheduled_date,
+        scheduledTime: schedule.scheduled_time,
+        stageLabel:    stageLabelMap[stage] ?? stage,
+        reason:        reason ?? null,
+      });
+    }
+
+    await this.auditService.log(
+      `Interview schedule cancelled for application ${applicationId}, stage: ${stage}`,
+      'system',
+      companyId,
+    );
+
+    return { message: 'Interview schedule cancelled and applicant notified' };
+  }
+
+  async resendInterviewEmail(applicationId: string, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: app, error: appError } = await supabase
+      .from('job_applications')
+      .select('application_id, job_posting_id, applicant_id')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (appError) throw new InternalServerErrorException(appError.message);
+    if (!app) throw new NotFoundException('Application not found');
+
+    await this.findOnePosting(app.job_posting_id, companyId);
+
+    const { data: schedule, error: schedError } = await supabase
+      .from('interview_schedules')
+      .select('scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes')
+      .eq('application_id', applicationId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (schedError) throw new InternalServerErrorException(schedError.message);
+    if (!schedule) throw new NotFoundException('No interview schedule found for this application');
+
+    const { data: profile } = await supabase
+      .from('applicant_profile')
+      .select('first_name, last_name, email')
+      .eq('applicant_id', app.applicant_id)
+      .maybeSingle();
+
+    const { data: posting } = await supabase
+      .from('job_postings')
+      .select('title')
+      .eq('job_posting_id', app.job_posting_id)
+      .maybeSingle();
+
+    if (!profile?.email) throw new NotFoundException('Applicant email not found');
+
+    const applicantName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Applicant';
+    await this.mailService.sendInterviewScheduleEmail({
+      to:               profile.email,
+      applicantName,
+      jobTitle:         posting?.title ?? 'the position',
+      scheduledDate:    schedule.scheduled_date,
+      scheduledTime:    schedule.scheduled_time,
+      durationMinutes:  schedule.duration_minutes,
+      format:           schedule.format,
+      location:         schedule.location,
+      meetingLink:      schedule.meeting_link,
+      interviewerName:  schedule.interviewer_name,
+      interviewerTitle: schedule.interviewer_title,
+      notes:            schedule.notes,
+    });
+
+    return { message: 'Interview email resent successfully' };
+  }
+
   // ---------------------------------------------------------------------------
   // Applicant interview schedule & response methods
   // ---------------------------------------------------------------------------
@@ -685,7 +913,7 @@ export class JobsService {
 
     const { data: schedules, error: schedError } = await supabase
       .from('interview_schedules')
-      .select('schedule_id, application_id, scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes, created_at, applicant_response, applicant_response_note, applicant_responded_at')
+      .select('schedule_id, application_id, stage, scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes, created_at, applicant_response, applicant_response_note, applicant_responded_at')
       .in('application_id', appIds)
       .order('created_at', { ascending: false });
 
@@ -713,19 +941,27 @@ export class JobsService {
     if (appError) throw new InternalServerErrorException(appError.message);
     if (!app) throw new NotFoundException('Application not found');
 
-    const { data: schedule, error: schedError } = await supabase
+    // If the applicant specifies a stage, update that stage's schedule.
+    // Otherwise, update the most recent pending schedule (applicant_response IS NULL).
+    const baseUpdate = supabase
       .from('interview_schedules')
       .update({
         applicant_response:      dto.action,
         applicant_response_note: dto.note ?? null,
         applicant_responded_at:  new Date().toISOString(),
       })
-      .eq('application_id', applicationId)
-      .select('scheduled_by_email, scheduled_date, scheduled_time')
+      .eq('application_id', applicationId);
+
+    const { data: schedule, error: schedError } = await (
+      dto.stage
+        ? baseUpdate.eq('stage', dto.stage)
+        : baseUpdate.is('applicant_response', null)
+    )
+      .select('scheduled_by_email, scheduled_date, scheduled_time, stage')
       .maybeSingle();
 
     if (schedError) throw new InternalServerErrorException(schedError.message);
-    if (!schedule) throw new NotFoundException('No interview scheduled for this application');
+    if (!schedule) throw new NotFoundException('No pending interview schedule found for this application');
 
     const { data: profile } = await supabase
       .from('applicant_profile')
@@ -1011,15 +1247,21 @@ export class JobsService {
       .eq('application_id', applicationId)
       .order('application_questions(sort_order)');
 
-    const { data: schedule } = await supabase
+    const { data: schedules } = await supabase
       .from('interview_schedules')
-      .select('application_id, scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes, created_at')
+      .select('schedule_id, application_id, stage, scheduled_date, scheduled_time, duration_minutes, format, location, meeting_link, interviewer_name, interviewer_title, notes, created_at, updated_at, applicant_response, applicant_response_note, applicant_responded_at')
       .eq('application_id', applicationId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .order('created_at', { ascending: false });
 
-    return { ...app, answers: answers ?? [], interview_schedule: schedule ?? null };
+    // Build a per-stage map so the frontend can pick the right schedule
+    const interview_schedules: Record<string, any> = {};
+    for (const s of (schedules ?? [])) {
+      const key = s.stage ?? 'first_interview';
+      interview_schedules[key] = s;
+    }
+    const latestSchedule = (schedules ?? [])[0] ?? null;
+
+    return { ...app, answers: answers ?? [], interview_schedule: latestSchedule, interview_schedules };
   }
 
   async getMyApplications(applicantId: string) {

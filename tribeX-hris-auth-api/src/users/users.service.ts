@@ -1133,4 +1133,46 @@ export class UsersService {
 
     return { message: `User reactivated successfully as ${nextStatus}` };
   }
+
+  async getMe(userId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('user_profile')
+      .select('user_id, employee_id, first_name, middle_name, last_name, email, username, department_id, start_date, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error || !data) throw new NotFoundException('Profile not found');
+    return data;
+  }
+
+  async updateMe(userId: string, body: {
+    middle_name?: string;
+    personal_email?: string;
+    date_of_birth?: string;
+    place_of_birth?: string;
+    nationality?: string;
+    civil_status?: string;
+    complete_address?: string;
+    bank_name?: string;
+    bank_account_number?: string;
+    bank_account_name?: string;
+    avatar_url?: string;
+  }) {
+    const allowed = ['middle_name','personal_email','date_of_birth','place_of_birth','nationality','civil_status','complete_address','bank_name','bank_account_number','bank_account_name','avatar_url'];
+    const patch: Record<string,any> = {};
+    for (const key of allowed) {
+      if (body[key as keyof typeof body] !== undefined) patch[key] = body[key as keyof typeof body];
+    }
+    if (Object.keys(patch).length === 0) return { message: 'Nothing to update' };
+
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('user_profile')
+      .update(patch)
+      .eq('user_id', userId)
+      .select('user_id, employee_id, first_name, middle_name, last_name, email, username, department_id, start_date, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url')
+      .maybeSingle();
+    if (error) throw new InternalServerErrorException('Failed to update profile');
+    return data;
+  }
 }

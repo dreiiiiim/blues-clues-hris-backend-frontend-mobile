@@ -30,4 +30,9 @@ export class ScheduleInterviewDto {
 
   @IsString() @IsOptional()
   scheduled_by_email?: string | null;
+
+  @IsString()
+  @IsIn(['first_interview', 'technical_interview', 'final_interview'])
+  @IsOptional()
+  stage?: string | null;
 }

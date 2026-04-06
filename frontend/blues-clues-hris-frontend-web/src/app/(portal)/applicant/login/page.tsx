@@ -32,6 +32,7 @@ function ApplicantPortalAuthInner() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -60,7 +61,7 @@ function ApplicantPortalAuthInner() {
         return;
       }
 
-      const { access_token } = await applicantLoginApi({ email, password });
+      const { access_token } = await applicantLoginApi({ email, password, rememberMe });
 
         const payload = parseJwt(access_token);
         if (!payload) throw new Error("Invalid token received from server.");
@@ -73,7 +74,7 @@ function ApplicantPortalAuthInner() {
           );
         }
 
-        setTokens({ access_token, rememberMe: false });
+        setTokens({ access_token, rememberMe });
 
         const name = [payload.first_name ?? "", payload.last_name ?? ""]
           .filter(Boolean)
@@ -82,7 +83,8 @@ function ApplicantPortalAuthInner() {
         saveUserInfo({ name, email, role: "applicant" });
 
         // Soft navigation — keeps in-memory access token alive (no refresh cookie for applicants)
-        router.push("/applicant/dashboard");
+        const redirect = searchParams.get("redirect");
+        router.push(redirect && redirect.startsWith("/applicant/") ? redirect : "/applicant/dashboard");
     } catch (err: any) {
       const msg: string = err?.message || "";
       if (msg.startsWith("UNVERIFIED_RESENT:")) {
@@ -301,6 +303,21 @@ function ApplicantPortalAuthInner() {
                 required
               />
             </div>
+
+            {!isSignUp && (
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  id="applicant-remember"
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+                />
+                <label htmlFor="applicant-remember" className="text-xs text-muted-foreground cursor-pointer select-none">
+                  Remember me for 30 days
+                </label>
+              </div>
+            )}
 
             <Button
               type="submit"

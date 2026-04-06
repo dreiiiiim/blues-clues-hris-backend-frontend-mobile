@@ -6,7 +6,9 @@ import { LoginScreen } from "../screens/LoginScreen";
 import { SignUpScreen } from "../screens/SignUpScreen";
 import { ForgotPasswordScreen } from "../screens/ForgotPasswordScreen";
 import { EmployeeDashboardScreen } from "../screens/EmployeeDashboardScreen";
+import { EmployeeOnboardingScreen } from "../screens/EmployeeOnboardingScreen";
 import { HROfficerDashboardScreen } from "../screens/HROfficerDashboardScreen";
+import { HROfficerOnboardingScreen } from "../screens/HROfficerOnboardingScreen";
 import { HROfficerRecruitmentScreen } from "../screens/HROfficerRecruitmentScreen";
 import { HROfficerTimekeepingScreen } from "../screens/HROfficerTimekeepingScreen";
 import { ManagerDashboardScreen } from "../screens/ManagerDashboardScreen";
@@ -15,7 +17,9 @@ import { ManagerTimekeepingScreen } from "../screens/ManagerTimekeepingScreen";
 import { ApplicantDashboardScreen } from "../screens/ApplicantDashboardScreen";
 import { ApplicantJobsScreen } from "../screens/ApplicantJobsScreen";
 import { ApplicantApplicationsScreen } from "../screens/ApplicantApplicationsScreen";
+import { ApplicantResumeUploadScreen } from "../screens/ApplicantResumeUploadScreen";
 import { SystemAdminDashboardScreen } from "../screens/SystemAdminDashboardScreen";
+import { SystemAdminOnboardingScreen } from "../screens/SystemAdminOnboardingScreen";
 import { SystemAdminUsersScreen } from "../screens/SystemAdminUsersScreen";
 import { SystemAdminBillingScreen } from "../screens/SystemAdminBillingScreen";
 import { SystemAdminAuditLogsScreen } from "../screens/SystemAdminAuditLogsScreen";
@@ -30,6 +34,7 @@ export type RootStackParamList = {
 
   // Employee
   EmployeeDashboard: SessionParam;
+  EmployeeOnboarding: SessionParam;
   EmployeeTimekeeping: SessionParam;
 
   // Manager
@@ -39,6 +44,7 @@ export type RootStackParamList = {
 
   // HR Officer
   HROfficerDashboard: SessionParam;
+  HROfficerOnboarding: SessionParam;
   HROfficerRecruitment: SessionParam;
   HROfficerTimekeeping: SessionParam;
 
@@ -46,9 +52,11 @@ export type RootStackParamList = {
   ApplicantDashboard: SessionParam;
   ApplicantJobs: SessionParam;
   ApplicantApplications: SessionParam;
+  ApplicantResumeUpload: SessionParam;
 
   // System Admin / Admin
   SystemAdminDashboard: SessionParam;
+  SystemAdminOnboarding: SessionParam;
   SystemAdminUsers: SessionParam;
   SystemAdminBilling: SessionParam;
   SystemAdminAuditLogs: SessionParam;
@@ -71,6 +79,7 @@ export function AppNavigator() {
 
         {/* Employee */}
         <Stack.Screen name="EmployeeDashboard" component={EmployeeDashboardScreen} />
+        <Stack.Screen name="EmployeeOnboarding" component={EmployeeOnboardingScreen} />
         <Stack.Screen name="EmployeeTimekeeping" component={EmployeeTimekeepingScreen} />
 
         {/* Manager */}
@@ -80,6 +89,7 @@ export function AppNavigator() {
 
         {/* HR Officer */}
         <Stack.Screen name="HROfficerDashboard" component={HROfficerDashboardScreen} />
+        <Stack.Screen name="HROfficerOnboarding" component={HROfficerOnboardingScreen} />
         <Stack.Screen name="HROfficerRecruitment" component={HROfficerRecruitmentScreen} />
         <Stack.Screen name="HROfficerTimekeeping" component={HROfficerTimekeepingScreen} />
 
@@ -87,9 +97,11 @@ export function AppNavigator() {
         <Stack.Screen name="ApplicantDashboard" component={ApplicantDashboardScreen} />
         <Stack.Screen name="ApplicantJobs" component={ApplicantJobsScreen} />
         <Stack.Screen name="ApplicantApplications" component={ApplicantApplicationsScreen} />
+        <Stack.Screen name="ApplicantResumeUpload" component={ApplicantResumeUploadScreen} />
 
         {/* System Admin */}
         <Stack.Screen name="SystemAdminDashboard" component={SystemAdminDashboardScreen} />
+        <Stack.Screen name="SystemAdminOnboarding" component={SystemAdminOnboardingScreen} />
         <Stack.Screen name="SystemAdminUsers" component={SystemAdminUsersScreen} />
         <Stack.Screen name="SystemAdminBilling" component={SystemAdminBillingScreen} />
         <Stack.Screen name="SystemAdminAuditLogs" component={SystemAdminAuditLogsScreen} />

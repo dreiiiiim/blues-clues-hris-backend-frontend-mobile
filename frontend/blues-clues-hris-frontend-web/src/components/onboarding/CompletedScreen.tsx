@@ -3,10 +3,13 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface CompletedScreenProps {
-  readonly approvalDate: Date;
+  readonly approvalDate: string | Date;
+  readonly onGoToDashboard?: () => void;
 }
 
-export function CompletedScreen({ approvalDate }: CompletedScreenProps) {
+export function CompletedScreen({ approvalDate, onGoToDashboard }: CompletedScreenProps) {
+  const date = typeof approvalDate === 'string' ? new Date(approvalDate) : approvalDate;
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
       <Card className="max-w-2xl w-full">
@@ -28,7 +31,7 @@ export function CompletedScreen({ approvalDate }: CompletedScreenProps) {
               <span className="font-semibold text-green-900">Approved on</span>
             </div>
             <p className="text-2xl font-bold text-green-700">
-              {approvalDate.toLocaleDateString("en-US", {
+              {date.toLocaleDateString("en-US", {
                 month: "long",
                 day: "numeric",
                 year: "numeric",
@@ -63,7 +66,7 @@ export function CompletedScreen({ approvalDate }: CompletedScreenProps) {
               <Download className="size-4 mr-2" />
               Download Documents
             </Button>
-            <Button variant="outline" className="flex-1">
+            <Button variant="outline" className="flex-1" onClick={onGoToDashboard}>
               <Home className="size-4 mr-2" />
               Go to Dashboard
             </Button>

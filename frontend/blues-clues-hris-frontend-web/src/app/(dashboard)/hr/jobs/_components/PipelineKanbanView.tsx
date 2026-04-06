@@ -53,6 +53,7 @@ export const KANBAN_STAGES = [
 ] as const;
 
 const HIGH_COUNT_THRESHOLD = 20;
+const INTERVIEW_STAGES = ["first_interview", "technical_interview", "final_interview"];
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -304,10 +305,12 @@ export function PipelineKanbanView({
   apps,
   onStatusChange,
   onViewDetail,
+  onScheduleNeeded,
 }: Readonly<{
   apps: PipelineApplication[];
   onStatusChange: (appId: string, newStatus: string) => Promise<void>;
   onViewDetail: (appId: string) => void;
+  onScheduleNeeded?: (appId: string, stage: string) => void;
 }>) {
   const [activeId, setActiveId]   = useState<string | null>(null);
   const [compact, setCompact]     = useState(false);
@@ -356,14 +359,20 @@ export function PipelineKanbanView({
     setActiveId(null);
     if (!over) return;
 
-    const draggedId   = active.id as string;
-    const overId      = over.id as string;
+    const draggedId    = active.id as string;
+    const overId       = over.id as string;
     const currentStage = findStageForApp(draggedId);
     const targetStage  = KANBAN_STAGES.find((s) => s.value === overId)?.value
                         ?? findStageForApp(overId);
 
     if (!targetStage || targetStage === currentStage) return;
+
     await onStatusChange(draggedId, targetStage);
+
+    // If moved to an interview stage, prompt HR to schedule
+    if (INTERVIEW_STAGES.includes(targetStage) && onScheduleNeeded) {
+      onScheduleNeeded(draggedId, targetStage);
+    }
   };
 
   // Auto-enable compact when any column has 20+ cards

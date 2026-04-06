@@ -1,4 +1,5 @@
-import { useState } from "react";
+"use client";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
@@ -6,14 +7,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
-import { 
-  Settings, 
-  FileCheck, 
-  ListChecks, 
-  Package, 
-  Plus, 
-  Trash2, 
-  Edit, 
+import {
+  Settings,
+  FileCheck,
+  ListChecks,
+  Package,
+  Plus,
+  Eye,
   Search,
   Building,
   Users,
@@ -23,130 +23,16 @@ import {
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Label } from "@/components/ui/label";
-
-interface TemplateDocument {
-  id: string;
-  name: string;
-  required: boolean;
-  description?: string;
-}
-
-interface TemplateTask {
-  id: string;
-  name: string;
-  description: string;
-  required: boolean;
-}
-
-interface TemplateEquipment {
-  id: string;
-  name: string;
-  category: string;
-  description?: string;
-}
-
-interface AdminTemplate {
-  id: string;
-  name: string;
-  department: string;
-  position: string;
-  documents: TemplateDocument[];
-  tasks: TemplateTask[];
-  equipment: TemplateEquipment[];
-  deadlineDays: number;
-}
-
-interface Department {
-  id: string;
-  name: string;
-  employeeCount: number;
-}
-
-interface Position {
-  id: string;
-  title: string;
-  department: string;
-}
-
-// Shared base documents reused across templates
-const BASE_DOCUMENTS: TemplateDocument[] = [
-  { id: "doc-1", name: "Birth Certificate (PSA)", required: true },
-  { id: "doc-2", name: "NBI Clearance", required: true },
-  { id: "doc-3", name: "SSS E-1 Form", required: true },
-  { id: "doc-4", name: "PhilHealth MDR", required: true },
-  { id: "doc-5", name: "Pag-IBIG MDF", required: true },
-];
-
-// Mock data
-const initialTemplates: AdminTemplate[] = [
-  {
-    id: "template-1",
-    name: "Software Engineer Onboarding",
-    department: "Engineering",
-    position: "Software Engineer",
-    deadlineDays: 7,
-    documents: [
-      ...BASE_DOCUMENTS,
-      { id: "doc-6", name: "BIR Form 2316", required: false },
-    ],
-    tasks: [
-      { id: "task-1", name: "Complete Company Orientation", description: "Watch orientation video and complete quiz", required: true },
-      { id: "task-2", name: "IT Security Training", description: "Complete cybersecurity awareness module", required: true },
-      { id: "task-3", name: "Set Up Email Signature", description: "Configure official email signature", required: true },
-      { id: "task-4", name: "Review Employee Handbook", description: "Read and acknowledge employee handbook", required: true },
-      { id: "task-5", name: "Development Environment Setup", description: "Install required development tools", required: true },
-    ],
-    equipment: [
-      { id: "equip-1", name: "MacBook Pro M3", category: "Laptop" },
-      { id: "equip-2", name: "External Monitor (27\")", category: "Monitor" },
-      { id: "equip-3", name: "Mechanical Keyboard", category: "Accessories" },
-      { id: "equip-4", name: "Wireless Mouse", category: "Accessories" },
-    ],
-  },
-  {
-    id: "template-2",
-    name: "Product Manager Onboarding",
-    department: "Product",
-    position: "Product Manager",
-    deadlineDays: 7,
-    documents: [...BASE_DOCUMENTS],
-    tasks: [
-      { id: "task-1", name: "Complete Company Orientation", description: "Watch orientation video and complete quiz", required: true },
-      { id: "task-2", name: "Product Tools Training", description: "Learn product management tools", required: true },
-      { id: "task-3", name: "Meet Engineering Team", description: "Introduction meeting with engineering", required: true },
-      { id: "task-4", name: "Review Product Roadmap", description: "Understand current product strategy", required: true },
-    ],
-    equipment: [
-      { id: "equip-1", name: "MacBook Air M2", category: "Laptop" },
-      { id: "equip-2", name: "iPad Pro", category: "Tablet" },
-      { id: "equip-3", name: "Wireless Mouse", category: "Accessories" },
-    ],
-  },
-];
-
-const initialDepartments: Department[] = [
-  { id: "dept-1", name: "Engineering", employeeCount: 45 },
-  { id: "dept-2", name: "Product", employeeCount: 12 },
-  { id: "dept-3", name: "Design", employeeCount: 8 },
-  { id: "dept-4", name: "Marketing", employeeCount: 15 },
-  { id: "dept-5", name: "Analytics", employeeCount: 6 },
-];
-
-const initialPositions: Position[] = [
-  { id: "pos-1", title: "Software Engineer", department: "Engineering" },
-  { id: "pos-2", title: "Senior Software Engineer", department: "Engineering" },
-  { id: "pos-3", title: "Product Manager", department: "Product" },
-  { id: "pos-4", title: "UX Designer", department: "Design" },
-  { id: "pos-5", title: "Marketing Specialist", department: "Marketing" },
-  { id: "pos-6", title: "Data Analyst", department: "Analytics" },
-];
+import type { OnboardingTemplate, JobPosition, Department } from "@/types/onboarding.types";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Textarea } from "@/components/ui/textarea";
+import { getAllTemplates, createTemplate, getAllPositions, createPosition, getDepartments, addTemplateItem, updateTemplateItem } from "@/lib/onboardingApi";
 
 export default function SystemAdminView() {
-  const [templates, setTemplates] = useState<AdminTemplate[]>(initialTemplates);
-  const [departments, setDepartments] = useState<Department[]>(initialDepartments);
-  const [positions, setPositions] = useState<Position[]>(initialPositions);
-  const [selectedTemplate, setSelectedTemplate] = useState<AdminTemplate | null>(null);
-  const [isEditingTemplate, setIsEditingTemplate] = useState(false);
+  const [templates, setTemplates] = useState<OnboardingTemplate[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [positions, setPositions] = useState<JobPosition[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<OnboardingTemplate | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
   // New template states
@@ -155,6 +41,15 @@ export default function SystemAdminView() {
   const [newTemplateDepartment, setNewTemplateDepartment] = useState("");
   const [newTemplatePosition, setNewTemplatePosition] = useState("");
   const [newTemplateDeadline, setNewTemplateDeadline] = useState("7");
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+
+  // Template item editing states
+  const [addItemCategory, setAddItemCategory] = useState<string | null>(null);
+  const [newItemTitle, setNewItemTitle] = useState("");
+  const [newItemDescription, setNewItemDescription] = useState("");
+  const [newItemRequired, setNewItemRequired] = useState(false);
+  const [savingNewItem, setSavingNewItem] = useState(false);
+  const [togglingItemId, setTogglingItemId] = useState<string | null>(null);
 
   // New department/position states
   const [showNewDepartmentDialog, setShowNewDepartmentDialog] = useState(false);
@@ -163,188 +58,106 @@ export default function SystemAdminView() {
   const [newPositionTitle, setNewPositionTitle] = useState("");
   const [newPositionDepartment, setNewPositionDepartment] = useState("");
 
-  // Template item states
-  const [newDocumentName, setNewDocumentName] = useState("");
-  const [newTaskName, setNewTaskName] = useState("");
-  const [newTaskDescription, setNewTaskDescription] = useState("");
-  const [newEquipmentName, setNewEquipmentName] = useState("");
-  const [newEquipmentCategory, setNewEquipmentCategory] = useState("");
+  useEffect(() => {
+    getAllTemplates().then(setTemplates).catch(console.error);
+    getDepartments().then(setDepartments).catch(console.error);
+    getAllPositions().then(setPositions).catch(console.error);
+  }, []);
 
-  const handleCreateTemplate = () => {
+  const handleCreateTemplate = async () => {
     if (!newTemplateName.trim() || !newTemplateDepartment || !newTemplatePosition) return;
 
-    const newTemplate: AdminTemplate = {
-      id: `template-${Date.now()}`,
-      name: newTemplateName,
-      department: newTemplateDepartment,
-      position: newTemplatePosition,
-      deadlineDays: Number.parseInt(newTemplateDeadline),
-      documents: [],
-      tasks: [],
-      equipment: [],
-    };
-
-    setTemplates([...templates, newTemplate]);
-    setNewTemplateName("");
-    setNewTemplateDepartment("");
-    setNewTemplatePosition("");
-    setNewTemplateDeadline("7");
-    setShowNewTemplateDialog(false);
-  };
-
-  const handleDeleteTemplate = (templateId: string) => {
-    if (confirm("Are you sure you want to delete this template?")) {
-      setTemplates(templates.filter(t => t.id !== templateId));
-      if (selectedTemplate?.id === templateId) {
-        setSelectedTemplate(null);
-      }
+    setCreatingTemplate(true);
+    try {
+      await createTemplate({
+        name: newTemplateName.trim(),
+        department_id: newTemplateDepartment,
+        position_id: newTemplatePosition,
+        default_deadline_days: Number.parseInt(newTemplateDeadline),
+        items: [],
+      });
+      const updated = await getAllTemplates();
+      setTemplates(updated);
+      setNewTemplateName("");
+      setNewTemplateDepartment("");
+      setNewTemplatePosition("");
+      setNewTemplateDeadline("7");
+      setShowNewTemplateDialog(false);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setCreatingTemplate(false);
     }
   };
 
-  const handleAddDocumentToTemplate = () => {
-    if (!selectedTemplate || !newDocumentName.trim()) return;
-
-    const updatedTemplate = {
-      ...selectedTemplate,
-      documents: [
-        ...selectedTemplate.documents,
-        {
-          id: `doc-${Date.now()}`,
-          name: newDocumentName,
-          required: true,
-        },
-      ],
-    };
-
-    setTemplates(templates.map(t => t.id === selectedTemplate.id ? updatedTemplate : t));
-    setSelectedTemplate(updatedTemplate);
-    setNewDocumentName("");
-  };
-
-  const handleAddTaskToTemplate = () => {
-    if (!selectedTemplate || !newTaskName.trim() || !newTaskDescription.trim()) return;
-
-    const updatedTemplate = {
-      ...selectedTemplate,
-      tasks: [
-        ...selectedTemplate.tasks,
-        {
-          id: `task-${Date.now()}`,
-          name: newTaskName,
-          description: newTaskDescription,
-          required: true,
-        },
-      ],
-    };
-
-    setTemplates(templates.map(t => t.id === selectedTemplate.id ? updatedTemplate : t));
-    setSelectedTemplate(updatedTemplate);
-    setNewTaskName("");
-    setNewTaskDescription("");
-  };
-
-  const handleAddEquipmentToTemplate = () => {
-    if (!selectedTemplate || !newEquipmentName.trim() || !newEquipmentCategory.trim()) return;
-
-    const updatedTemplate = {
-      ...selectedTemplate,
-      equipment: [
-        ...selectedTemplate.equipment,
-        {
-          id: `equip-${Date.now()}`,
-          name: newEquipmentName,
-          category: newEquipmentCategory,
-        },
-      ],
-    };
-
-    setTemplates(templates.map(t => t.id === selectedTemplate.id ? updatedTemplate : t));
-    setSelectedTemplate(updatedTemplate);
-    setNewEquipmentName("");
-    setNewEquipmentCategory("");
-  };
-
-  const handleRemoveDocumentFromTemplate = (docId: string) => {
-    if (!selectedTemplate) return;
-
-    const updatedTemplate = {
-      ...selectedTemplate,
-      documents: selectedTemplate.documents.filter(d => d.id !== docId),
-    };
-
-    setTemplates(templates.map(t => t.id === selectedTemplate.id ? updatedTemplate : t));
-    setSelectedTemplate(updatedTemplate);
-  };
-
-  const handleRemoveTaskFromTemplate = (taskId: string) => {
-    if (!selectedTemplate) return;
-
-    const updatedTemplate = {
-      ...selectedTemplate,
-      tasks: selectedTemplate.tasks.filter(t => t.id !== taskId),
-    };
-
-    setTemplates(templates.map(t => t.id === selectedTemplate.id ? updatedTemplate : t));
-    setSelectedTemplate(updatedTemplate);
-  };
-
-  const handleRemoveEquipmentFromTemplate = (equipId: string) => {
-    if (!selectedTemplate) return;
-
-    const updatedTemplate = {
-      ...selectedTemplate,
-      equipment: selectedTemplate.equipment.filter(e => e.id !== equipId),
-    };
-
-    setTemplates(templates.map(t => t.id === selectedTemplate.id ? updatedTemplate : t));
-    setSelectedTemplate(updatedTemplate);
-  };
-
   const handleCreateDepartment = () => {
-    if (!newDepartmentName.trim()) return;
-
-    const newDept: Department = {
-      id: `dept-${Date.now()}`,
-      name: newDepartmentName,
-      employeeCount: 0,
-    };
-
-    setDepartments([...departments, newDept]);
+    // Department creation is managed at the Supabase level; this dialog is informational only.
     setNewDepartmentName("");
     setShowNewDepartmentDialog(false);
   };
 
-  const handleCreatePosition = () => {
+  const handleCreatePosition = async () => {
     if (!newPositionTitle.trim() || !newPositionDepartment) return;
-
-    const newPos: Position = {
-      id: `pos-${Date.now()}`,
-      title: newPositionTitle,
-      department: newPositionDepartment,
-    };
-
-    setPositions([...positions, newPos]);
+    try {
+      await createPosition(newPositionDepartment, newPositionTitle);
+      const updated = await getAllPositions();
+      setPositions(updated);
+    } catch (err) {
+      console.error(err);
+    }
     setNewPositionTitle("");
     setNewPositionDepartment("");
     setShowNewPositionDialog(false);
   };
 
-  const handleDeleteDepartment = (deptId: string) => {
-    if (confirm("Are you sure you want to delete this department?")) {
-      setDepartments(departments.filter(d => d.id !== deptId));
+  const typeForCategory: Record<string, string> = { documents: 'upload', tasks: 'task', equipment: 'equipment', hr_forms: 'form' };
+
+  const handleAddTemplateItem = async (tab_category: string) => {
+    if (!selectedTemplate || !newItemTitle.trim()) return;
+    setSavingNewItem(true);
+    try {
+      const item = await addTemplateItem(selectedTemplate.template_id, {
+        type: typeForCategory[tab_category] ?? tab_category,
+        tab_category,
+        title: newItemTitle.trim(),
+        description: newItemDescription.trim() || undefined,
+        is_required: newItemRequired,
+      });
+      const addItem = (t: typeof selectedTemplate) => ({ ...t, template_items: [...t.template_items, item] });
+      setSelectedTemplate(prev => prev ? addItem(prev) : prev);
+      setTemplates(prev => prev.map(t => t.template_id === selectedTemplate.template_id ? addItem(t) : t));
+      setNewItemTitle("");
+      setNewItemDescription("");
+      setNewItemRequired(false);
+      setAddItemCategory(null);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setSavingNewItem(false);
     }
   };
 
-  const handleDeletePosition = (posId: string) => {
-    if (confirm("Are you sure you want to delete this position?")) {
-      setPositions(positions.filter(p => p.id !== posId));
+  const handleToggleRequired = async (itemId: string, currentValue: boolean) => {
+    if (!selectedTemplate) return;
+    setTogglingItemId(itemId);
+    try {
+      await updateTemplateItem(itemId, { is_required: !currentValue });
+      const toggle = (items: typeof selectedTemplate.template_items) =>
+        items.map(i => i.item_id === itemId ? { ...i, is_required: !currentValue } : i);
+      setSelectedTemplate(prev => prev ? { ...prev, template_items: toggle(prev.template_items) } : prev);
+      setTemplates(prev => prev.map(t => t.template_id === selectedTemplate.template_id
+        ? { ...t, template_items: toggle(t.template_items) } : t));
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setTogglingItemId(null);
     }
   };
 
   const filteredTemplates = templates.filter(t =>
     t.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.department.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    t.position.toLowerCase().includes(searchQuery.toLowerCase())
+    (t.department_name ?? t.department_id).toLowerCase().includes(searchQuery.toLowerCase()) ||
+    (t.position_name ?? t.position_id).toLowerCase().includes(searchQuery.toLowerCase())
   );
 
   return (
@@ -403,7 +216,7 @@ export default function SystemAdminView() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">
-                {departments.reduce((sum, dept) => sum + dept.employeeCount, 0)}
+                {departments.length}
               </div>
               <p className="text-xs text-slate-500">Across all departments</p>
             </CardContent>
@@ -459,46 +272,46 @@ export default function SystemAdminView() {
                       <TableHead>Documents</TableHead>
                       <TableHead>Tasks</TableHead>
                       <TableHead>Equipment</TableHead>
+                      <TableHead>HR Forms</TableHead>
                       <TableHead>Deadline</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredTemplates.map((template) => (
-                      <TableRow key={template.id}>
+                      <TableRow key={template.template_id}>
                         <TableCell className="font-medium">{template.name}</TableCell>
-                        <TableCell>{template.department}</TableCell>
-                        <TableCell>{template.position}</TableCell>
+                        <TableCell>{template.department_name ?? template.department_id}</TableCell>
+                        <TableCell>{template.position_name ?? template.position_id}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{template.documents.length}</Badge>
+                          <Badge variant="outline">
+                            {template.template_items.filter(i => i.tab_category === "documents").length}
+                          </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{template.tasks.length}</Badge>
+                          <Badge variant="outline">
+                            {template.template_items.filter(i => i.tab_category === "tasks").length}
+                          </Badge>
                         </TableCell>
                         <TableCell>
-                          <Badge variant="outline">{template.equipment.length}</Badge>
+                          <Badge variant="outline">
+                            {template.template_items.filter(i => i.tab_category === "equipment").length}
+                          </Badge>
                         </TableCell>
-                        <TableCell>{template.deadlineDays} days</TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => {
-                                setSelectedTemplate(template);
-                                setIsEditingTemplate(true);
-                              }}
-                            >
-                              <Edit className="size-4" />
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleDeleteTemplate(template.id)}
-                            >
-                              <Trash2 className="size-4 text-red-600" />
-                            </Button>
-                          </div>
+                          <Badge variant="outline">
+                            {template.template_items.filter(i => i.tab_category === "hr_forms").length}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>{template.default_deadline_days} days</TableCell>
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setSelectedTemplate(template)}
+                          >
+                            <Eye className="size-4" />
+                          </Button>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -526,25 +339,15 @@ export default function SystemAdminView() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Department Name</TableHead>
-                      <TableHead>Employee Count</TableHead>
-                      <TableHead>Actions</TableHead>
+                      <TableHead>Company ID</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {departments.map((dept) => (
-                      <TableRow key={dept.id}>
-                        <TableCell className="font-medium">{dept.name}</TableCell>
+                      <TableRow key={dept.department_id}>
+                        <TableCell className="font-medium">{dept.department_name}</TableCell>
                         <TableCell>
-                          <Badge variant="secondary">{dept.employeeCount} employees</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeleteDepartment(dept.id)}
-                          >
-                            <Trash2 className="size-4 text-red-600" />
-                          </Button>
+                          <Badge variant="secondary">{dept.company_id}</Badge>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -566,24 +369,14 @@ export default function SystemAdminView() {
                     <TableRow>
                       <TableHead>Position Title</TableHead>
                       <TableHead>Department</TableHead>
-                      <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {positions.map((pos) => (
-                      <TableRow key={pos.id}>
-                        <TableCell className="font-medium">{pos.title}</TableCell>
+                      <TableRow key={pos.position_id}>
+                        <TableCell className="font-medium">{pos.position_name}</TableCell>
                         <TableCell>
-                          <Badge variant="outline">{pos.department}</Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDeletePosition(pos.id)}
-                          >
-                            <Trash2 className="size-4 text-red-600" />
-                          </Button>
+                          <Badge variant="outline">{pos.department_name ?? pos.department_id}</Badge>
                         </TableCell>
                       </TableRow>
                     ))}
@@ -594,6 +387,140 @@ export default function SystemAdminView() {
           </CardContent>
         </Card>
       </div>
+
+      {/* View Template Dialog */}
+      <Dialog open={!!selectedTemplate} onOpenChange={(open) => !open && setSelectedTemplate(null)}>
+        <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b">
+            <DialogTitle>Template: {selectedTemplate?.name}</DialogTitle>
+            <DialogDescription>
+              View and manage items for this onboarding template
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedTemplate && (
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              <Tabs defaultValue="documents" onValueChange={() => setAddItemCategory(null)}>
+                <TabsList className="grid w-full grid-cols-4">
+                  <TabsTrigger value="documents">
+                    <FileCheck className="size-4 mr-2" />
+                    Documents ({selectedTemplate.template_items.filter(i => i.tab_category === "documents").length})
+                  </TabsTrigger>
+                  <TabsTrigger value="tasks">
+                    <ListChecks className="size-4 mr-2" />
+                    Tasks ({selectedTemplate.template_items.filter(i => i.tab_category === "tasks").length})
+                  </TabsTrigger>
+                  <TabsTrigger value="equipment">
+                    <Package className="size-4 mr-2" />
+                    Equipment ({selectedTemplate.template_items.filter(i => i.tab_category === "equipment").length})
+                  </TabsTrigger>
+                  <TabsTrigger value="hr_forms">
+                    <ClipboardList className="size-4 mr-2" />
+                    HR Forms ({selectedTemplate.template_items.filter(i => i.tab_category === "hr_forms").length})
+                  </TabsTrigger>
+                </TabsList>
+
+                {(["documents", "tasks", "equipment", "hr_forms"] as const).map((cat) => {
+                  const labelMap: Record<string, string> = { documents: "Document", tasks: "Task", equipment: "Equipment", hr_forms: "HR Form" };
+                  const hasDescription = cat !== "documents";
+                  return (
+                  <TabsContent key={cat} value={cat} className="mt-4 space-y-3">
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="outline" onClick={() => { setAddItemCategory(cat); setNewItemTitle(""); setNewItemDescription(""); setNewItemRequired(false); }}>
+                        <Plus className="size-3 mr-1" />
+                        Add {labelMap[cat]}
+                      </Button>
+                    </div>
+
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          {hasDescription && <TableHead>Description</TableHead>}
+                          <TableHead className="w-[120px]">Required</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {selectedTemplate.template_items.filter(i => i.tab_category === cat).map((item) => (
+                          <TableRow key={item.item_id}>
+                            <TableCell className="font-medium">{item.title}</TableCell>
+                            {hasDescription && <TableCell className="text-sm text-slate-600">{item.description ?? "—"}</TableCell>}
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                <Checkbox
+                                  checked={item.is_required}
+                                  disabled={togglingItemId === item.item_id}
+                                  onCheckedChange={() => handleToggleRequired(item.item_id, item.is_required)}
+                                />
+                                <span className="text-sm text-slate-600">{item.is_required ? "Required" : "Optional"}</span>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {selectedTemplate.template_items.filter(i => i.tab_category === cat).length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={hasDescription ? 3 : 2} className="text-center py-4 text-slate-500">
+                              No {labelMap[cat].toLowerCase()}s yet
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
+
+                    {addItemCategory === cat && (
+                      <div className="border rounded-lg p-4 space-y-3 bg-slate-50">
+                        <p className="text-sm font-medium">New {labelMap[cat]}</p>
+                        <div className="space-y-1">
+                          <Label>Title *</Label>
+                          <Input
+                            placeholder="Enter title..."
+                            value={newItemTitle}
+                            onChange={(e) => setNewItemTitle(e.target.value)}
+                          />
+                        </div>
+                        {hasDescription && (
+                          <div className="space-y-1">
+                            <Label>Description</Label>
+                            <Textarea
+                              placeholder="Optional description..."
+                              value={newItemDescription}
+                              onChange={(e) => setNewItemDescription(e.target.value)}
+                              rows={2}
+                              className="resize-none"
+                            />
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="new-item-required"
+                            checked={newItemRequired}
+                            onCheckedChange={(v) => setNewItemRequired(v as boolean)}
+                          />
+                          <Label htmlFor="new-item-required">Required</Label>
+                        </div>
+                        <div className="flex gap-2 justify-end">
+                          <Button variant="outline" size="sm" onClick={() => setAddItemCategory(null)}>Cancel</Button>
+                          <Button size="sm" onClick={() => handleAddTemplateItem(cat)} disabled={savingNewItem || !newItemTitle.trim()}>
+                            <Save className="size-3 mr-1" />
+                            {savingNewItem ? "Saving..." : "Save"}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </TabsContent>
+                  );
+                })}
+              </Tabs>
+            </div>
+          )}
+
+          <div className="px-6 py-4 border-t flex justify-end">
+            <Button variant="outline" onClick={() => setSelectedTemplate(null)}>
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* New Template Dialog */}
       <Dialog open={showNewTemplateDialog} onOpenChange={setShowNewTemplateDialog}>
@@ -621,8 +548,8 @@ export default function SystemAdminView() {
                 </SelectTrigger>
                 <SelectContent>
                   {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.name}>
-                      {dept.name}
+                    <SelectItem key={dept.department_id} value={dept.department_id}>
+                      {dept.department_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -636,10 +563,10 @@ export default function SystemAdminView() {
                 </SelectTrigger>
                 <SelectContent>
                   {positions
-                    .filter(p => !newTemplateDepartment || p.department === newTemplateDepartment)
+                    .filter(p => !newTemplateDepartment || p.department_id === newTemplateDepartment)
                     .map((pos) => (
-                      <SelectItem key={pos.id} value={pos.title}>
-                        {pos.title}
+                      <SelectItem key={pos.position_id} value={pos.position_id}>
+                        {pos.position_name}
                       </SelectItem>
                     ))}
                 </SelectContent>
@@ -659,226 +586,9 @@ export default function SystemAdminView() {
             <Button variant="outline" onClick={() => setShowNewTemplateDialog(false)}>
               Cancel
             </Button>
-            <Button onClick={handleCreateTemplate}>
+            <Button onClick={handleCreateTemplate} disabled={creatingTemplate}>
               <Save className="size-4 mr-2" />
-              Create Template
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Template Dialog */}
-      <Dialog open={isEditingTemplate} onOpenChange={setIsEditingTemplate}>
-        <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col p-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b">
-            <DialogTitle>Edit Template: {selectedTemplate?.name}</DialogTitle>
-            <DialogDescription>
-              Configure documents, tasks, and equipment for this onboarding template
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedTemplate && (
-            <div className="flex-1 overflow-y-auto px-6 py-4">
-              <Tabs defaultValue="documents">
-                <TabsList className="grid w-full grid-cols-3">
-                  <TabsTrigger value="documents">
-                    <FileCheck className="size-4 mr-2" />
-                    Documents ({selectedTemplate.documents.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="tasks">
-                    <ListChecks className="size-4 mr-2" />
-                    Tasks ({selectedTemplate.tasks.length})
-                  </TabsTrigger>
-                  <TabsTrigger value="equipment">
-                    <Package className="size-4 mr-2" />
-                    Equipment ({selectedTemplate.equipment.length})
-                  </TabsTrigger>
-                </TabsList>
-
-                {/* Documents */}
-                <TabsContent value="documents" className="space-y-4 mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Document Name</TableHead>
-                        <TableHead>Required</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedTemplate.documents.map((doc) => (
-                        <TableRow key={doc.id}>
-                          <TableCell className="font-medium">{doc.name}</TableCell>
-                          <TableCell>
-                            <Badge variant={doc.required ? "default" : "secondary"}>
-                              {doc.required ? "Required" : "Optional"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveDocumentFromTemplate(doc.id)}
-                            >
-                              <Trash2 className="size-4 text-red-600" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-
-                  <Card className="bg-blue-50 border-blue-200">
-                    <CardContent className="pt-4">
-                      <div className="space-y-2">
-                        <Label>Add New Document</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Document name..."
-                            value={newDocumentName}
-                            onChange={(e) => setNewDocumentName(e.target.value)}
-                            className="bg-white"
-                          />
-                          <Button onClick={handleAddDocumentToTemplate}>
-                            <Plus className="size-4 mr-2" />
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                {/* Tasks */}
-                <TabsContent value="tasks" className="space-y-4 mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Task Name</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Required</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedTemplate.tasks.map((task) => (
-                        <TableRow key={task.id}>
-                          <TableCell className="font-medium">{task.name}</TableCell>
-                          <TableCell className="text-sm text-slate-600">{task.description}</TableCell>
-                          <TableCell>
-                            <Badge variant={task.required ? "default" : "secondary"}>
-                              {task.required ? "Required" : "Optional"}
-                            </Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveTaskFromTemplate(task.id)}
-                            >
-                              <Trash2 className="size-4 text-red-600" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-
-                  <Card className="bg-green-50 border-green-200">
-                    <CardContent className="pt-4">
-                      <div className="space-y-2">
-                        <Label>Add New Task</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Task name..."
-                            value={newTaskName}
-                            onChange={(e) => setNewTaskName(e.target.value)}
-                            className="bg-white"
-                          />
-                          <Input
-                            placeholder="Description..."
-                            value={newTaskDescription}
-                            onChange={(e) => setNewTaskDescription(e.target.value)}
-                            className="bg-white"
-                          />
-                          <Button onClick={handleAddTaskToTemplate}>
-                            <Plus className="size-4 mr-2" />
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-
-                {/* Equipment */}
-                <TabsContent value="equipment" className="space-y-4 mt-4">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Equipment Name</TableHead>
-                        <TableHead>Category</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {selectedTemplate.equipment.map((equip) => (
-                        <TableRow key={equip.id}>
-                          <TableCell className="font-medium">{equip.name}</TableCell>
-                          <TableCell>
-                            <Badge variant="outline">{equip.category}</Badge>
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveEquipmentFromTemplate(equip.id)}
-                            >
-                              <Trash2 className="size-4 text-red-600" />
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-
-                  <Card className="bg-purple-50 border-purple-200">
-                    <CardContent className="pt-4">
-                      <div className="space-y-2">
-                        <Label>Add New Equipment</Label>
-                        <div className="flex gap-2">
-                          <Input
-                            placeholder="Equipment name..."
-                            value={newEquipmentName}
-                            onChange={(e) => setNewEquipmentName(e.target.value)}
-                            className="bg-white"
-                          />
-                          <Input
-                            placeholder="Category..."
-                            value={newEquipmentCategory}
-                            onChange={(e) => setNewEquipmentCategory(e.target.value)}
-                            className="bg-white"
-                          />
-                          <Button onClick={handleAddEquipmentToTemplate}>
-                            <Plus className="size-4 mr-2" />
-                            Add
-                          </Button>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </TabsContent>
-              </Tabs>
-            </div>
-          )}
-
-          <div className="px-6 py-4 border-t flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setIsEditingTemplate(false)}>
-              Close
-            </Button>
-            <Button onClick={() => setIsEditingTemplate(false)}>
-              <Save className="size-4 mr-2" />
-              Save Changes
+              {creatingTemplate ? "Creating..." : "Create Template"}
             </Button>
           </div>
         </DialogContent>
@@ -941,8 +651,8 @@ export default function SystemAdminView() {
                 </SelectTrigger>
                 <SelectContent>
                   {departments.map((dept) => (
-                    <SelectItem key={dept.id} value={dept.name}>
-                      {dept.name}
+                    <SelectItem key={dept.department_id} value={dept.department_id}>
+                      {dept.department_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
