@@ -144,14 +144,18 @@ function getWeekRange(): { from: string; to: string; label: string } {
   const mon = new Date(now); mon.setDate(now.getDate() - (dow === 0 ? 6 : dow - 1));
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
   const from = toDateString(mon);
-  const to = toDateString(sun < now ? sun : now);
+  const to = toDateString(sun); // Include full week including future days
   return { from, to, label: `Week of ${mon.toLocaleDateString("en-US", { month: "short", day: "numeric" })}` };
 }
 
 function getMonthRange(): { from: string; to: string; label: string } {
   const now = new Date();
-  const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-  const to = toDateString(now);
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const from = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+  // Get last day of current month
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  const to = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
   return { from, to, label: now.toLocaleDateString("en-US", { month: "long", year: "numeric" }) };
 }
 
@@ -412,6 +416,8 @@ type SliderDay = {
   isWeekend: boolean;
   isFuture: boolean;
   isLate: boolean;
+  isOutsideRange?: boolean; // For days from adjacent months
+  isScheduledWorkday?: boolean; // For non-working days per employee schedule
 };
 
 function buildSliderDays(
@@ -423,8 +429,21 @@ function buildSliderDays(
   const emp = punches.filter((p) => p.employee_id === employeeId);
   const today = toDateString(new Date());
   const result: SliderDay[] = [];
-  const cur = new Date(from + "T12:00:00");
-  const end = new Date(to + "T12:00:00");
+  
+  // Start from the Monday of the week containing 'from'
+  const startDate = new Date(from + "T12:00:00");
+  const startDow = startDate.getDay();
+  const firstMonday = new Date(startDate);
+  firstMonday.setDate(startDate.getDate() - (startDow === 0 ? 6 : startDow - 1));
+  
+  // End at the Sunday of the week containing 'to'
+  const endDate = new Date(to + "T12:00:00");
+  const endDow = endDate.getDay();
+  const lastSunday = new Date(endDate);
+  lastSunday.setDate(endDate.getDate() + (endDow === 0 ? 0 : 7 - endDow));
+  
+  const cur = new Date(firstMonday);
+  const end = new Date(lastSunday);
 
   while (cur <= end) {
     const date = toDateString(cur);
@@ -433,6 +452,9 @@ function buildSliderDays(
     const co = dp.find((p) => p.log_type === "time-out") ?? null;
     const ab = dp.find((p) => p.log_type === "absence") ?? null;
     const dow = cur.getDay();
+    
+    // Check if this date is outside the filter range
+    const isOutsideRange = date < from || date > to;
 
     result.push({
       date,
@@ -444,6 +466,7 @@ function buildSliderDays(
       isWeekend: dow === 0 || dow === 6,
       isFuture: date > today,
       isLate: ci ? isLate(ci.timestamp) : false,
+      isOutsideRange, // New flag for styling
     });
     cur.setDate(cur.getDate() + 1);
   }
@@ -511,6 +534,7 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
   const dayLabel = d.toLocaleDateString("en-US", { weekday: "short" });
   const dateLabel = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const isWeekendEmpty = day.isWeekend && !day.ci && !day.absent && !day.isFuture;
+  const isNonWorkingDay = day.isScheduledWorkday === false;
 
   const dotCls = day.isFuture
     ? "bg-slate-200"
@@ -520,14 +544,17 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
     ? "bg-amber-400"
     : day.ci
     ? "bg-green-500"
-    : isWeekendEmpty
-    ? "bg-slate-100"
+    : isWeekendEmpty || isNonWorkingDay
+    ? "bg-slate-300"
     : "bg-red-300";
+
+  // Apply visual distinction for days outside the current month range
+  const outsideRangeClass = day.isOutsideRange ? "opacity-50" : "";
 
   return (
     <div
       className={`flex items-center gap-3 px-4 py-2.5 border-b border-border/40 last:border-0 ${
-        isWeekendEmpty ? "opacity-40" : ""
+        isWeekendEmpty ? "opacity-40" : outsideRangeClass
       }`}
     >
       <div className={`h-2 w-2 rounded-full shrink-0 ${dotCls}`} />
@@ -538,7 +565,11 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
         <p className="text-xs font-bold leading-snug mt-0.5">{dateLabel}</p>
       </div>
 
-      {day.isFuture ? (
+      {isNonWorkingDay && !day.ci && !day.absent ? (
+        <span className="text-[9px] bg-slate-100 text-slate-600 border border-slate-200 px-2 py-1 rounded font-bold uppercase tracking-wide">
+          Rest Day
+        </span>
+      ) : day.isFuture ? (
         <p className="text-xs text-muted-foreground/60 italic">Upcoming</p>
       ) : isWeekendEmpty ? (
         <p className="text-xs text-muted-foreground/50">Weekend</p>
@@ -567,6 +598,11 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
             {(day.hours ?? 0) > 8 && (
               <span className="text-[9px] bg-indigo-100 text-indigo-700 px-1 py-0.5 rounded font-bold">
                 OT
+              </span>
+            )}
+            {isNonWorkingDay && (
+              <span className="text-[9px] bg-blue-100 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded font-bold">
+                EXTRA DAY
               </span>
             )}
           </div>
@@ -686,18 +722,35 @@ function EmployeeSlideOver({
     { key: "attendance", label: "Attendance Details" },
   ];
 
-  // Data for attendance tab
-  const sliderDays =
-    dashboardFilter !== "day" ? buildSliderDays(allPunches, employeeId, dashboardFrom, dashboardTo) : [];
-  
-  const monthStart = dashboardFilter === "month" ? new Date(dashboardFrom + "T12:00:00") : new Date();
-  const weekGroups = dashboardFilter === "month" ? groupIntoWeeks(sliderDays, monthStart) : [];
-
-  // Today data
+  // Today data - declare schedule first since sliderDays needs it
   const todayPunches = todayDetail?.punches ?? [];
   const timeIn = todayPunches.find((p) => p.log_type === "time-in") ?? null;
   const timeOut = todayPunches.find((p) => p.log_type === "time-out") ?? null;
   const schedule = todayDetail?.schedule ?? null;
+
+  // Data for attendance tab
+  const allSliderDays =
+    dashboardFilter !== "day" ? buildSliderDays(allPunches, employeeId, dashboardFrom, dashboardTo) : [];
+  
+  // Mark non-working days based on schedule
+  const sliderDays = schedule ? allSliderDays.map((day) => {
+    const dayOfWeek = new Date(day.date + "T12:00:00").getDay();
+    const workdaysStr = typeof schedule.workdays === "string" ? schedule.workdays : schedule.workdays.join(",");
+    const workdayNames = workdaysStr.toUpperCase().split(",");
+    const dayMap: Record<string, number> = {
+      SUN: 0, MON: 1, TUES: 2, TUE: 2, WED: 3, THURS: 4, THU: 4, FRI: 5, SAT: 6,
+    };
+    const workdayIndices = workdayNames.map((d) => dayMap[d.trim()]).filter((i) => i !== undefined);
+    const isScheduledWorkday = workdayIndices.includes(dayOfWeek);
+    
+    return {
+      ...day,
+      isScheduledWorkday, // New flag to identify if this is a scheduled workday
+    };
+  }) : allSliderDays.map((day) => ({ ...day, isScheduledWorkday: true })); // If no schedule, assume all days are workdays
+  
+  const monthStart = dashboardFilter === "month" ? new Date(dashboardFrom + "T12:00:00") : new Date();
+  const weekGroups = dashboardFilter === "month" ? groupIntoWeeks(sliderDays, monthStart) : [];
 
   // Calculate worked hours for Schedule tab
   const calculateWorkedHours = (): { totalHours: number; scheduledDays: number } => {
