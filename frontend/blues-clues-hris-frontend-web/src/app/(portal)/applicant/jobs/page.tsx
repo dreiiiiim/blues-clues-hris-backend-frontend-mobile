@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,11 +8,12 @@ import {
   Search, MapPin, Clock, Building2, Briefcase,
   DollarSign, SlidersHorizontal, Bookmark, CheckCircle,
   Loader2, Calendar, CalendarX2, X, ArrowRight, Zap,
-  Sparkles, TrendingUp, Users, ChevronRight, Check,
+  Sparkles, TrendingUp, Users, ChevronRight, Check, Upload, Trash2,
 } from "lucide-react";
 import {
   getApplicantJobs, applyToJob, getMyApplications, getJobQuestions, getApplicantProfile,
-  type JobPosting, type ApplicationQuestion,
+  uploadApplicantResume, deleteApplicantResume,
+  type JobPosting, type ApplicationQuestion, type ApplicantProfile,
 } from "@/lib/authApi";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
 
@@ -45,10 +46,14 @@ function daysUntil(dateStr: string): number {
 
 function ApplicationForm({
   job,
+  profile,
+  onProfileUpdate,
   onClose,
   onApplied,
 }: {
   job: JobPosting;
+  profile: ApplicantProfile | null;
+  onProfileUpdate: (profile: ApplicantProfile) => void;
   onClose: () => void;
   onApplied: () => void;
 }) {
@@ -56,6 +61,9 @@ function ApplicationForm({
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingResume, setUploadingResume] = useState(false);
+  const [deletingResume, setDeletingResume] = useState(false);
+  const resumeInputRef = useRef<HTMLInputElement | null>(null);
 
   const jwt = parseJwt(getAccessToken() ?? "");
   const userInfo = getUserInfo();
@@ -88,6 +96,56 @@ function ApplicationForm({
   const checkedIndices = (questionId: string): number[] => {
     try { return JSON.parse(answers[questionId] ?? "[]") as number[]; }
     catch { return []; }
+  };
+
+  const handleResumeFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!profile) {
+      toast.error("Profile not loaded. Please refresh and try again.");
+      e.target.value = "";
+      return;
+    }
+
+    setUploadingResume(true);
+    try {
+      const uploaded = await uploadApplicantResume(file);
+      onProfileUpdate({
+        ...profile,
+        resume_url: uploaded.resume_url,
+        resume_name: uploaded.resume_name,
+        resume_uploaded_at: uploaded.resume_uploaded_at,
+      });
+      toast.success("Resume uploaded successfully.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to upload resume");
+    } finally {
+      e.target.value = "";
+      setUploadingResume(false);
+    }
+  };
+
+  const handleRemoveResume = async () => {
+    if (!profile) {
+      toast.error("Profile not loaded. Please refresh and try again.");
+      return;
+    }
+
+    setDeletingResume(true);
+    try {
+      await deleteApplicantResume();
+      onProfileUpdate({
+        ...profile,
+        resume_url: null,
+        resume_name: null,
+        resume_uploaded_at: null,
+      });
+      toast.success("Resume removed.");
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to remove resume");
+    } finally {
+      setDeletingResume(false);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -193,6 +251,65 @@ function ApplicationForm({
             <p className="text-[10px] text-muted-foreground/50 mt-2">Pulled from your account profile.</p>
           </div>
 
+          <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold text-foreground">Resume (optional)</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Upload PDF, DOC, or DOCX format.</p>
+              </div>
+              <input
+                ref={resumeInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx"
+                className="hidden"
+                onChange={handleResumeFileChange}
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => resumeInputRef.current?.click()}
+                disabled={uploadingResume || deletingResume || submitting}
+                className="h-8 gap-1.5"
+              >
+                {uploadingResume ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                {uploadingResume ? "Uploading..." : (profile?.resume_url ? "Replace" : "Upload")}
+              </Button>
+            </div>
+
+            {profile?.resume_url && (
+              <div className="rounded-lg border border-border bg-background px-3 py-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-medium text-foreground truncate">
+                    {profile.resume_name || "Uploaded resume"}
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => window.open(profile.resume_url!, "_blank", "noopener,noreferrer")}
+                    >
+                      View
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                      onClick={handleRemoveResume}
+                      disabled={deletingResume || uploadingResume || submitting}
+                    >
+                      {deletingResume ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                      Remove
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {loading ? (
             <div className="flex items-center justify-center py-6">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -274,7 +391,7 @@ export default function ApplicantJobsPage() {
   const [displayedJob, setDisplayedJob] = useState<JobPosting | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
   const [applyingJob, setApplyingJob] = useState<JobPosting | null>(null);
-  const [profileComplete, setProfileComplete] = useState(false);
+  const [applicantProfile, setApplicantProfile] = useState<ApplicantProfile | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -284,13 +401,15 @@ export default function ApplicantJobsPage() {
     ]).then(([fetchedJobs, myApps, ap]) => {
       setJobs(fetchedJobs);
       setAppliedJobIds(new Set(myApps.map((a: any) => a.job_posting_id)));
-      if (ap) {
-        setProfileComplete(
-          !!(ap.first_name?.trim() && ap.last_name?.trim() && ap.phone_number?.trim()),
-        );
-      }
+      setApplicantProfile(ap);
     }).finally(() => setLoading(false));
   }, []);
+
+  const profileComplete = !!(
+    applicantProfile?.first_name?.trim() &&
+    applicantProfile?.last_name?.trim() &&
+    applicantProfile?.phone_number?.trim()
+  );
 
   const handleApply = (job: JobPosting) => {
     if (!profileComplete) {
@@ -851,6 +970,8 @@ export default function ApplicantJobsPage() {
       {applyingJob && (
         <ApplicationForm
           job={applyingJob}
+          profile={applicantProfile}
+          onProfileUpdate={setApplicantProfile}
           onClose={() => setApplyingJob(null)}
           onApplied={() => {
             setAppliedJobIds((prev) => new Set([...prev, applyingJob.job_posting_id]));
