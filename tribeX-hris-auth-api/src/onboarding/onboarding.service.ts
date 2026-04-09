@@ -58,17 +58,24 @@ export class OnboardingService {
   // 1. EMPLOYEE METHODS (Ty's domain)
   // =========================================================
 
-  async getMySession(accountId: string) {
+  async getMySession(accountId: string, sessionId?: string) {
     const supabase = this.supabaseService.getClient();
 
     // Get the session
-    const { data: session, error: sessionErr } = await supabase
+    const sessionQuery = supabase
       .from('onboarding_sessions')
-      .select('*')
-      .eq('account_id', accountId)
-      .order('deadline_date', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .select('*');
+
+    const { data: session, error: sessionErr } = sessionId
+      ? await sessionQuery
+          .eq('session_id', sessionId)
+          .limit(1)
+          .maybeSingle()
+      : await sessionQuery
+          .eq('account_id', accountId)
+          .order('deadline_date', { ascending: false })
+          .limit(1)
+          .maybeSingle();
 
     if (sessionErr) throw new BadRequestException(sessionErr.message);
     if (!session) return null;
@@ -542,8 +549,8 @@ export class OnboardingService {
 
     if (!session) throw new NotFoundException('Session not found.');
 
-    // Delegate to getMySession using the account_id
-    return this.getMySession(session.account_id);
+    // Return the exact requested session (do not fall back to "latest for account")
+    return this.getMySession(session.account_id, sessionId);
   }
 
   async updateItemStatus(onboardingItemId: string, dto: UpdateTaskStatusDto, authorId?: string) {
