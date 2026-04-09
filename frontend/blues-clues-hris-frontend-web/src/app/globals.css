@@ -123,4 +123,14 @@
   body {
     @apply bg-background text-foreground;
   }
+
+  /* Date / time inputs — blue accent so selected day is a blue rounded pill */
+  input[type="date"],
+  input[type="time"],
+  input[type="datetime-local"],
+  input[type="month"],
+  input[type="week"] {
+    accent-color: #2563eb;
+    color-scheme: light;
+  }
 }

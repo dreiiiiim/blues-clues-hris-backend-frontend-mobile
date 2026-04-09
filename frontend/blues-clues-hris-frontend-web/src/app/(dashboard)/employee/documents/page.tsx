@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Upload,
   FileText,
@@ -14,13 +15,18 @@ import {
   CheckCircle2,
   Clock3,
   Files,
+  AlertCircle,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
 } from "lucide-react";
-
-type UploadedDocument = {
-  name: string;
-  size: number;
-  uploadedAt: string;
-};
+import {
+  getMyEmployeeDocuments,
+  uploadMyDocument,
+  deleteMyDocument,
+  type EmployeeDocument,
+} from "@/lib/authApi";
+import { toast } from "sonner";
 
 const REQUIRED_DOCUMENTS = [
   {
@@ -59,45 +65,92 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function StatusBadge({ status }: { status: string }) {
+  if (status === "approved") {
+    return (
+      <Badge className="bg-green-100 text-green-700 hover:bg-green-100 gap-1">
+        <CheckCircle2 className="h-3 w-3" /> Approved
+      </Badge>
+    );
+  }
+  if (status === "pending") {
+    return (
+      <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 gap-1">
+        <Clock3 className="h-3 w-3" /> Pending HR Review
+      </Badge>
+    );
+  }
+  if (status === "rejected") {
+    return (
+      <Badge className="bg-red-100 text-red-700 hover:bg-red-100 gap-1">
+        <AlertCircle className="h-3 w-3" /> Rejected
+      </Badge>
+    );
+  }
+  return <Badge variant="secondary">{status}</Badge>;
+}
+
 export default function EmployeeDocumentsPage() {
-  const [uploadedDocs, setUploadedDocs] = useState<Record<string, UploadedDocument>>({});
-  const [statusMessage, setStatusMessage] = useState("");
+  const [docs, setDocs] = useState<EmployeeDocument[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState<Record<string, boolean>>({});
+  const [deleting, setDeleting] = useState<Record<string, boolean>>({});
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const uploadedCount = useMemo(() => Object.keys(uploadedDocs).length, [uploadedDocs]);
-  const pendingCount = REQUIRED_DOCUMENTS.length - uploadedCount;
-
-  const handleChooseFile = (docId: string) => {
-    inputRefs.current[docId]?.click();
+  const load = () => {
+    setLoading(true);
+    getMyEmployeeDocuments()
+      .then(setDocs)
+      .catch(() => toast.error("Failed to load documents."))
+      .finally(() => setLoading(false));
   };
 
-  const handleFileChange = (docId: string, file: File | null) => {
-    if (!file) return;
+  useEffect(() => { load(); }, []);
 
-    setUploadedDocs((prev) => ({
-      ...prev,
-      [docId]: {
-        name: file.name,
-        size: file.size,
-        uploadedAt: new Date().toLocaleString(),
-      },
-    }));
-
-    setStatusMessage("Document uploaded successfully.");
+  const handleUpload = async (docId: string, file: File) => {
+    setUploading((prev) => ({ ...prev, [docId]: true }));
+    try {
+      const uploaded = await uploadMyDocument(docId, file);
+      setDocs((prev) => {
+        const existing = prev.findIndex((d) => d.document_type === docId);
+        if (existing >= 0) {
+          const next = [...prev];
+          next[existing] = uploaded;
+          return next;
+        }
+        return [...prev, uploaded];
+      });
+      toast.success("Document uploaded. Awaiting HR review.");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Upload failed.");
+    } finally {
+      setUploading((prev) => ({ ...prev, [docId]: false }));
+    }
   };
 
-  const handleRemoveFile = (docId: string) => {
-    setUploadedDocs((prev) => {
-      const updated = { ...prev };
-      delete updated[docId];
-      return updated;
-    });
-
-    setStatusMessage("Uploaded document removed.");
+  const handleDelete = async (doc: EmployeeDocument) => {
+    setDeleting((prev) => ({ ...prev, [doc.id]: true }));
+    try {
+      await deleteMyDocument(doc.id);
+      setDocs((prev) => prev.filter((d) => d.id !== doc.id));
+      toast.success("Document removed.");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Delete failed.");
+    } finally {
+      setDeleting((prev) => ({ ...prev, [doc.id]: false }));
+    }
   };
+
+  const approvedCount = docs.filter((d) => d.status === "approved").length;
+  const pendingCount = docs.filter((d) => d.status === "pending").length;
+  const rejectedCount = docs.filter((d) => d.status === "rejected").length;
+
+  const getDocForType = (docId: string) =>
+    docs.find((d) => d.document_type === docId) ?? null;
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      {/* Header */}
       <div className="relative overflow-hidden rounded-2xl bg-[#1e3a8a] text-white p-8 shadow-sm">
         <div className="absolute top-0 right-0 h-40 w-40 rounded-full bg-white/10 -translate-y-1/3 translate-x-1/3" />
         <div className="absolute bottom-0 right-16 h-24 w-24 rounded-full bg-white/10 translate-y-1/2" />
@@ -105,38 +158,37 @@ export default function EmployeeDocumentsPage() {
           <p className="text-sm uppercase tracking-[0.2em] text-white/70 font-semibold mb-2">
             Employee Documents
           </p>
-          <h1 className="text-3xl font-bold mb-2">Upload your required documents</h1>
+          <h1 className="text-3xl font-bold mb-2">Your Documents</h1>
           <p className="text-sm text-white/80 max-w-2xl">
-            Submit your onboarding and employment-related files here. This is a UI prototype for employee document uploads.
+            Documents carried over from onboarding are pre-approved. Upload any missing documents for HR review.
           </p>
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-4">
+      {/* Stats */}
+      <div className="grid md:grid-cols-4 gap-4">
         <Card className="rounded-2xl border-gray-100 shadow-sm">
           <CardContent className="p-5 flex items-center gap-4">
             <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-700 flex items-center justify-center">
               <Files className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Total Required</p>
+              <p className="text-sm text-gray-500">Required</p>
               <p className="text-2xl font-bold text-gray-900">{REQUIRED_DOCUMENTS.length}</p>
             </div>
           </CardContent>
         </Card>
-
         <Card className="rounded-2xl border-gray-100 shadow-sm">
           <CardContent className="p-5 flex items-center gap-4">
             <div className="h-12 w-12 rounded-xl bg-green-50 text-green-700 flex items-center justify-center">
               <CheckCircle2 className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-sm text-gray-500">Uploaded</p>
-              <p className="text-2xl font-bold text-gray-900">{uploadedCount}</p>
+              <p className="text-sm text-gray-500">Approved</p>
+              <p className="text-2xl font-bold text-gray-900">{approvedCount}</p>
             </div>
           </CardContent>
         </Card>
-
         <Card className="rounded-2xl border-gray-100 shadow-sm">
           <CardContent className="p-5 flex items-center gap-4">
             <div className="h-12 w-12 rounded-xl bg-amber-50 text-amber-700 flex items-center justify-center">
@@ -148,95 +200,145 @@ export default function EmployeeDocumentsPage() {
             </div>
           </CardContent>
         </Card>
+        <Card className="rounded-2xl border-gray-100 shadow-sm">
+          <CardContent className="p-5 flex items-center gap-4">
+            <div className="h-12 w-12 rounded-xl bg-red-50 text-red-700 flex items-center justify-center">
+              <AlertCircle className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm text-gray-500">Rejected</p>
+              <p className="text-2xl font-bold text-gray-900">{rejectedCount}</p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
-      {statusMessage && (
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
-          <p className="text-sm text-blue-700">{statusMessage}</p>
-        </div>
-      )}
-
       <Card className="rounded-2xl border-gray-100 shadow-sm">
-        <CardHeader>
-          <CardTitle className="text-xl font-bold text-gray-900">
-            Required Employee Documents
-          </CardTitle>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-xl font-bold text-gray-900">Required Documents</CardTitle>
+          <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
+            <RefreshCw className={`h-4 w-4 mr-1 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
         </CardHeader>
 
         <CardContent className="space-y-4">
-          {REQUIRED_DOCUMENTS.map((doc) => {
-            const uploaded = uploadedDocs[doc.id];
-            const Icon = doc.icon;
+          {loading ? (
+            <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+              <Loader2 className="h-5 w-5 animate-spin" /> Loading documents…
+            </div>
+          ) : (
+            REQUIRED_DOCUMENTS.map((docDef) => {
+              const uploaded = getDocForType(docDef.id);
+              const Icon = docDef.icon;
+              const isUploading = uploading[docDef.id];
+              const isDeleting = uploaded ? deleting[uploaded.id] : false;
 
-            return (
-              <div
-                key={doc.id}
-                className="rounded-2xl border border-gray-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="h-12 w-12 rounded-xl bg-gray-100 text-gray-700 flex items-center justify-center shrink-0">
-                    <Icon className="h-5 w-5" />
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-semibold text-gray-900">{doc.title}</h3>
-
-                      {uploaded ? (
-                        <Badge className="bg-green-100 text-green-700 hover:bg-green-100">
-                          Uploaded
-                        </Badge>
-                      ) : (
-                        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">
-                          Pending
-                        </Badge>
-                      )}
+              return (
+                <div
+                  key={docDef.id}
+                  className="rounded-2xl border border-gray-200 p-5 flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="h-12 w-12 rounded-xl bg-gray-100 text-gray-700 flex items-center justify-center shrink-0">
+                      <Icon className="h-5 w-5" />
                     </div>
 
-                    <p className="text-sm text-gray-500">{doc.description}</p>
-                    <p className="text-xs text-gray-400">Accepted files: {doc.accepted}</p>
-
-                    {uploaded && (
-                      <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-3 mt-2">
-                        <p className="text-sm font-medium text-gray-900">{uploaded.name}</p>
-                        <p className="text-xs text-gray-500">
-                          {formatBytes(uploaded.size)} • Uploaded {uploaded.uploadedAt}
-                        </p>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-base font-semibold text-gray-900">{docDef.title}</h3>
+                        {uploaded ? (
+                          <StatusBadge status={uploaded.status} />
+                        ) : (
+                          <Badge className="bg-gray-100 text-gray-500 hover:bg-gray-100">
+                            Not uploaded
+                          </Badge>
+                        )}
                       </div>
+
+                      <p className="text-sm text-gray-500">{docDef.description}</p>
+                      <p className="text-xs text-gray-400">Accepted: {docDef.accepted}</p>
+
+                      {uploaded && (
+                        <div className="rounded-xl bg-gray-50 border border-gray-200 px-3 py-3 mt-2">
+                          <p className="text-sm font-medium text-gray-900">{uploaded.file_name}</p>
+                          <p className="text-xs text-gray-500">
+                            {uploaded.file_size ? formatBytes(uploaded.file_size) : ""} •{" "}
+                            {new Date(uploaded.uploaded_at).toLocaleDateString()}
+                          </p>
+                          {uploaded.status === "rejected" && uploaded.hr_notes && (
+                            <p className="text-xs text-red-600 mt-1">
+                              HR Note: {uploaded.hr_notes}
+                            </p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <input
+                      ref={(el) => { inputRefs.current[docDef.id] = el; }}
+                      type="file"
+                      accept={docDef.accepted}
+                      className="hidden"
+                      onChange={(e) => {
+                        const f = e.target.files?.[0];
+                        if (f) handleUpload(docDef.id, f);
+                        e.target.value = "";
+                      }}
+                    />
+
+                    {/* Can't upload over an approved doc */}
+                    {uploaded?.status !== "approved" && (
+                      <Button
+                        onClick={() => inputRefs.current[docDef.id]?.click()}
+                        disabled={isUploading}
+                        className="h-10 px-4"
+                      >
+                        {isUploading ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <Upload className="h-4 w-4 mr-2" />
+                        )}
+                        {uploaded ? "Replace" : "Upload"}
+                      </Button>
+                    )}
+
+                    {uploaded?.file_url && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-10 px-4"
+                        asChild
+                      >
+                        <a href={uploaded.file_url} target="_blank" rel="noopener noreferrer">
+                          <ExternalLink className="h-4 w-4 mr-2" />
+                          View
+                        </a>
+                      </Button>
+                    )}
+
+                    {uploaded && uploaded.status !== "approved" && (
+                      <Button
+                        variant="outline"
+                        onClick={() => handleDelete(uploaded)}
+                        disabled={isDeleting}
+                        className="h-10 px-4"
+                      >
+                        {isDeleting ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        ) : (
+                          <X className="h-4 w-4 mr-2" />
+                        )}
+                        Remove
+                      </Button>
                     )}
                   </div>
                 </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <input
-                    ref={(el) => {
-                      inputRefs.current[doc.id] = el;
-                    }}
-                    type="file"
-                    accept={doc.accepted}
-                    className="hidden"
-                    onChange={(e) => handleFileChange(doc.id, e.target.files?.[0] || null)}
-                  />
-
-                  <Button onClick={() => handleChooseFile(doc.id)} className="h-10 px-4">
-                    <Upload className="h-4 w-4 mr-2" />
-                    {uploaded ? "Replace File" : "Upload File"}
-                  </Button>
-
-                  {uploaded && (
-                    <Button
-                      variant="outline"
-                      onClick={() => handleRemoveFile(doc.id)}
-                      className="h-10 px-4"
-                    >
-                      <X className="h-4 w-4 mr-2" />
-                      Remove
-                    </Button>
-                  )}
-                </div>
-              </div>
-            );
-          })}
+              );
+            })
+          )}
         </CardContent>
       </Card>
     </div>

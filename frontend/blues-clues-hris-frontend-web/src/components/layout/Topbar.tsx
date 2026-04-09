@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
 import { NotificationBell } from "@/components/layout/NotificationBell";
 import { HRNotificationBell } from "@/components/layout/HRNotificationBell";
+import { EmployeeNotificationBell } from "@/components/layout/EmployeeNotificationBell";
 
 type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "system-admin";
 
@@ -90,6 +91,8 @@ export function Topbar({ persona = "applicant" }: { readonly persona?: PersonaTy
         {/* Notifications */}
         {persona === "applicant" ? (
           <NotificationBell />
+        ) : persona === "employee" ? (
+          <EmployeeNotificationBell />
         ) : persona === "hr" || persona === "manager" || persona === "admin" || persona === "system-admin" ? (
           <HRNotificationBell />
         ) : (

@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
+import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { SaveProfileDto } from './dto/save-profile.dto';
@@ -17,7 +19,40 @@ export class OnboardingService {
     private readonly supabaseService: SupabaseService,
     private readonly mailService: MailService,
     private readonly config: ConfigService,
+    private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
+
+  private async getSessionContext(sessionId: string): Promise<{
+    accountId: string;
+    companyId: string;
+    employeeName: string;
+    employeeEmail: string;
+  } | null> {
+    const supabase = this.supabaseService.getClient();
+    const { data: sess } = await supabase
+      .from('onboarding_sessions')
+      .select('account_id')
+      .eq('session_id', sessionId)
+      .maybeSingle();
+
+    if (!sess) return null;
+    const accountId = (sess as any).account_id as string;
+
+    // Explicit lookup — avoids FK join that breaks for applicant sessions
+    const { data: profile } = await supabase
+      .from('user_profile')
+      .select('first_name, last_name, email, company_id')
+      .eq('user_id', accountId)
+      .maybeSingle();
+
+    return {
+      accountId,
+      companyId: profile?.company_id ?? '',
+      employeeName: profile ? `${profile.first_name} ${profile.last_name}` : 'Employee',
+      employeeEmail: profile?.email ?? '',
+    };
+  }
 
   // =========================================================
   // 1. EMPLOYEE METHODS (Ty's domain)
@@ -43,14 +78,24 @@ export class OnboardingService {
       .from('onboarding_templates')
       .select('name')
       .eq('template_id', session.template_id)
-      .single();
+      .maybeSingle();
 
-    // Get employee name
+    // Get employee name — check user_profile first, fall back to applicant_profile
     const { data: user } = await supabase
       .from('user_profile')
       .select('first_name, last_name, employee_id')
       .eq('user_id', accountId)
-      .single();
+      .maybeSingle();
+
+    let applicantProfile: { first_name: string; last_name: string } | null = null;
+    if (!user) {
+      const { data: ap } = await supabase
+        .from('applicant_profile')
+        .select('first_name, last_name')
+        .eq('applicant_id', accountId)
+        .maybeSingle();
+      applicantProfile = ap ?? null;
+    }
 
     // Get all onboarding items joined with template_items
     const { data: items, error: itemsErr } = await supabase
@@ -134,6 +179,7 @@ export class OnboardingService {
 
     for (const item of items || []) {
       const ti = item.template_items as any;
+      if (!ti) continue; // orphaned item — template item was deleted, skip it
       const category = ti.tab_category as string;
       const itemSubmissions = submissions.filter(s => s.onboarding_item_id === item.onboarding_item_id);
 
@@ -186,7 +232,11 @@ export class OnboardingService {
       account_id: session.account_id,
       template_id: session.template_id,
       template_name: template?.name || null,
-      employee_name: user ? `${user.first_name} ${user.last_name}` : null,
+      employee_name: user
+        ? `${user.first_name} ${user.last_name}`
+        : applicantProfile
+        ? `${applicantProfile.first_name} ${applicantProfile.last_name}`
+        : null,
       employee_id: user?.employee_id || null,
       assigned_position: session.assigned_position,
       assigned_department: session.assigned_department,
@@ -253,6 +303,7 @@ export class OnboardingService {
         submission_id: crypto.randomUUID(),
         onboarding_item_id: onboardingItemId,
         file_url: fileUrl,
+        file_path: filePath,
         file_name: file.originalname,
         file_size_bytes: file.size,
         file_type: file.mimetype,
@@ -273,6 +324,16 @@ export class OnboardingService {
 
     // Recalculate progress
     await this.recalculateProgress(item.session_id);
+
+    // Audit log — fire-and-forget
+    const ctx = await this.getSessionContext(item.session_id);
+    if (ctx) {
+      this.auditService.log(
+        `DOCUMENT_UPLOAD: item ${onboardingItemId}`,
+        ctx.accountId,
+        ctx.companyId,
+      ).catch(() => {});
+    }
 
     this.logger.log(`File uploaded for item: ${onboardingItemId}`);
     return submission;
@@ -303,6 +364,21 @@ export class OnboardingService {
   async saveProfile(sessionId: string, dto: SaveProfileDto) {
     const supabase = this.supabaseService.getClient();
 
+    // Strip legacy flat emergency-contact fields; use emergency_contacts JSONB instead
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { contact_name, relationship, emergency_phone_number, emergency_email_address, ...profileFields } = dto;
+    const firstContact = dto.emergency_contacts?.[0];
+    const payload = {
+      ...profileFields,
+      emergency_contacts: dto.emergency_contacts ?? [],
+      status: 'submitted',
+      // Satisfy legacy NOT NULL columns using first emergency contact as fallback
+      contact_name: firstContact?.contact_name ?? contact_name ?? '',
+      relationship: firstContact?.relationship ?? relationship ?? '',
+      emergency_phone_number: firstContact?.emergency_phone_number ?? emergency_phone_number ?? '',
+      emergency_email_address: firstContact?.emergency_email_address ?? emergency_email_address ?? null,
+    };
+
     // Check if profile already exists for this session
     const { data: existing } = await supabase
       .from('employee_staging')
@@ -314,7 +390,7 @@ export class OnboardingService {
     if (existing) {
       const { data, error } = await supabase
         .from('employee_staging')
-        .update({ ...dto, status: 'submitted' })
+        .update(payload)
         .eq('session_id', sessionId)
         .select()
         .single();
@@ -326,8 +402,7 @@ export class OnboardingService {
         .insert({
           profile_id: crypto.randomUUID(),
           session_id: sessionId,
-          ...dto,
-          status: 'submitted',
+          ...payload,
         })
         .select()
         .single();
@@ -350,6 +425,17 @@ export class OnboardingService {
     }
 
     await this.recalculateProgress(sessionId);
+
+    // Audit log — fire-and-forget
+    const ctx = await this.getSessionContext(sessionId);
+    if (ctx) {
+      this.auditService.log(
+        `PROFILE_SAVE: session ${sessionId}`,
+        ctx.accountId,
+        ctx.companyId,
+      ).catch(() => {});
+    }
+
     return result;
   }
 
@@ -360,6 +446,23 @@ export class OnboardingService {
       .from('onboarding_sessions')
       .update({ status: 'for-review' })
       .eq('session_id', sessionId);
+
+    // Audit + notify HR — fire-and-forget
+    const ctx = await this.getSessionContext(sessionId);
+    if (ctx) {
+      this.auditService.log(
+        `ONBOARDING_SUBMITTED_FOR_REVIEW: session ${sessionId}`,
+        ctx.accountId,
+        ctx.companyId,
+      ).catch(() => {});
+
+      this.notificationsService.notifyAllHRInCompany(ctx.companyId, {
+        type: 'ONBOARDING_SUBMITTED',
+        title: 'New Onboarding Submission',
+        message: `${ctx.employeeName} has submitted their onboarding for review.`,
+        metadata: { session_id: sessionId, employee_id: ctx.accountId },
+      }).catch(() => {});
+    }
 
     this.logger.log(`Session ${sessionId} submitted for review`);
     return { message: 'Onboarding submitted for HR review', session_id: sessionId, status: 'for-review' };
@@ -385,6 +488,7 @@ export class OnboardingService {
         deadline_date,
         completed_at
       `)
+      .in('status', ['not-started', 'in-progress', 'overdue', 'for-review'])
       .order('deadline_date', { ascending: true });
 
     if (error) throw new BadRequestException(error.message);
@@ -398,6 +502,19 @@ export class OnboardingService {
         .eq('user_id', s.account_id)
         .single();
 
+      let employeeName: string | null = null;
+      if (user) {
+        employeeName = `${user.first_name} ${user.last_name}`;
+      } else {
+        // Session may belong to an applicant not yet converted to employee
+        const { data: applicant } = await supabase
+          .from('applicant_profile')
+          .select('first_name, last_name')
+          .eq('applicant_id', s.account_id)
+          .single();
+        if (applicant) employeeName = `${applicant.first_name} ${applicant.last_name}`;
+      }
+
       const { data: template } = await supabase
         .from('onboarding_templates')
         .select('name')
@@ -406,7 +523,7 @@ export class OnboardingService {
 
       enriched.push({
         ...s,
-        employee_name: user ? `${user.first_name} ${user.last_name}` : null,
+        employee_name: employeeName,
         template_name: template?.name || null,
       });
     }
@@ -434,7 +551,7 @@ export class OnboardingService {
 
     const { data: item, error } = await supabase
       .from('onboarding_items')
-      .select('onboarding_item_id, session_id')
+      .select('onboarding_item_id, session_id, template_item_id, template_items(title, tab_category)')
       .eq('onboarding_item_id', onboardingItemId)
       .single();
 
@@ -444,6 +561,15 @@ export class OnboardingService {
       .from('onboarding_items')
       .update({ status: dto.status })
       .eq('onboarding_item_id', onboardingItemId);
+
+    // If a profile item is rejected, reset employee_staging so applicant can fix and resubmit
+    const tabCategory = (item.template_items as any)?.tab_category;
+    if (tabCategory === 'profile' && dto.status === 'rejected') {
+      await supabase
+        .from('employee_staging')
+        .update({ status: 'pending' })
+        .eq('session_id', item.session_id);
+    }
 
     // If there are remarks, save them
     if (dto.remarks) {
@@ -458,6 +584,44 @@ export class OnboardingService {
     }
 
     await this.recalculateProgress(item.session_id);
+
+    // Notify employee on approve/reject — fire-and-forget
+    if (dto.status === 'approved' || dto.status === 'rejected') {
+      const ctx = await this.getSessionContext((item as any).session_id);
+      if (ctx) {
+        const itemTitle = (item as any).template_items?.title ?? 'Onboarding item';
+        this.auditService.log(
+          `ONBOARDING_ITEM_REVIEWED (${dto.status}): item ${onboardingItemId}`,
+          authorId ?? ctx.accountId,
+          ctx.companyId,
+          ctx.accountId,
+        ).catch(() => {});
+
+        this.notificationsService.createNotification({
+          userId: ctx.accountId,
+          companyId: ctx.companyId,
+          type: 'ONBOARDING_ITEM_REVIEWED',
+          title: dto.status === 'approved' ? 'Item Approved' : 'Item Rejected',
+          message: `Your onboarding item "${itemTitle}" has been ${dto.status}.${dto.remarks ? ` Note: ${dto.remarks}` : ''}`,
+          metadata: {
+            onboarding_item_id: onboardingItemId,
+            status: dto.status,
+            remarks: dto.remarks ?? null,
+          },
+        }).catch(() => {});
+
+        if (ctx.employeeEmail) {
+          this.mailService.sendOnboardingItemReviewedEmail({
+            to: ctx.employeeEmail,
+            employeeName: ctx.employeeName,
+            itemTitle,
+            tabCategory: tabCategory ?? 'Onboarding',
+            status: dto.status as 'approved' | 'rejected',
+            remarks: dto.remarks ?? null,
+          }).catch(() => {});
+        }
+      }
+    }
 
     this.logger.log(`Item ${onboardingItemId} updated to: ${dto.status}`);
     return { message: `Item marked as ${dto.status}`, onboarding_item_id: onboardingItemId, status: dto.status };
@@ -483,13 +647,213 @@ export class OnboardingService {
     return data;
   }
 
-  async approveSession(sessionId: string) {
+  async approveSession(sessionId: string, hrUserId?: string) {
     const supabase = this.supabaseService.getClient();
 
+    // Mark session approved
     await supabase
       .from('onboarding_sessions')
       .update({ status: 'approved', completed_at: new Date().toISOString() })
       .eq('session_id', sessionId);
+
+    // Resolve account_id
+    const { data: sessionRow } = await supabase
+      .from('onboarding_sessions')
+      .select('account_id')
+      .eq('session_id', sessionId)
+      .maybeSingle();
+    const accountId = (sessionRow as any)?.account_id as string | undefined;
+
+    // --- Applicant case: create user_profile + send set-password invite ---
+    let resolvedUserId = accountId;
+    if (accountId) {
+      const { data: existingProfile } = await supabase
+        .from('user_profile')
+        .select('user_id')
+        .eq('user_id', accountId)
+        .maybeSingle();
+
+      if (!existingProfile) {
+        // account_id is an applicant_id — provision the employee account
+        try {
+          const [{ data: applicant }, { data: staging }] = await Promise.all([
+            supabase.from('applicant_profile').select('email, company_id').eq('applicant_id', accountId).maybeSingle(),
+            supabase.from('employee_staging').select('first_name, last_name, email_address, complete_address, date_of_birth, place_of_birth, nationality, civil_status').eq('session_id', sessionId).maybeSingle(),
+          ]);
+
+          if (applicant) {
+            const newUserId = crypto.randomUUID();
+            const employeeCode = `EMP-${Math.floor(1000000 + Math.random() * 9000000)}`;
+
+            // Generate unique username from name
+            const base = `${(staging?.first_name ?? 'user').toLowerCase().replace(/[^a-z0-9]/g, '')}.${(staging?.last_name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '')}`;
+            const username = `${base}${Math.floor(100 + Math.random() * 900)}`;
+
+            // Find a default employee role for this company
+            const { data: defaultRole } = await supabase
+              .from('role')
+              .select('role_id')
+              .eq('company_id', applicant.company_id)
+              .ilike('role_name', '%employee%')
+              .limit(1)
+              .maybeSingle();
+
+            const loginEmail = applicant.email;
+            const personalEmail = staging?.email_address ?? applicant.email;
+
+            await supabase.from('user_profile').insert({
+              user_id: newUserId,
+              email: loginEmail,
+              personal_email: personalEmail,
+              first_name: staging?.first_name ?? '',
+              last_name: staging?.last_name ?? '',
+              username,
+              company_id: applicant.company_id,
+              employee_id: employeeCode,
+              account_status: 'Pending',
+              ...(defaultRole ? { role_id: defaultRole.role_id } : {}),
+              ...(staging?.complete_address ? { complete_address: staging.complete_address } : {}),
+              ...(staging?.date_of_birth ? { date_of_birth: staging.date_of_birth } : {}),
+              ...(staging?.place_of_birth ? { place_of_birth: staging.place_of_birth } : {}),
+              ...(staging?.nationality ? { nationality: staging.nationality } : {}),
+              ...(staging?.civil_status ? { civil_status: staging.civil_status } : {}),
+            });
+
+            // Re-link session to the new user_id so getSessionContext works going forward
+            await supabase.from('onboarding_sessions').update({ account_id: newUserId }).eq('session_id', sessionId);
+            resolvedUserId = newUserId;
+
+            // Block applicant portal
+            await supabase.from('applicant_profile').update({ status: 'converted_employee' }).eq('applicant_id', accountId);
+
+            // Send set-password invite to personal email
+            const rawToken = crypto.randomBytes(32).toString('hex');
+            const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+            const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+            await supabase.from('user_invites').insert({ invite_id: crypto.randomUUID(), user_id: newUserId, token_hash: tokenHash, expires_at: expiresAt });
+
+            const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
+            const inviteLink = `${appUrl}/set-password?token=${rawToken}`;
+            try {
+              await this.mailService.sendInvite(loginEmail, inviteLink);
+            } catch {
+              this.logger.log(`[approveSession] invite link for ${loginEmail}: ${inviteLink}`);
+            }
+          }
+        } catch (provisionErr) {
+          this.logger.error(`[approveSession] Failed to provision employee account: ${(provisionErr as any)?.message}`);
+        }
+      }
+    }
+
+    // Audit + notify employee + email — fire-and-forget (ctx uses resolvedUserId now)
+    const ctx = await this.getSessionContext(sessionId);
+    if (ctx) {
+      this.auditService.log(
+        `ONBOARDING_SESSION_APPROVED: session ${sessionId}`,
+        hrUserId ?? ctx.accountId,
+        ctx.companyId,
+        ctx.accountId,
+      ).catch(() => {});
+
+      this.notificationsService.createNotification({
+        userId: ctx.accountId,
+        companyId: ctx.companyId,
+        type: 'ONBOARDING_APPROVED',
+        title: 'Onboarding Complete',
+        message: 'Your onboarding has been approved. Welcome to the team!',
+        metadata: { session_id: sessionId },
+      }).catch(() => {});
+
+      this.mailService.sendOnboardingApprovedEmail({
+        to: ctx.employeeEmail,
+        employeeName: ctx.employeeName,
+      }).catch(() => {});
+    }
+
+    // Sync remaining profile data + seed employee_documents (non-fatal)
+    try {
+      if (resolvedUserId) {
+        const { data: staging } = await supabase
+          .from('employee_staging')
+          .select('*')
+          .eq('session_id', sessionId)
+          .maybeSingle();
+
+        if (staging) {
+          const profileUpdate: Record<string, any> = {};
+          if (staging.email_address != null)   profileUpdate.personal_email   = staging.email_address;
+          if (staging.complete_address != null) profileUpdate.complete_address = staging.complete_address;
+          if (staging.date_of_birth != null)   profileUpdate.date_of_birth    = staging.date_of_birth;
+          if (staging.place_of_birth != null)  profileUpdate.place_of_birth   = staging.place_of_birth;
+          if (staging.nationality != null)      profileUpdate.nationality      = staging.nationality;
+          if (staging.civil_status != null)     profileUpdate.civil_status     = staging.civil_status;
+          if (Object.keys(profileUpdate).length > 0) {
+            await supabase.from('user_profile').update(profileUpdate).eq('user_id', resolvedUserId);
+          }
+        }
+
+        // Seed onboarding documents → employee_documents
+        const { data: sessionItems } = await supabase
+          .from('onboarding_items')
+          .select('onboarding_item_id, template_items!inner(tab_category, title)')
+          .eq('session_id', sessionId)
+          .eq('template_items.tab_category', 'documents');
+
+        if (sessionItems && sessionItems.length > 0) {
+          const itemIds = sessionItems.map((i: any) => i.onboarding_item_id);
+          const { data: docs } = await supabase
+            .from('onboarding_documents')
+            .select('*')
+            .in('onboarding_item_id', itemIds)
+            .eq('is_proof_of_receipt', false);
+
+          if (docs && docs.length > 0) {
+            const docRows: any[] = [];
+            for (const doc of docs) {
+              const item = sessionItems.find((i: any) => i.onboarding_item_id === doc.onboarding_item_id) as any;
+              const docType = item?.template_items?.title || 'onboarding-document';
+
+              // Copy file from onboarding-documents → employee-documents so the path never expires
+              let employeeFilePath = doc.file_path || doc.file_url;
+              if (doc.file_path) {
+                try {
+                  const destPath = `${resolvedUserId}/${Date.now()}_${doc.file_name}`;
+                  const { data: fileData, error: dlErr } = await supabase.storage
+                    .from('onboarding-documents')
+                    .download(doc.file_path);
+                  if (!dlErr && fileData) {
+                    const { error: upErr } = await supabase.storage
+                      .from('employee-documents')
+                      .upload(destPath, fileData, { contentType: doc.file_type || 'application/octet-stream', upsert: true });
+                    if (!upErr) employeeFilePath = destPath;
+                  }
+                } catch {
+                  // non-fatal: fall back to raw onboarding path
+                }
+              }
+
+              docRows.push({
+                id: crypto.randomUUID(),
+                user_id: resolvedUserId,
+                document_type: docType,
+                file_path: employeeFilePath,
+                file_name: doc.file_name,
+                file_size: doc.file_size_bytes,
+                status: 'approved',
+                reviewed_at: new Date().toISOString(),
+                uploaded_at: doc.uploaded_at || new Date().toISOString(),
+              });
+            }
+            await supabase
+              .from('employee_documents')
+              .upsert(docRows, { onConflict: 'file_path', ignoreDuplicates: true });
+          }
+        }
+      }
+    } catch (syncErr) {
+      this.logger.error(`[approveSession] Failed to sync profile/docs: ${(syncErr as any)?.message}`);
+    }
 
     return { message: 'Onboarding approved', session_id: sessionId, status: 'approved' };
   }
@@ -1077,6 +1441,62 @@ export class OnboardingService {
     });
     if (insertError) throw new InternalServerErrorException(insertError.message);
 
+    // Block applicant portal login — account is now an employee
+    await supabase
+      .from('applicant_profile')
+      .update({ status: 'converted_employee' })
+      .eq('applicant_id', submission.applicant_id);
+
+    // Seed employee_documents from the applicant's onboarding wizard session (pipeline employees only)
+    try {
+      const { data: onboardingSession } = await supabase
+        .from('onboarding_sessions')
+        .select('session_id')
+        .eq('account_id', submission.applicant_id)
+        .maybeSingle();
+
+      if (onboardingSession) {
+        const { data: sessionItems } = await supabase
+          .from('onboarding_items')
+          .select(`
+            onboarding_item_id,
+            template_items!inner(tab_category, title)
+          `)
+          .eq('session_id', onboardingSession.session_id)
+          .eq('template_items.tab_category', 'documents');
+
+        if (sessionItems && sessionItems.length > 0) {
+          const itemIds = sessionItems.map((i: any) => i.onboarding_item_id);
+          const { data: docs } = await supabase
+            .from('onboarding_documents')
+            .select('*')
+            .in('onboarding_item_id', itemIds)
+            .eq('is_proof_of_receipt', false);
+
+          if (docs && docs.length > 0) {
+            const docRows = docs.map((doc: any) => {
+              const item = sessionItems.find((i: any) => i.onboarding_item_id === doc.onboarding_item_id) as any;
+              return {
+                id: crypto.randomUUID(),
+                user_id: userId,
+                document_type: item?.template_items?.title || 'onboarding-document',
+                file_path: doc.file_url,
+                file_name: doc.file_name,
+                file_size: doc.file_size_bytes,
+                status: 'approved',
+                reviewed_at: new Date().toISOString(),
+                uploaded_at: doc.uploaded_at || new Date().toISOString(),
+              };
+            });
+            await supabase.from('employee_documents').insert(docRows);
+          }
+        }
+      }
+    } catch (seedErr) {
+      // Non-fatal — log but don't block approval
+      this.logger.error(`Failed to seed employee_documents: ${(seedErr as any)?.message}`);
+    }
+
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
@@ -1112,5 +1532,143 @@ export class OnboardingService {
       .eq('submission_id', submissionId);
     if (error) throw new InternalServerErrorException(error.message);
     return { message: 'Submission rejected.' };
+  }
+
+  // =========================================================
+  // APPLICANT PORTAL ONBOARDING (4-stage wizard for hired applicants)
+  // =========================================================
+
+  async getSessionByApplicantId(applicantId: string) {
+    const session = await this.getMySession(applicantId);
+    if (!session) return null;
+
+    // getMySession looks up user_profile which won't exist for applicants — patch from applicant_profile
+    if (!session.employee_name) {
+      const supabase = this.supabaseService.getClient();
+      const { data: applicant } = await supabase
+        .from('applicant_profile')
+        .select('first_name, last_name')
+        .eq('applicant_id', applicantId)
+        .maybeSingle();
+      if (applicant) {
+        (session as any).employee_name = `${applicant.first_name} ${applicant.last_name}`;
+      }
+    }
+    return session;
+  }
+
+  async createApplicantSession(params: {
+    applicantId: string;
+    jobPostingId: string;
+    companyId: string;
+  }) {
+    const supabase = this.supabaseService.getClient();
+
+    // Idempotency: skip if session already exists
+    const { data: existing } = await supabase
+      .from('onboarding_sessions')
+      .select('session_id')
+      .eq('account_id', params.applicantId)
+      .maybeSingle();
+    if (existing) return existing;
+
+    // Get job title and department from job posting
+    const { data: posting } = await supabase
+      .from('job_postings')
+      .select('department_id, title')
+      .eq('job_posting_id', params.jobPostingId)
+      .maybeSingle();
+
+    // Get department name
+    let departmentName = 'General';
+    if (posting?.department_id) {
+      const { data: dept } = await supabase
+        .from('department')
+        .select('department_name')
+        .eq('department_id', posting.department_id)
+        .maybeSingle();
+      if (dept?.department_name) departmentName = dept.department_name;
+    }
+
+    // Find a template matching the department (fallback to any template)
+    let templateId: string | null = null;
+    let templateItems: any[] = [];
+    let defaultDeadlineDays = 14;
+
+    if (posting?.department_id) {
+      const { data: template } = await supabase
+        .from('onboarding_templates')
+        .select('template_id, default_deadline_days, template_items(*)')
+        .eq('department_id', posting.department_id)
+        .limit(1)
+        .maybeSingle();
+
+      if (template) {
+        templateId = template.template_id;
+        templateItems = (template as any).template_items || [];
+        defaultDeadlineDays = template.default_deadline_days || 14;
+      }
+    }
+
+    // Fallback: use any available template if none matched the department
+    if (!templateId) {
+      const { data: fallback } = await supabase
+        .from('onboarding_templates')
+        .select('template_id, default_deadline_days, template_items(*)')
+        .limit(1)
+        .maybeSingle();
+      if (fallback) {
+        templateId = fallback.template_id;
+        templateItems = (fallback as any).template_items || [];
+        defaultDeadlineDays = fallback.default_deadline_days || 14;
+      }
+    }
+
+    if (!templateId) {
+      this.logger.error('No onboarding template found — cannot create applicant session');
+      return null;
+    }
+
+    const sessionId = crypto.randomUUID();
+    const deadline = new Date();
+    deadline.setDate(deadline.getDate() + defaultDeadlineDays);
+
+    const { error: sessionErr } = await supabase
+      .from('onboarding_sessions')
+      .insert({
+        session_id: sessionId,
+        account_id: params.applicantId,
+        template_id: templateId,
+        assigned_position: posting?.title || 'New Hire',
+        assigned_department: departmentName,
+        status: 'not-started',
+        progress_percentage: 0,
+        deadline_date: deadline.toISOString(),
+      });
+
+    if (sessionErr) {
+      this.logger.error(`Failed to create applicant session: ${sessionErr.message}`);
+      return null; // Non-fatal — don't block the hire flow
+    }
+
+    if (templateItems.length > 0) {
+      const onboardingItems = templateItems.map((ti: any) => ({
+        onboarding_item_id: crypto.randomUUID(),
+        session_id: sessionId,
+        template_item_id: ti.item_id,
+        status: 'pending',
+        is_requested: null,
+        delivery_method: null,
+      }));
+      const { error: itemsErr } = await supabase
+        .from('onboarding_items')
+        .insert(onboardingItems);
+      if (itemsErr) {
+        this.logger.error(`Failed to create onboarding items for applicant session: ${itemsErr.message}`);
+      }
+    }
+
+    this.logger.log(`Applicant onboarding session created: ${sessionId} for applicant ${params.applicantId}`);
+    return { session_id: sessionId };
   }
 }

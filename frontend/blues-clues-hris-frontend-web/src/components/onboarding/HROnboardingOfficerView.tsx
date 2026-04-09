@@ -77,6 +77,10 @@ export default function HROnboardingOfficerView() {
   const [remarks, setRemarks] = useState<Record<string, string>>({});
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [deadlineInput, setDeadlineInput] = useState("");
+  const [changingItems, setChangingItems] = useState<Set<string>>(new Set());
+
+  const enterChangeMode = (id: string) => setChangingItems(prev => new Set(prev).add(id));
+  const exitChangeMode  = (id: string) => setChangingItems(prev => { const s = new Set(prev); s.delete(id); return s; });
 
   useEffect(() => {
     getAllSessions().then(setSessions).catch(console.error);
@@ -166,6 +170,74 @@ export default function HROnboardingOfficerView() {
     }
   };
 
+  /** Renders approve/reject action row with smart decided-state UX */
+  const renderItemActions = (
+    itemId: string,
+    status: ItemStatus,
+    onApprove: () => void,
+    onReject: () => void,
+    issueMode?: { onIssue: () => void; issueLabel?: string },
+  ) => {
+    const isDecided = status === "approved" || status === "rejected" || status === "issued";
+    const inChangeMode = changingItems.has(itemId);
+
+    if (status === "pending") return null;
+
+    if (isDecided && !inChangeMode) {
+      const pill =
+        status === "approved" ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-full px-3 py-1">
+            <CheckCircle className="size-3.5" />Approved
+          </span>
+        ) : status === "issued" ? (
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-purple-700 bg-purple-50 border border-purple-200 rounded-full px-3 py-1">
+            <CheckCircle className="size-3.5" />Issued
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-3 py-1">
+            <XCircle className="size-3.5" />Rejected
+          </span>
+        );
+      return (
+        <div className="flex items-center gap-2">
+          {pill}
+          <button
+            className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2 cursor-pointer transition-colors"
+            onClick={() => enterChangeMode(itemId)}
+          >
+            Change
+          </button>
+        </div>
+      );
+    }
+
+    // Undecided (submitted/confirmed/for-review) or in change mode
+    return (
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" className="h-7 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
+          onClick={() => { onReject(); exitChangeMode(itemId); }}>
+          <XCircle className="size-3.5 mr-1" />Reject
+        </Button>
+        {issueMode ? (
+          <Button size="sm" className="h-7 bg-purple-600 hover:bg-purple-700 text-white"
+            onClick={() => { issueMode.onIssue(); exitChangeMode(itemId); }}>
+            <CheckCircle className="size-3.5 mr-1" />{issueMode.issueLabel ?? "Issue"}
+          </Button>
+        ) : (
+          <Button size="sm" className="h-7 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+            onClick={() => { onApprove(); exitChangeMode(itemId); }}>
+            <CheckCircle className="size-3.5 mr-1" />Approve
+          </Button>
+        )}
+        {inChangeMode && (
+          <button className="text-xs text-slate-400 hover:text-slate-600 cursor-pointer transition-colors" onClick={() => exitChangeMode(itemId)}>
+            Cancel
+          </button>
+        )}
+      </div>
+    );
+  };
+
   const getItemStatusBadge = (status: ItemStatus) => {
     const config: Record<string, { label: string; className: string }> = {
       "pending":    { label: "Pending",    className: "bg-slate-100 text-slate-700 hover:bg-slate-100" },
@@ -220,56 +292,57 @@ export default function HROnboardingOfficerView() {
   const departments = Array.from(new Set(sessions.map(s => s.assigned_department)));
 
   return (
-    <div className="min-h-screen bg-slate-50 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold">HR Onboarding Dashboard</h1>
-          <p className="text-slate-600">Monitor and manage employee onboarding progress</p>
-        </div>
-
+    <div className="space-y-6">
         {/* Mini Dashboard */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
+          <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Total Employees</CardTitle>
-              <Users className="size-4 text-slate-500" />
+              <CardTitle className="text-sm font-medium text-slate-600">Total New Hires</CardTitle>
+              <div className="size-8 rounded-lg bg-slate-100 flex items-center justify-center">
+                <Users className="size-4 text-slate-500" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{totalEmployees}</div>
-              <p className="text-xs text-slate-500">Currently onboarding</p>
+              <div className="text-2xl font-bold tracking-tight">{totalEmployees}</div>
+              <p className="text-xs text-muted-foreground mt-0.5">Currently onboarding</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">In Progress</CardTitle>
-              <TrendingUp className="size-4 text-blue-500" />
+              <CardTitle className="text-sm font-medium text-slate-600">In Progress</CardTitle>
+              <div className="size-8 rounded-lg bg-blue-50 flex items-center justify-center">
+                <TrendingUp className="size-4 text-blue-500" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{inProgressCount}</div>
-              <p className="text-xs text-slate-500">Active onboarding</p>
+              <div className="text-2xl font-bold tracking-tight">{inProgressCount}</div>
+              <p className="text-xs text-muted-foreground mt-0.5">Active onboarding</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">For Review</CardTitle>
-              <FileCheck className="size-4 text-orange-500" />
+              <CardTitle className="text-sm font-medium text-slate-600">For Review</CardTitle>
+              <div className="size-8 rounded-lg bg-amber-50 flex items-center justify-center">
+                <FileCheck className="size-4 text-amber-500" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{forReviewCount}</div>
-              <p className="text-xs text-slate-500">Awaiting approval</p>
+              <div className="text-2xl font-bold tracking-tight">{forReviewCount}</div>
+              <p className="text-xs text-muted-foreground mt-0.5">Awaiting approval</p>
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="shadow-sm">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Avg. Progress</CardTitle>
-              <ListChecks className="size-4 text-green-500" />
+              <CardTitle className="text-sm font-medium text-slate-600">Avg. Progress</CardTitle>
+              <div className="size-8 rounded-lg bg-emerald-50 flex items-center justify-center">
+                <ListChecks className="size-4 text-emerald-500" />
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{avgProgress}%</div>
+              <div className="text-2xl font-bold tracking-tight">{avgProgress}%</div>
               <Progress value={avgProgress} className="mt-2" />
             </CardContent>
           </Card>
@@ -279,26 +352,30 @@ export default function HROnboardingOfficerView() {
         {(overdueCount > 0 || forReviewCount > 0) && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {overdueCount > 0 && (
-              <Card className="border-red-200 bg-red-50">
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="size-5 text-red-600" />
+              <Card className="border-red-100 bg-red-50/60 shadow-sm">
+                <CardContent className="pt-5 pb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="size-9 rounded-lg bg-red-100 flex items-center justify-center shrink-0">
+                      <Calendar className="size-4 text-red-500" />
+                    </div>
                     <div>
-                      <p className="font-semibold text-red-900">{overdueCount} Overdue Employee{overdueCount > 1 ? "s" : ""}</p>
-                      <p className="text-sm text-red-700">Requires immediate attention</p>
+                      <p className="font-semibold text-sm text-red-800">{overdueCount} Overdue Employee{overdueCount > 1 ? "s" : ""}</p>
+                      <p className="text-xs text-red-600/80 mt-0.5">Requires immediate attention</p>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             )}
             {forReviewCount > 0 && (
-              <Card className="border-orange-200 bg-orange-50">
-                <CardContent className="pt-6">
-                  <div className="flex items-center gap-2">
-                    <FileCheck className="size-5 text-orange-600" />
+              <Card className="border-amber-100 bg-amber-50/60 shadow-sm">
+                <CardContent className="pt-5 pb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="size-9 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                      <FileCheck className="size-4 text-amber-500" />
+                    </div>
                     <div>
-                      <p className="font-semibold text-orange-900">{forReviewCount} Pending Review</p>
-                      <p className="text-sm text-orange-700">Waiting for your approval</p>
+                      <p className="font-semibold text-sm text-amber-800">{forReviewCount} Pending Review</p>
+                      <p className="text-xs text-amber-600/80 mt-0.5">Waiting for your approval</p>
                     </div>
                   </div>
                 </CardContent>
@@ -310,7 +387,7 @@ export default function HROnboardingOfficerView() {
         {/* Employee Overview Table */}
         <Card>
           <CardHeader>
-            <CardTitle>Employees in Onboarding</CardTitle>
+            <CardTitle>New Hires in Onboarding</CardTitle>
             <div className="flex flex-col md:flex-row gap-3 mt-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-slate-500" />
@@ -351,7 +428,7 @@ export default function HROnboardingOfficerView() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Employee Name</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Position</TableHead>
                   <TableHead>Department</TableHead>
                   <TableHead>Progress</TableHead>
@@ -411,352 +488,406 @@ export default function HROnboardingOfficerView() {
             </Table>
           </CardContent>
         </Card>
-      </div>
 
-      {/* Employee Detail Modal */}
+      {/* Employee Detail Modal — Redesigned */}
       <Dialog open={!!selectedSession} onOpenChange={(open) => !open && setSelectedSession(null)}>
-        <DialogContent className="max-w-[98vw] w-full max-h-[95vh] flex flex-col p-0">
-          <DialogHeader className="px-6 pt-6 pb-4 border-b">
-            <DialogTitle className="text-xl">Employee Onboarding Details</DialogTitle>
-            <DialogDescription className="text-sm">
-              View and manage the onboarding progress of {selectedSession?.employee_name}.
-            </DialogDescription>
+        <DialogContent className="sm:max-w-2xl max-w-[96vw] w-full p-0 gap-0 overflow-hidden flex flex-col rounded-2xl">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{selectedSession?.employee_name ?? "Onboarding"} — Onboarding Details</DialogTitle>
+            <DialogDescription>Review and manage onboarding checklist items</DialogDescription>
           </DialogHeader>
 
           {selectedSession && (
-            <div className="flex-1 overflow-y-auto px-8 py-6">
-              <div className="space-y-6 pb-4">
-                {/* Profile Summary */}
-                <Card>
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-lg">Profile Summary</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="grid grid-cols-2 gap-x-8 gap-y-5">
-                      <div className="min-w-0">
-                        <p className="text-sm text-slate-500 mb-1">Name</p>
-                        <p className="font-semibold truncate">{selectedSession.employee_name ?? "—"}</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-slate-500 mb-1">Position</p>
-                        <p className="font-semibold truncate">{selectedSession.assigned_position}</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-slate-500 mb-1">Department</p>
-                        <p className="font-semibold truncate">{selectedSession.assigned_department}</p>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-slate-500 mb-1">Status</p>
-                        <div className="mt-1">{getStatusBadge(selectedSession.status)}</div>
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-slate-500 mb-1">Deadline</p>
-                        {editingDeadline ? (
-                          <div className="flex flex-wrap items-center gap-2">
-                            <Input
-                              type="date"
-                              value={deadlineInput}
-                              onChange={(e) => setDeadlineInput(e.target.value)}
-                              className="h-8 text-sm w-36"
-                            />
-                            <Button size="sm" className="h-8" onClick={handleUpdateDeadline}>Save</Button>
-                            <Button size="sm" variant="ghost" className="h-8" onClick={() => setEditingDeadline(false)}>Cancel</Button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-2">
-                            <p className="font-semibold">{new Date(selectedSession.deadline_date).toLocaleDateString()}</p>
-                            {selectedSession.status !== "approved" && (
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                className="h-6 px-2 text-xs text-slate-500"
-                                onClick={() => {
-                                  setDeadlineInput(selectedSession.deadline_date.slice(0, 10));
-                                  setEditingDeadline(true);
-                                }}
-                              >
-                                Edit
-                              </Button>
+            <div className="flex flex-col overflow-hidden" style={{ maxHeight: "88vh" }}>
+
+              {/* ── GRADIENT HERO HEADER ── */}
+              <div className="relative bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 pt-5 pb-5 shrink-0 overflow-hidden rounded-t-2xl">
+                <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-blue-400/10 blur-3xl pointer-events-none" />
+                <div className="absolute bottom-0 left-16 w-36 h-36 rounded-full bg-teal-400/10 blur-2xl pointer-events-none" />
+                {/* Identity row */}
+                <div className="flex items-start justify-between gap-3 relative">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="size-10 rounded-full bg-blue-600 flex items-center justify-center font-bold text-sm text-white shrink-0">
+                      {selectedSession.employee_name?.charAt(0) ?? "?"}
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-white font-semibold text-base leading-tight truncate">{selectedSession.employee_name ?? "—"}</h2>
+                      <p className="text-blue-200/80 text-xs mt-0.5 truncate">{selectedSession.assigned_position} · {selectedSession.assigned_department}</p>
+                    </div>
+                  </div>
+                  <div className="shrink-0 flex items-center gap-2">
+                    {selectedSession.status === "for-review" && (
+                      <Button size="sm" className="bg-teal-600/80 hover:bg-teal-500 border border-teal-500/40 text-white h-8 text-xs" onClick={handleApproveSession}>
+                        <CheckCircle className="size-3.5 mr-1.5" />Approve Onboarding
+                      </Button>
+                    )}
+                    {selectedSession.status === "approved" && (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-300 bg-teal-900/30 border border-teal-700/40 rounded-full px-3 py-1">
+                        <CheckCircle className="size-3.5" />Approved
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* Meta row: status + progress + deadline */}
+                <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-4 relative">
+                  {getStatusBadge(selectedSession.status)}
+                  <div className="flex items-center gap-2">
+                    <div className="w-20 h-1 rounded-full bg-white/15 overflow-hidden">
+                      <div className="h-full bg-blue-400 rounded-full transition-all duration-300" style={{ width: `${selectedSession.progress_percentage}%` }} />
+                    </div>
+                    <span className="text-xs text-white/70">{selectedSession.progress_percentage}%</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-white/60">
+                    <Calendar className="size-3.5 shrink-0" />
+                    {editingDeadline ? (
+                      <span className="flex items-center gap-1.5">
+                        <Input type="date" value={deadlineInput} onChange={(e) => setDeadlineInput(e.target.value)}
+                          className="h-6 text-xs bg-white/10 border-white/20 text-white px-2 py-0 w-32 rounded" />
+                        <button className="text-blue-300 hover:text-blue-200 text-xs underline-offset-2 hover:underline cursor-pointer" onClick={handleUpdateDeadline}>Save</button>
+                        <button className="text-white/40 hover:text-white/60 text-xs cursor-pointer" onClick={() => setEditingDeadline(false)}>Cancel</button>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5">
+                        <span className="text-white/70">{new Date(selectedSession.deadline_date).toLocaleDateString()}</span>
+                        {selectedSession.status !== "approved" && (
+                          <button className="text-blue-400 hover:text-blue-300 text-xs underline-offset-2 hover:underline cursor-pointer"
+                            onClick={() => { setDeadlineInput(selectedSession.deadline_date.slice(0, 10)); setEditingDeadline(true); }}>
+                            Edit
+                          </button>
+                        )}
+                      </span>
+                    )}
+                  </div>
+                  {selectedSession.status === "overdue" && (
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-300 bg-red-900/30 border border-red-700/30 rounded-full px-2.5 py-0.5">
+                      <AlertCircle className="size-3" />Overdue
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* ── TABS ── */}
+              <Tabs defaultValue="profile" className="flex flex-col flex-1 overflow-hidden">
+                {/* Tab bar */}
+                <div className="bg-white border-b px-4 py-2 shrink-0">
+                    <TabsList className="flex h-9 gap-0.5 p-1 bg-slate-100 rounded-lg w-full">
+                      {([
+                        { value: "profile",   icon: Users,       label: "Profile"    },
+                        { value: "documents", icon: FileCheck,   label: "Documents"  },
+                        { value: "forms",     icon: FileText,    label: "HR Forms"   },
+                        { value: "tasks",     icon: ListChecks,  label: "Tasks"      },
+                        { value: "equipment", icon: Package,     label: "Equipment"  },
+                      ] as const).map(({ value, icon: Icon, label }) => (
+                        <TabsTrigger
+                          key={value}
+                          value={value}
+                          className="flex flex-1 items-center justify-center gap-1.5 px-2 h-full text-xs font-medium rounded-md text-slate-500 hover:text-slate-700 data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm data-[state=active]:font-semibold transition-all"
+                        >
+                          <Icon className="size-3.5 shrink-0" />{label}
+                        </TabsTrigger>
+                      ))}
+                    </TabsList>
+                  </div>
+
+                  {/* Scrollable tab bodies */}
+                  <div className="flex-1 overflow-y-auto">
+
+                    {/* ── PROFILE TAB ── */}
+                    <TabsContent value="profile" className="mt-0 p-6 space-y-4">
+                      {selectedSession.profile ? (() => {
+                        const profileItem = selectedSession.profile_items?.[0];
+                        const profileItemStatus = profileItem?.status;
+                        const canAct = profileItem && profileItemStatus !== "pending";
+                        const contacts = selectedSession.profile!.emergency_contacts?.length
+                          ? selectedSession.profile!.emergency_contacts
+                          : selectedSession.profile!.contact_name
+                            ? [{ contact_name: selectedSession.profile!.contact_name, relationship: selectedSession.profile!.relationship, emergency_phone_number: selectedSession.profile!.emergency_phone_number, emergency_email_address: selectedSession.profile!.emergency_email_address }]
+                            : [];
+                        return (
+                          <div className="space-y-4">
+                            {/* Action bar */}
+                            {profileItem && profileItemStatus !== "pending" && (
+                              <div className="bg-white rounded-lg border border-slate-200 px-4 py-3 flex items-center gap-3 flex-wrap">
+                                {(profileItemStatus === "submitted" || profileItemStatus === "confirmed" || profileItemStatus === "for-review") &&
+                                  !changingItems.has(profileItem.onboarding_item_id) && (
+                                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-3 py-1">
+                                    <AlertCircle className="size-3.5" />Awaiting review
+                                  </span>
+                                )}
+                                {renderItemActions(
+                                  profileItem.onboarding_item_id,
+                                  profileItemStatus!,
+                                  () => handleApprove(profileItem.onboarding_item_id),
+                                  () => handleReject(profileItem.onboarding_item_id),
+                                )}
+                              </div>
+                            )}
+
+                            {/* Personal Info */}
+                            <div className="bg-white rounded-lg border border-slate-200 p-5">
+                              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">Personal Information</p>
+                              <div className="grid grid-cols-2 lg:grid-cols-3 gap-x-6 gap-y-5">
+                                {[
+                                  { label: "Full Name", value: `${selectedSession.profile!.first_name ?? ""} ${selectedSession.profile!.middle_name ? selectedSession.profile!.middle_name + " " : ""}${selectedSession.profile!.last_name ?? ""}`.trim() },
+                                  { label: "Email", value: selectedSession.profile!.email_address, breakAll: true },
+                                  { label: "Phone", value: selectedSession.profile!.phone_number },
+                                  { label: "Date of Birth", value: selectedSession.profile!.date_of_birth },
+                                  { label: "Place of Birth", value: selectedSession.profile!.place_of_birth },
+                                  { label: "Civil Status", value: selectedSession.profile!.civil_status },
+                                  { label: "Nationality", value: selectedSession.profile!.nationality },
+                                  { label: "Address", value: selectedSession.profile!.complete_address, wide: true },
+                                ].map(({ label, value, breakAll, wide }) => (
+                                  <div key={label} className={`min-w-0 ${wide ? "col-span-2 lg:col-span-1" : ""}`}>
+                                    <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">{label}</p>
+                                    <p className={`text-sm text-slate-800 leading-snug ${breakAll ? "break-all" : ""}`}>{value || "—"}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Emergency Contacts */}
+                            {contacts.length > 0 && (
+                              <div className="bg-white rounded-lg border border-slate-200 p-5">
+                                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400 mb-4">Emergency Contacts</p>
+                                <div className="space-y-4">
+                                  {contacts.map((c, i) => (
+                                    <div key={i} className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pb-4 border-b border-slate-100 last:border-0 last:pb-0">
+                                      <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Name</p>
+                                        <p className="text-sm text-slate-800">{c.contact_name || "—"}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Relationship</p>
+                                        <p className="text-sm text-slate-800">{c.relationship || "—"}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Phone</p>
+                                        <p className="text-sm text-slate-800">{c.emergency_phone_number || "—"}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Email</p>
+                                        <p className="text-sm text-slate-800 break-all">{c.emergency_email_address || "—"}</p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
                             )}
                           </div>
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-sm text-slate-500 mb-1">Overall Progress</p>
-                        <div className="flex items-center gap-2 mt-1">
-                          <Progress value={selectedSession.progress_percentage} className="flex-1" />
-                          <span className="font-semibold">{selectedSession.progress_percentage}%</span>
+                        );
+                      })() : (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <Users className="size-10 mb-3 opacity-30" />
+                          <p className="text-sm">No profile submitted yet</p>
                         </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
+                      )}
 
-                {/* Overdue Warning */}
-                {selectedSession.status === "overdue" && (
-                  <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
-                    <AlertCircle className="size-5 text-red-600 shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="font-semibold text-red-900">This onboarding is overdue</p>
-                      <p className="text-sm text-red-700 mt-0.5">
-                        The deadline has passed. Consider extending the deadline above or following up with the employee.
-                      </p>
-                    </div>
-                  </div>
-                )}
+                      <RemarkSection
+                        remarks={selectedSession.remarks.filter(r => r.tab_tag === "Profile")}
+                        value={remarks["Profile"] || ""}
+                        onChange={(v) => setRemarks(prev => ({ ...prev, Profile: v }))}
+                        onAdd={() => handleAddRemark("Profile")}
+                        inputId="remark-profile"
+                      />
+                    </TabsContent>
 
-                {/* Approve Onboarding */}
-                {selectedSession.status === "for-review" && (
-                  <div className="flex justify-end">
-                    <Button className="bg-teal-600 hover:bg-teal-700" onClick={handleApproveSession}>
-                      <CheckCircle className="size-4 mr-2" />
-                      Approve Onboarding
-                    </Button>
-                  </div>
-                )}
-
-                {/* Checklist Tracker */}
-                <Card>
-                  <CardHeader className="pb-4">
-                    <CardTitle className="text-lg">Onboarding Checklist</CardTitle>
-                    <p className="text-sm text-slate-600 mt-1">View and manage the onboarding progress of {selectedSession.employee_name}</p>
-                  </CardHeader>
-                  <CardContent>
-                    <Tabs defaultValue="profile">
-                      <TabsList className="flex flex-wrap h-auto w-full gap-1 justify-start p-1">
-                        <TabsTrigger value="profile" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
-                          <Users className="size-4 shrink-0" />Profile
-                        </TabsTrigger>
-                        <TabsTrigger value="documents" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
-                          <FileCheck className="size-4 shrink-0" />Documents
-                        </TabsTrigger>
-                        <TabsTrigger value="forms" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
-                          <FileText className="size-4 shrink-0" />HR Forms
-                        </TabsTrigger>
-                        <TabsTrigger value="tasks" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
-                          <ListChecks className="size-4 shrink-0" />Tasks
-                        </TabsTrigger>
-                        <TabsTrigger value="equipment" className="flex items-center gap-1.5 px-3 py-2 text-sm flex-none">
-                          <Package className="size-4 shrink-0" />Equipment
-                        </TabsTrigger>
-                      </TabsList>
-
-                      {/* Profile Tab */}
-                      <TabsContent value="profile" className="mt-6">
-                        <div className="space-y-6">
-                          {selectedSession.profile ? (
-                            <div className="grid grid-cols-2 gap-x-12 gap-y-5">
-                              {[
-                                { label: "Full Name", value: `${selectedSession.profile.first_name} ${selectedSession.profile.last_name}` },
-                                { label: "Email", value: selectedSession.profile.email_address, breakAll: true },
-                                { label: "Phone", value: selectedSession.profile.phone_number },
-                                { label: "Date of Birth", value: selectedSession.profile.date_of_birth },
-                                { label: "Civil Status", value: selectedSession.profile.civil_status },
-                                { label: "Address", value: selectedSession.profile.complete_address },
-                                { label: "Emergency Contact", value: `${selectedSession.profile.contact_name} (${selectedSession.profile.relationship})` },
-                                { label: "Emergency Phone", value: selectedSession.profile.emergency_phone_number },
-                              ].map(({ label, value, breakAll }) => (
-                                <div key={label} className="min-w-0">
-                                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-400 mb-1">{label}</p>
-                                  <p className={`text-sm text-slate-800 ${breakAll ? "break-all" : ""}`}>{value || "—"}</p>
-                                </div>
-                              ))}
+                    {/* ── DOCUMENTS TAB ── */}
+                    <TabsContent value="documents" className="mt-0 p-6 space-y-3">
+                      {selectedSession.documents.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <FileCheck className="size-10 mb-3 opacity-30" />
+                          <p className="text-sm">No documents assigned</p>
+                        </div>
+                      )}
+                      {selectedSession.documents.map((doc) => (
+                        <div key={doc.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                          <div className="flex items-center justify-between px-5 py-4">
+                            <div className="min-w-0 pr-4">
+                              <p className="font-semibold text-slate-800 text-sm">{doc.title}</p>
+                              {doc.files[0]
+                                ? <p className="text-xs text-slate-500 mt-0.5">Uploaded {new Date(doc.files[0].uploaded_at).toLocaleDateString()}</p>
+                                : <p className="text-xs text-slate-400 mt-0.5">No file uploaded yet</p>
+                              }
                             </div>
-                          ) : (
-                            <p className="text-sm text-slate-500 py-6 text-center">Employee has not submitted profile information yet.</p>
+                            {getItemStatusBadge(doc.status)}
+                          </div>
+                          {(doc.files[0] || doc.status !== "pending") && (
+                            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {doc.files[0] && (
+                                  <>
+                                    <FileText className="size-4 text-slate-400 shrink-0" />
+                                    <span className="text-sm text-slate-600 truncate">{doc.files[0].file_name}</span>
+                                    <Button variant="outline" size="sm" asChild className="shrink-0 h-7">
+                                      <a href={doc.files[0].file_url} target="_blank" rel="noreferrer">
+                                        <Download className="size-3 mr-1" />View
+                                      </a>
+                                    </Button>
+                                  </>
+                                )}
+                              </div>
+                              <div className="shrink-0">
+                                {renderItemActions(
+                                  doc.onboarding_item_id,
+                                  doc.status,
+                                  () => handleApprove(doc.onboarding_item_id),
+                                  () => handleReject(doc.onboarding_item_id),
+                                )}
+                              </div>
+                            </div>
                           )}
-
-                          <RemarkSection
-                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Profile")}
-                            value={remarks["Profile"] || ""}
-                            onChange={(v) => setRemarks(prev => ({ ...prev, Profile: v }))}
-                            onAdd={() => handleAddRemark("Profile")}
-                            inputId="remark-profile"
-                          />
                         </div>
-                      </TabsContent>
+                      ))}
 
-                      {/* Documents Tab */}
-                      <TabsContent value="documents" className="mt-6">
-                        <div className="space-y-3">
-                          {selectedSession.documents.map((doc) => (
-                            <div key={doc.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
-                              <div className="flex items-start justify-between px-5 py-4 bg-white">
-                                <div className="space-y-0.5 min-w-0 pr-4">
-                                  <p className="font-semibold text-slate-800">{doc.title}</p>
-                                  {doc.files[0]
-                                    ? <p className="text-xs text-slate-500">Uploaded {new Date(doc.files[0].uploaded_at).toLocaleDateString()}</p>
-                                    : <p className="text-xs text-slate-400">No file uploaded</p>
-                                  }
-                                </div>
-                                {getItemStatusBadge(doc.status)}
-                              </div>
-                              {(doc.files[0] || (doc.status === "submitted" || doc.status === "for-review")) && (
-                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
-                                  {doc.files[0] ? (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <FileText className="size-4 text-slate-400 shrink-0" />
-                                      <span className="text-sm text-slate-600 truncate">{doc.files[0].file_name}</span>
-                                      <Button variant="outline" size="sm" asChild className="shrink-0">
-                                        <a href={doc.files[0].file_url} target="_blank" rel="noreferrer">
-                                          <Download className="size-3 mr-1" />View
-                                        </a>
-                                      </Button>
-                                    </div>
-                                  ) : <span />}
-                                  {(doc.status === "submitted" || doc.status === "for-review") && (
-                                    <div className="flex gap-2 shrink-0">
-                                      <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(doc.onboarding_item_id)}>
-                                        <CheckCircle className="size-3.5 mr-1.5" />Approve
-                                      </Button>
-                                      <Button size="sm" variant="destructive" onClick={() => handleReject(doc.onboarding_item_id)}>
-                                        <XCircle className="size-3.5 mr-1.5" />Reject
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
+                      <RemarkSection
+                        remarks={selectedSession.remarks.filter(r => r.tab_tag === "Documents")}
+                        value={remarks["Documents"] || ""}
+                        onChange={(v) => setRemarks(prev => ({ ...prev, Documents: v }))}
+                        onAdd={() => handleAddRemark("Documents")}
+                        inputId="remark-documents"
+                      />
+                    </TabsContent>
+
+                    {/* ── HR FORMS TAB ── */}
+                    <TabsContent value="forms" className="mt-0 p-6 space-y-3">
+                      {selectedSession.hr_forms.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <FileText className="size-10 mb-3 opacity-30" />
+                          <p className="text-sm">No HR forms assigned</p>
+                        </div>
+                      )}
+                      {selectedSession.hr_forms.map((form) => (
+                        <div key={form.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                          <div className="flex items-center justify-between px-5 py-4">
+                            <div className="min-w-0 pr-4">
+                              <p className="font-semibold text-slate-800 text-sm">{form.title}</p>
+                              {form.description && <p className="text-xs text-slate-500 mt-0.5">{form.description}</p>}
+                            </div>
+                            {getItemStatusBadge(form.status)}
+                          </div>
+                          {form.status !== "pending" && (
+                            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                              {renderItemActions(
+                                form.onboarding_item_id,
+                                form.status,
+                                () => handleApprove(form.onboarding_item_id),
+                                () => handleReject(form.onboarding_item_id),
                               )}
                             </div>
-                          ))}
-
-                          <RemarkSection
-                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Documents")}
-                            value={remarks["Documents"] || ""}
-                            onChange={(v) => setRemarks(prev => ({ ...prev, Documents: v }))}
-                            onAdd={() => handleAddRemark("Documents")}
-                            inputId="remark-documents"
-                          />
+                          )}
                         </div>
-                      </TabsContent>
+                      ))}
 
-                      {/* HR Forms Tab */}
-                      <TabsContent value="forms" className="mt-6">
-                        <div className="space-y-3">
-                          {selectedSession.hr_forms.map((form) => (
-                            <div key={form.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
-                              <div className="flex items-start justify-between px-5 py-4 bg-white">
-                                <div className="space-y-0.5 min-w-0 pr-4">
-                                  <p className="font-semibold text-slate-800">{form.title}</p>
-                                  {form.description && <p className="text-xs text-slate-500">{form.description}</p>}
-                                </div>
-                                {getItemStatusBadge(form.status)}
-                              </div>
-                              {form.status === "for-review" && (
-                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(form.onboarding_item_id)}>
-                                    <CheckCircle className="size-3.5 mr-1.5" />Approve
-                                  </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => handleReject(form.onboarding_item_id)}>
-                                    <XCircle className="size-3.5 mr-1.5" />Reject
-                                  </Button>
-                                </div>
+                      <RemarkSection
+                        remarks={selectedSession.remarks.filter(r => r.tab_tag === "Forms")}
+                        value={remarks["Forms"] || ""}
+                        onChange={(v) => setRemarks(prev => ({ ...prev, Forms: v }))}
+                        onAdd={() => handleAddRemark("Forms")}
+                        inputId="remark-forms"
+                      />
+                    </TabsContent>
+
+                    {/* ── TASKS TAB ── */}
+                    <TabsContent value="tasks" className="mt-0 p-6 space-y-3">
+                      {selectedSession.tasks.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <ListChecks className="size-10 mb-3 opacity-30" />
+                          <p className="text-sm">No tasks assigned</p>
+                        </div>
+                      )}
+                      {selectedSession.tasks.map((task) => (
+                        <div key={task.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                          <div className="flex items-center justify-between px-5 py-4">
+                            <div className="min-w-0 pr-4">
+                              <p className="font-semibold text-slate-800 text-sm">{task.title}</p>
+                              {task.description && <p className="text-xs text-slate-500 mt-0.5">{task.description}</p>}
+                            </div>
+                            {getItemStatusBadge(task.status)}
+                          </div>
+                          {task.status !== "pending" && (
+                            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end">
+                              {renderItemActions(
+                                task.onboarding_item_id,
+                                task.status,
+                                () => handleApprove(task.onboarding_item_id),
+                                () => handleReject(task.onboarding_item_id),
                               )}
                             </div>
-                          ))}
-
-                          <RemarkSection
-                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Forms")}
-                            value={remarks["Forms"] || ""}
-                            onChange={(v) => setRemarks(prev => ({ ...prev, Forms: v }))}
-                            onAdd={() => handleAddRemark("Forms")}
-                            inputId="remark-forms"
-                          />
+                          )}
                         </div>
-                      </TabsContent>
+                      ))}
 
-                      {/* Tasks Tab */}
-                      <TabsContent value="tasks" className="mt-6">
-                        <div className="space-y-3">
-                          {selectedSession.tasks.map((task) => (
-                            <div key={task.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
-                              <div className="flex items-start justify-between px-5 py-4 bg-white">
-                                <div className="space-y-0.5 min-w-0 pr-4">
-                                  <p className="font-semibold text-slate-800">{task.title}</p>
-                                  {task.description && <p className="text-xs text-slate-500">{task.description}</p>}
-                                </div>
-                                {getItemStatusBadge(task.status)}
-                              </div>
-                              {task.status === "for-review" && (
-                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-2">
-                                  <Button size="sm" className="bg-green-600 hover:bg-green-700" onClick={() => handleApprove(task.onboarding_item_id)}>
-                                    <CheckCircle className="size-3.5 mr-1.5" />Approve
-                                  </Button>
-                                  <Button size="sm" variant="destructive" onClick={() => handleReject(task.onboarding_item_id)}>
-                                    <XCircle className="size-3.5 mr-1.5" />Reject
-                                  </Button>
-                                </div>
+                      <RemarkSection
+                        remarks={selectedSession.remarks.filter(r => r.tab_tag === "Tasks")}
+                        value={remarks["Tasks"] || ""}
+                        onChange={(v) => setRemarks(prev => ({ ...prev, Tasks: v }))}
+                        onAdd={() => handleAddRemark("Tasks")}
+                        inputId="remark-tasks"
+                      />
+                    </TabsContent>
+
+                    {/* ── EQUIPMENT TAB ── */}
+                    <TabsContent value="equipment" className="mt-0 p-6 space-y-3">
+                      {selectedSession.equipment.length === 0 && (
+                        <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                          <Package className="size-10 mb-3 opacity-30" />
+                          <p className="text-sm">No equipment assigned</p>
+                        </div>
+                      )}
+                      {selectedSession.equipment.map((equip) => (
+                        <div key={equip.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                          <div className="flex items-center justify-between px-5 py-4">
+                            <div className="min-w-0 pr-4">
+                              <p className="font-semibold text-slate-800 text-sm">{equip.title}</p>
+                              {equip.description && <p className="text-xs text-slate-500 mt-0.5">{equip.description}</p>}
+                              {equip.delivery_method && (
+                                <p className="text-xs text-purple-600 mt-0.5">
+                                  {equip.delivery_method === "office" ? "Office Pickup" : `Delivery${equip.delivery_address ? ` — ${equip.delivery_address}` : ""}`}
+                                </p>
                               )}
                             </div>
-                          ))}
-
-                          <RemarkSection
-                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Tasks")}
-                            value={remarks["Tasks"] || ""}
-                            onChange={(v) => setRemarks(prev => ({ ...prev, Tasks: v }))}
-                            onAdd={() => handleAddRemark("Tasks")}
-                            inputId="remark-tasks"
-                          />
-                        </div>
-                      </TabsContent>
-
-                      {/* Equipment Tab */}
-                      <TabsContent value="equipment" className="mt-6">
-                        <div className="space-y-3">
-                          {selectedSession.equipment.map((equip) => (
-                            <div key={equip.onboarding_item_id} className="rounded-lg border border-slate-200 overflow-hidden">
-                              <div className="flex items-start justify-between px-5 py-4 bg-white">
-                                <div className="space-y-0.5 min-w-0 pr-4">
-                                  <p className="font-semibold text-slate-800">{equip.title}</p>
-                                  {equip.description && <p className="text-xs text-slate-500">{equip.description}</p>}
-                                  {equip.delivery_method && (
-                                    <p className="text-xs text-purple-600">
-                                      {equip.delivery_method === "office" ? "Office Pickup" : `Delivery${equip.delivery_address ? ` — ${equip.delivery_address}` : ""}`}
-                                    </p>
-                                  )}
-                                </div>
-                                {getItemStatusBadge(equip.status)}
+                            {getItemStatusBadge(equip.status)}
+                          </div>
+                          {(equip.proof_of_receipt[0] || equip.status !== "pending") && (
+                            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
+                              <div className="flex items-center gap-2 min-w-0">
+                                {equip.proof_of_receipt[0] && (
+                                  <>
+                                    <FileText className="size-4 text-purple-500 shrink-0" />
+                                    <span className="text-sm text-slate-600 truncate">{equip.proof_of_receipt[0].file_name}</span>
+                                    <Button variant="outline" size="sm" asChild className="shrink-0 h-7">
+                                      <a href={equip.proof_of_receipt[0].file_url} target="_blank" rel="noreferrer">
+                                        <Download className="size-3 mr-1" />View
+                                      </a>
+                                    </Button>
+                                  </>
+                                )}
                               </div>
-                              {(equip.proof_of_receipt[0] || (equip.status === "submitted" || equip.status === "for-review")) && (
-                                <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between gap-3">
-                                  {equip.proof_of_receipt[0] ? (
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <FileText className="size-4 text-purple-500 shrink-0" />
-                                      <span className="text-sm text-slate-600 truncate">{equip.proof_of_receipt[0].file_name}</span>
-                                      <Button variant="outline" size="sm" asChild className="shrink-0">
-                                        <a href={equip.proof_of_receipt[0].file_url} target="_blank" rel="noreferrer">
-                                          <Download className="size-3 mr-1" />View
-                                        </a>
-                                      </Button>
-                                    </div>
-                                  ) : <span />}
-                                  {(equip.status === "submitted" || equip.status === "for-review") && (
-                                    <div className="flex gap-2 shrink-0">
-                                      <Button size="sm" className="bg-purple-600 hover:bg-purple-700" onClick={() => handleIssue(equip.onboarding_item_id)}>
-                                        <CheckCircle className="size-3.5 mr-1.5" />Issue
-                                      </Button>
-                                      <Button size="sm" variant="destructive" onClick={() => handleReject(equip.onboarding_item_id)}>
-                                        <XCircle className="size-3.5 mr-1.5" />Reject
-                                      </Button>
-                                    </div>
-                                  )}
-                                </div>
-                              )}
+                              <div className="shrink-0">
+                                {renderItemActions(
+                                  equip.onboarding_item_id,
+                                  equip.status,
+                                  () => handleApprove(equip.onboarding_item_id),
+                                  () => handleReject(equip.onboarding_item_id),
+                                  { onIssue: () => handleIssue(equip.onboarding_item_id), issueLabel: "Issue" },
+                                )}
+                              </div>
                             </div>
-                          ))}
-
-                          <RemarkSection
-                            remarks={selectedSession.remarks.filter(r => r.tab_tag === "Equipment")}
-                            value={remarks["Equipment"] || ""}
-                            onChange={(v) => setRemarks(prev => ({ ...prev, Equipment: v }))}
-                            onAdd={() => handleAddRemark("Equipment")}
-                            inputId="remark-equipment"
-                          />
+                          )}
                         </div>
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                </Card>
-              </div>
+                      ))}
+
+                      <RemarkSection
+                        remarks={selectedSession.remarks.filter(r => r.tab_tag === "Equipment")}
+                        value={remarks["Equipment"] || ""}
+                        onChange={(v) => setRemarks(prev => ({ ...prev, Equipment: v }))}
+                        onAdd={() => handleAddRemark("Equipment")}
+                        inputId="remark-equipment"
+                      />
+                    </TabsContent>
+
+                  </div>
+                </Tabs>
             </div>
           )}
         </DialogContent>

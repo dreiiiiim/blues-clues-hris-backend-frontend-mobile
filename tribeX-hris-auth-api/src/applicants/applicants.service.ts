@@ -164,7 +164,29 @@ export class ApplicantsService {
 
     if (error || !applicant) throw new UnauthorizedException('No account found with that email address.');
 
-    // 2. Block unverified accounts
+    // 2. Block accounts that have been fully converted to employees
+    if (applicant.status === 'converted_employee') {
+      throw new UnauthorizedException('CONVERTED_EMPLOYEE: Your applicant account has been activated as an employee. Please log in through the employee portal instead.');
+    }
+
+    // Retroactive conversion check: if a user_profile exists with this email,
+    // the applicant was approved before the status update was in place — self-heal.
+    if (applicant.status === 'active' || applicant.status === 'onboarding') {
+      const { data: employeeProfile } = await supabase
+        .from('user_profile')
+        .select('user_id')
+        .eq('email', applicant.email)
+        .maybeSingle();
+      if (employeeProfile) {
+        await supabase
+          .from('applicant_profile')
+          .update({ status: 'converted_employee' })
+          .eq('applicant_id', applicant.applicant_id);
+        throw new UnauthorizedException('CONVERTED_EMPLOYEE: Your applicant account has been activated as an employee. Please log in through the employee portal instead.');
+      }
+    }
+
+    // 3. Block unverified accounts
     if (applicant.status === 'unverified') {
       throw new UnauthorizedException('Please verify your email before signing in.');
     }
@@ -235,6 +257,7 @@ export class ApplicantsService {
       .maybeSingle();
 
     if (appErr || !applicant) throw new UnauthorizedException('Applicant not found');
+    if (applicant.status === 'converted_employee') throw new UnauthorizedException('CONVERTED_EMPLOYEE: Your applicant account has been activated as an employee. Please log in through the employee portal instead.');
     if (applicant.status === 'inactive') throw new UnauthorizedException('Account deactivated');
 
     const access_token = await this.jwtService.signAsync(

@@ -653,6 +653,80 @@ export async function getMyCompany(): Promise<{ company_id: string; company_name
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// Employee Documents API
+// ---------------------------------------------------------------------------
+
+export type EmployeeDocument = {
+  id: string;
+  user_id: string;
+  document_type: string;
+  file_path: string;
+  file_name: string;
+  file_size: number | null;
+  status: 'pending' | 'approved' | 'rejected';
+  hr_notes: string | null;
+  uploaded_at: string;
+  reviewed_at: string | null;
+  reviewed_by: string | null;
+  file_url: string | null;
+};
+
+export async function getMyEmployeeDocuments(): Promise<EmployeeDocument[]> {
+  const res = await authFetch(`${API_BASE_URL}/users/me/documents`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any)?.message || 'Failed to fetch documents');
+  return data as EmployeeDocument[];
+}
+
+export async function uploadMyDocument(docType: string, file: File): Promise<EmployeeDocument> {
+  const formData = new FormData();
+  formData.append('document_type', docType);
+  formData.append('file', file);
+  const res = await authFetch(`${API_BASE_URL}/users/me/documents`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any)?.message || 'Upload failed');
+  return data as EmployeeDocument;
+}
+
+export async function deleteMyDocument(docId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/users/me/documents/${docId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as any)?.message || 'Delete failed');
+  }
+}
+
+export async function getPendingEmployeeDocuments(): Promise<(EmployeeDocument & { user_profile: { first_name: string; last_name: string; employee_id: string } })[]> {
+  const res = await authFetch(`${API_BASE_URL}/users/documents/pending`);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any)?.message || 'Failed to fetch pending documents');
+  return data as any[];
+}
+
+export async function approveEmployeeDocument(docId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/users/documents/${docId}/approve`, { method: 'PATCH' });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as any)?.message || 'Approve failed');
+  }
+}
+
+export async function rejectEmployeeDocument(docId: string, hrNotes: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/users/documents/${docId}/reject`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hr_notes: hrNotes }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as any)?.message || 'Reject failed');
+  }
+}
+
 export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
   const access = getAccessToken();
 

@@ -51,11 +51,32 @@ export class ApplicantJwtAuthGuard implements CanActivate {
 
       const { data: applicant } = await supabase
         .from('applicant_profile')
-        .select('status')
+        .select('status, email')
         .eq('applicant_id', decoded.sub_userid)
         .maybeSingle();
-      if (applicant?.status !== 'active') {
+      if (!applicant || applicant.status === 'converted_employee' || applicant.status === 'inactive') {
         throw new UnauthorizedException('Account not active');
+      }
+      // 'active' and 'onboarding' are both allowed through
+      if (applicant.status !== 'active' && applicant.status !== 'onboarding') {
+        throw new UnauthorizedException('Account not active');
+      }
+
+      // Retroactively detect conversion: if a user_profile exists with this email,
+      // the applicant has been promoted to employee — block and mark converted_employee.
+      if (applicant.email) {
+        const { data: employeeProfile } = await supabase
+          .from('user_profile')
+          .select('user_id')
+          .eq('email', applicant.email)
+          .maybeSingle();
+        if (employeeProfile) {
+          await supabase
+            .from('applicant_profile')
+            .update({ status: 'converted_employee' })
+            .eq('applicant_id', decoded.sub_userid);
+          throw new UnauthorizedException('Account has been converted to an employee account');
+        }
       }
 
       req.user = decoded;

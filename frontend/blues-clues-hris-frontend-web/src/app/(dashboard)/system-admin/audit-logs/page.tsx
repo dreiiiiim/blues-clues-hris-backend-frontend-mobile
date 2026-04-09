@@ -9,7 +9,7 @@ import {
   ScrollText, Briefcase, ClipboardList, Shield, ShieldAlert,
   Activity, UserCheck, Search, ChevronLeft, ChevronRight,
   RefreshCw, Loader2, ArrowLeft, Building2, Mail, X,
-  AlertTriangle, Info, TrendingUp,
+  AlertTriangle, Info, TrendingUp, Pencil,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@ type AuditLog = {
 
 const PAGE_SIZE = 25;
 const ALL_SEVERITIES = ["INFO", "WARNING", "ERROR", "CRITICAL"] as const;
-const ALL_CATEGORIES = ["User", "Job", "Application", "Department", "Role", "Security", "Error", "System"] as const;
+const ALL_CATEGORIES = ["User", "Job", "Application", "Department", "Role", "Security", "Error", "Onboarding", "Profile", "System"] as const;
 type Severity = typeof ALL_SEVERITIES[number];
 type Category = typeof ALL_CATEGORIES[number];
 
@@ -50,7 +50,9 @@ const CAT = {
   Role:        { icon: Shield,        bg: "bg-amber-50",    text: "text-amber-700"   },
   Security:    { icon: ShieldAlert,   bg: "bg-yellow-50",   text: "text-yellow-700"  },
   Error:       { icon: Mail,          bg: "bg-orange-50",   text: "text-orange-700"  },
-  System:      { icon: Activity,      bg: "bg-slate-50",    text: "text-slate-600"   },
+  Onboarding:  { icon: ClipboardList,  bg: "bg-sky-50",      text: "text-sky-700"     },
+  Profile:     { icon: Pencil,         bg: "bg-indigo-50",   text: "text-indigo-700"  },
+  System:      { icon: Activity,       bg: "bg-slate-50",    text: "text-slate-600"   },
 } as const;
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -64,6 +66,8 @@ function getCategory(action: string, severity: string): Category {
   if (l.includes("department"))   return "Department";
   if (l.includes("role"))         return "Role";
   if (l.includes("user") || l.includes("invite") || l.includes("account")) return "User";
+  if (l.includes("onboarding") || l.includes("document_upload") || l.includes("profile_save")) return "Onboarding";
+  if (l.includes("profile_change")) return "Profile";
   return "System";
 }
 

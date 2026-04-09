@@ -9,8 +9,11 @@ import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { CreateChangeRequestDto } from './dto/create-change-request.dto';
+import { ReviewChangeRequestDto } from './dto/review-change-request.dto';
 import * as crypto from 'node:crypto';
 
 type UserListRow = {
@@ -168,6 +171,7 @@ export class UsersService {
     private readonly mailService: MailService,
     private readonly config: ConfigService,
     private readonly auditService: AuditService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // All queries filter by company_id. company_id comes from req.user.
@@ -1038,6 +1042,48 @@ export class UsersService {
     return { message: 'User deactivated successfully' };
   }
 
+  async assignCompanyEmail(userId: string, newEmail: string, companyId: string, adminUserId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: user, error: findError } = await supabase
+      .from('user_profile')
+      .select('user_id, email, personal_email')
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (findError) throw new BadRequestException(findError.message);
+    if (!user) throw new NotFoundException('Employee not found in your company');
+
+    // Ensure no other employee already uses this email
+    const { data: taken } = await supabase
+      .from('user_profile')
+      .select('user_id')
+      .eq('email', newEmail)
+      .neq('user_id', userId)
+      .maybeSingle();
+
+    if (taken) throw new ConflictException('This email is already in use by another employee');
+
+    await supabase.from('user_profile').update({ email: newEmail }).eq('user_id', userId);
+
+    // Revoke active sessions so the employee must log in again with the new email
+    await supabase
+      .from('refresh_session')
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('user_id', userId)
+      .is('revoked_at', null);
+
+    await this.auditService.log(
+      `Company email assigned: ${user.email} → ${newEmail}`,
+      adminUserId,
+      companyId,
+      userId,
+    );
+
+    return { message: 'Company email assigned successfully', email: newEmail };
+  }
+
   async resendInvite(id: string, companyId: string, adminUserId: string) {
     const supabase = this.supabaseService.getClient();
 
@@ -1174,5 +1220,359 @@ export class UsersService {
       .maybeSingle();
     if (error) throw new InternalServerErrorException('Failed to update profile');
     return data;
+  }
+
+  // =========================================================
+  // EMPLOYEE DOCUMENTS
+  // =========================================================
+
+  async getMyDocuments(userId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('employee_documents')
+      .select('*')
+      .eq('user_id', userId)
+      .order('uploaded_at', { ascending: false });
+
+    if (error) throw new BadRequestException(error.message);
+
+    // Generate fresh signed URLs for file_path entries that look like storage paths
+    const withUrls = await Promise.all(
+      (data || []).map(async (doc: any) => {
+        if (doc.file_path && !doc.file_path.startsWith('http')) {
+          const { data: urlData } = await supabase.storage
+            .from('employee-documents')
+            .createSignedUrl(doc.file_path, 60 * 60 * 24 * 7);
+          return { ...doc, file_url: urlData?.signedUrl || null };
+        }
+        // Onboarding-seeded docs store the URL directly in file_path
+        return { ...doc, file_url: doc.file_path };
+      }),
+    );
+
+    return withUrls;
+  }
+
+  async uploadEmployeeDocument(userId: string, docType: string, file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No file uploaded.');
+
+    const allowed = [
+      'application/pdf',
+      'image/jpeg',
+      'image/png',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ];
+    if (!allowed.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid file type. Allowed: PDF, JPG, PNG, DOC, DOCX.');
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException('File too large. Maximum 5 MB.');
+    }
+
+    const supabase = this.supabaseService.getClient();
+    const filePath = `${userId}/${docType}/${Date.now()}_${file.originalname}`;
+
+    const { error: uploadErr } = await supabase.storage
+      .from('employee-documents')
+      .upload(filePath, file.buffer, { contentType: file.mimetype });
+
+    if (uploadErr) throw new BadRequestException(`Upload failed: ${uploadErr.message}`);
+
+    const { data: urlData } = await supabase.storage
+      .from('employee-documents')
+      .createSignedUrl(filePath, 60 * 60 * 24 * 7);
+
+    const { data, error } = await supabase
+      .from('employee_documents')
+      .insert({
+        id: crypto.randomUUID(),
+        user_id: userId,
+        document_type: docType,
+        file_path: filePath,
+        file_name: file.originalname,
+        file_size: file.size,
+        status: 'pending',
+        uploaded_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) throw new BadRequestException(error.message);
+    return { ...data, file_url: urlData?.signedUrl || null };
+  }
+
+  async deleteEmployeeDocument(userId: string, docId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: doc } = await supabase
+      .from('employee_documents')
+      .select('*')
+      .eq('id', docId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (!doc) throw new NotFoundException('Document not found.');
+    if (doc.status === 'approved') {
+      throw new BadRequestException('Cannot delete an approved document.');
+    }
+
+    // Only delete from storage if it's a real storage path (not a seeded URL)
+    if (doc.file_path && !doc.file_path.startsWith('http')) {
+      await supabase.storage.from('employee-documents').remove([doc.file_path]);
+    }
+
+    const { error } = await supabase
+      .from('employee_documents')
+      .delete()
+      .eq('id', docId);
+
+    if (error) throw new BadRequestException(error.message);
+    return { message: 'Document deleted' };
+  }
+
+  async approveEmployeeDocument(docId: string, reviewerId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { error } = await supabase
+      .from('employee_documents')
+      .update({
+        status: 'approved',
+        reviewed_by: reviewerId,
+        reviewed_at: new Date().toISOString(),
+        hr_notes: null,
+      })
+      .eq('id', docId);
+
+    if (error) throw new BadRequestException(error.message);
+    return { message: 'Document approved', id: docId };
+  }
+
+  async rejectEmployeeDocument(docId: string, reviewerId: string, hrNotes: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { error } = await supabase
+      .from('employee_documents')
+      .update({
+        status: 'rejected',
+        reviewed_by: reviewerId,
+        reviewed_at: new Date().toISOString(),
+        hr_notes: hrNotes,
+      })
+      .eq('id', docId);
+
+    if (error) throw new BadRequestException(error.message);
+    return { message: 'Document rejected', id: docId };
+  }
+
+  async getPendingEmployeeDocuments(companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    // Get all user_ids belonging to this company first, then filter documents directly
+    const { data: companyUsers, error: usersError } = await supabase
+      .from('user_profile')
+      .select('user_id')
+      .eq('company_id', companyId);
+
+    if (usersError) throw new BadRequestException(usersError.message);
+
+    const userIds = (companyUsers || []).map((u: any) => u.user_id);
+    if (userIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('employee_documents')
+      .select('*')
+      .in('user_id', userIds)
+      .eq('status', 'pending')
+      .order('uploaded_at', { ascending: true });
+
+    if (error) throw new BadRequestException(error.message);
+
+    // Enrich each doc with user_profile and signed URL
+    const withUrls = await Promise.all(
+      (data || []).map(async (doc: any) => {
+        const { data: profile } = await supabase
+          .from('user_profile')
+          .select('user_id, first_name, last_name, employee_id')
+          .eq('user_id', doc.user_id)
+          .single();
+
+        let fileUrl = doc.file_path;
+        if (doc.file_path && !doc.file_path.startsWith('http')) {
+          const { data: urlData } = await supabase.storage
+            .from('employee-documents')
+            .createSignedUrl(doc.file_path, 60 * 60 * 24);
+          fileUrl = urlData?.signedUrl || doc.file_path;
+        }
+        return { ...doc, user_profile: profile ?? null, file_url: fileUrl };
+      }),
+    );
+
+    return withUrls;
+  }
+
+  // =========================================================
+  // PROFILE CHANGE REQUESTS
+  // =========================================================
+
+  async submitChangeRequest(employeeId: string, companyId: string, dto: CreateChangeRequestDto) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('profile_change_requests')
+      .insert({
+        employee_id: employeeId,
+        company_id: companyId,
+        field_type: dto.field_type,
+        requested_changes: dto.requested_changes,
+        reason: dto.reason,
+        supporting_doc_url: dto.supporting_doc_url ?? null,
+        status: 'pending',
+      })
+      .select()
+      .single();
+
+    if (error) throw new BadRequestException(error.message);
+
+    // Notify HR — fire-and-forget
+    const fieldLabel = dto.field_type === 'legal_name' ? 'Legal Name' : 'Bank Account';
+    this.notificationsService.notifyAllHRInCompany(companyId, {
+      type: 'PROFILE_CHANGE_SUBMITTED',
+      title: 'Profile Change Request',
+      message: `An employee has submitted a ${fieldLabel} change request for review.`,
+      metadata: { request_id: data.request_id, employee_id: employeeId, field_type: dto.field_type },
+    }).catch(() => {});
+
+    // Audit — fire-and-forget
+    this.auditService.log(
+      `PROFILE_CHANGE_REQUEST_SUBMITTED: ${dto.field_type}`,
+      employeeId,
+      companyId,
+    ).catch(() => {});
+
+    return data;
+  }
+
+  async getMyChangeRequests(employeeId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('profile_change_requests')
+      .select('*')
+      .eq('employee_id', employeeId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async getChangeRequestsForCompany(companyId: string, status?: string) {
+    let query = this.supabaseService
+      .getClient()
+      .from('profile_change_requests')
+      .select('*, employee:employee_id(first_name, last_name, employee_id, email)')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false });
+
+    if (status) {
+      query = query.eq('status', status) as any;
+    }
+
+    const { data, error } = await query;
+    if (error) throw new BadRequestException(error.message);
+    return data ?? [];
+  }
+
+  async reviewChangeRequest(
+    requestId: string,
+    reviewerId: string,
+    companyId: string,
+    dto: ReviewChangeRequestDto,
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: request, error: fetchErr } = await supabase
+      .from('profile_change_requests')
+      .select('*, employee:employee_id(first_name, last_name, email)')
+      .eq('request_id', requestId)
+      .eq('company_id', companyId)
+      .single();
+
+    if (fetchErr || !request) throw new NotFoundException('Change request not found.');
+    if (request.status !== 'pending') throw new BadRequestException('This request has already been reviewed.');
+
+    // Update request status
+    const { data: updated, error: updateErr } = await supabase
+      .from('profile_change_requests')
+      .update({
+        status: dto.status,
+        reviewed_by: reviewerId,
+        review_reason: dto.review_reason,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('request_id', requestId)
+      .select()
+      .single();
+
+    if (updateErr) throw new BadRequestException(updateErr.message);
+
+    // If approved, apply changes to user_profile
+    if (dto.status === 'approved') {
+      const changes = request.requested_changes as Record<string, string>;
+
+      if (request.field_type === 'legal_name') {
+        const nameUpdate: Record<string, string> = {};
+        if (changes.first_name) nameUpdate.first_name = changes.first_name;
+        if (changes.middle_name !== undefined) nameUpdate.middle_name = changes.middle_name;
+        if (changes.last_name) nameUpdate.last_name = changes.last_name;
+        if (Object.keys(nameUpdate).length > 0) {
+          await supabase.from('user_profile').update(nameUpdate).eq('user_id', request.employee_id);
+        }
+      } else if (request.field_type === 'bank') {
+        const bankUpdate: Record<string, string> = {};
+        if (changes.bank_name) bankUpdate.bank_name = changes.bank_name;
+        if (changes.bank_account_number) bankUpdate.bank_account_number = changes.bank_account_number;
+        if (changes.bank_account_name) bankUpdate.bank_account_name = changes.bank_account_name;
+        if (Object.keys(bankUpdate).length > 0) {
+          await supabase.from('user_profile').update(bankUpdate).eq('user_id', request.employee_id);
+        }
+      }
+    }
+
+    const employee = (request as any).employee;
+    const fieldLabel = request.field_type === 'legal_name' ? 'Legal Name' : 'Bank Account';
+
+    // Notify employee — fire-and-forget
+    this.notificationsService.createNotification({
+      userId: request.employee_id,
+      companyId,
+      type: 'PROFILE_CHANGE_REVIEWED',
+      title: dto.status === 'approved' ? `${fieldLabel} Change Approved` : `${fieldLabel} Change Rejected`,
+      message: dto.status === 'approved'
+        ? `Your ${fieldLabel} change request has been approved.`
+        : `Your ${fieldLabel} change request was rejected. Reason: ${dto.review_reason}`,
+      metadata: { request_id: requestId, field_type: request.field_type, status: dto.status },
+    }).catch(() => {});
+
+    // Send email — fire-and-forget
+    if (employee?.email) {
+      this.mailService.sendProfileChangeReviewedEmail({
+        to: employee.email,
+        employeeName: `${employee.first_name} ${employee.last_name}`,
+        fieldType: request.field_type,
+        status: dto.status,
+        reviewReason: dto.review_reason,
+      }).catch(() => {});
+    }
+
+    // Audit — fire-and-forget
+    this.auditService.log(
+      `PROFILE_CHANGE_REQUEST_REVIEWED (${dto.status}): ${request.field_type}`,
+      reviewerId,
+      companyId,
+      request.employee_id,
+    ).catch(() => {});
+
+    return updated;
   }
 }

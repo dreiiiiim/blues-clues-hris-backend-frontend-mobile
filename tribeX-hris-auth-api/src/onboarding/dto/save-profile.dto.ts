@@ -1,5 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsOptional, IsDateString, IsEmail } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
+import {
+  IsString, IsNotEmpty, IsOptional, IsDateString, IsEmail,
+  IsArray, ValidateNested,
+} from 'class-validator';
+
+export class EmergencyContactDto {
+  @ApiProperty() @IsString() @IsNotEmpty()
+  contact_name: string;
+
+  @ApiProperty() @IsString() @IsNotEmpty()
+  relationship: string;
+
+  @ApiProperty() @IsString() @IsNotEmpty()
+  emergency_phone_number: string;
+
+  @ApiProperty({ required: false })
+  @Transform(({ value }) => value === '' ? undefined : value)
+  @IsEmail() @IsOptional()
+  emergency_email_address?: string;
+}
 
 export class SaveProfileDto {
   @ApiProperty() @IsString() @IsNotEmpty()
@@ -17,30 +37,39 @@ export class SaveProfileDto {
   @ApiProperty() @IsString() @IsNotEmpty()
   phone_number: string;
 
-  @ApiProperty() @IsString() @IsNotEmpty()
-  complete_address: string;
+  @ApiProperty({ required: false }) @IsString() @IsOptional()
+  complete_address?: string;
 
-  @ApiProperty() @IsDateString()
-  date_of_birth: string;
+  @ApiProperty({ required: false }) @IsDateString() @IsOptional()
+  date_of_birth?: string;
 
-  @ApiProperty() @IsString() @IsNotEmpty()
-  place_of_birth: string;
+  @ApiProperty({ required: false }) @IsString() @IsOptional()
+  place_of_birth?: string;
 
-  @ApiProperty() @IsString() @IsNotEmpty()
-  nationality: string;
+  @ApiProperty({ required: false }) @IsString() @IsOptional()
+  nationality?: string;
 
-  @ApiProperty() @IsString() @IsNotEmpty()
-  civil_status: string;
+  @ApiProperty({ required: false }) @IsString() @IsOptional()
+  civil_status?: string;
 
-  @ApiProperty() @IsString() @IsNotEmpty()
-  contact_name: string;
+  @ApiProperty({ type: [EmergencyContactDto] })
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => EmergencyContactDto)
+  emergency_contacts: EmergencyContactDto[];
 
-  @ApiProperty() @IsString() @IsNotEmpty()
-  relationship: string;
+  // Legacy flat fields — kept optional for backward compat, ignored by service
+  @ApiProperty({ required: false }) @IsString() @IsOptional()
+  contact_name?: string;
 
-  @ApiProperty() @IsString() @IsNotEmpty()
-  emergency_phone_number: string;
+  @ApiProperty({ required: false }) @IsString() @IsOptional()
+  relationship?: string;
 
-  @ApiProperty({ required: false }) @IsEmail() @IsOptional()
+  @ApiProperty({ required: false }) @IsString() @IsOptional()
+  emergency_phone_number?: string;
+
+  @ApiProperty({ required: false })
+  @Transform(({ value }) => value === '' ? undefined : value)
+  @IsEmail() @IsOptional()
   emergency_email_address?: string;
 }

@@ -34,7 +34,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { getMySession } from "@/lib/onboardingApi";
 
 const ROLE_LABELS: Record<string, string> = {
   hr: "HR Portal",
@@ -62,7 +61,6 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   ],
   employee: [
     { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
-    { name: "Onboarding",  href: "/employee/onboarding",   icon: UserPlus }, // <-- ADD THIS LINE
     { name: "Timekeeping", href: "/employee/timekeeping",  icon: Clock },
     { name: "My Profile",  href: "/employee/profile",      icon: Users },
     { name: "Documents",   href: "/employee/documents",    icon: FileCheck },
@@ -101,21 +99,10 @@ export function Sidebar({
   const router = useRouter();
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);
-  const [onboardingDone, setOnboardingDone] = useState(false);
 
   useEffect(() => {
     setUser(getUserInfo());
   }, []);
-
-  // For employees: hide the Onboarding tab once their onboarding is approved
-  useEffect(() => {
-    if (persona !== "employee") return;
-    getMySession()
-      .then((session) => {
-        if (session?.status === "approved") setOnboardingDone(true);
-      })
-      .catch(() => {});
-  }, [persona]);
 
   const handleLogout = async () => {
     if (user?.role === "applicant") {
@@ -140,10 +127,7 @@ export function Sidebar({
     }`;
   };
 
-  const baseMenu = (MENU_CONFIG[persona] || []).filter(
-    (item) => !(onboardingDone && item.href === "/employee/onboarding"),
-  );
-  const currentMenu = [...baseMenu, ...additionalItems];
+  const currentMenu = [...(MENU_CONFIG[persona] || []), ...additionalItems];
 
   return (
     <div className="w-64 bg-sidebar text-sidebar-foreground flex flex-col min-h-screen shrink-0 border-r border-sidebar-border">

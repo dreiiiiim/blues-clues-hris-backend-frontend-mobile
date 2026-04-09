@@ -8,6 +8,7 @@ import {
   type StoredUser,
 } from "@/lib/authStorage";
 import { getEmployeeProfile, updateEmployeeProfile } from "@/lib/authApi";
+import { submitChangeRequest, getMyChangeRequests } from "@/lib/changeRequestApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -275,8 +276,11 @@ export default function EmployeeProfilePage() {
       setJwtPayload(payload);
     }
 
-    getEmployeeProfile()
-      .then((p) => {
+    Promise.all([
+      getEmployeeProfile(),
+      getMyChangeRequests(),
+    ])
+      .then(([p, changeReqs]) => {
         if (p.avatar_url) setProfilePhoto(p.avatar_url);
         setLegalName({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
         setLegalNameDraft({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
@@ -290,6 +294,12 @@ export default function EmployeeProfilePage() {
         setBank(bk);
         setBankDraft(bk);
         if (p.employee_id) setJwtPayload((prev) => ({ ...(prev ?? {}), employee_id: p.employee_id! }));
+
+        // Restore pending state from DB
+        const pendingLegal = changeReqs.find(r => r.field_type === 'legal_name' && r.status === 'pending');
+        const pendingBank  = changeReqs.find(r => r.field_type === 'bank'       && r.status === 'pending');
+        if (pendingLegal)      setPendingSection('legal-name');
+        else if (pendingBank)  setPendingSection('bank');
       })
       .catch(() => toast.error("Failed to load profile."))
       .finally(() => setLoading(false));
@@ -349,23 +359,34 @@ export default function EmployeeProfilePage() {
     setApprovalModal({ open: true, section, fieldLabel, newValue });
   };
 
-  const handleApprovalSubmit = async (_reason: string, _file: File | null) => {
+  const handleApprovalSubmit = async (reason: string, _file: File | null) => {
     const section = approvalModal.section;
-    setBankSaving(section === "bank");
+    setBankSaving(true);
     try {
-      if (section === "bank") {
-        await updateEmployeeProfile({
-          bank_name:           bankDraft.bankName.trim() || null as any,
-          bank_account_number: bankDraft.accountNumber.trim() || null as any,
-          bank_account_name:   bankDraft.accountName.trim() || null as any,
-        });
-        setBank(bankDraft);
-      }
+      const requestedChanges: Record<string, string> =
+        section === "bank"
+          ? {
+              bank_name:           bankDraft.bankName.trim(),
+              bank_account_number: bankDraft.accountNumber.trim(),
+              bank_account_name:   bankDraft.accountName.trim(),
+            }
+          : {
+              first_name:  legalNameDraft.first.trim(),
+              middle_name: legalNameDraft.middle.trim(),
+              last_name:   legalNameDraft.last.trim(),
+            };
+
+      await submitChangeRequest({
+        field_type: section === "bank" ? "bank" : "legal_name",
+        requested_changes: requestedChanges,
+        reason,
+      });
+
       setPendingSection(section);
       setApprovalModal({ ...approvalModal, open: false });
-      toast.success(section === "bank" ? "Bank info saved." : "Change request submitted — awaiting HR approval.");
+      toast.success("Change request submitted — awaiting HR approval.");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed.");
+      toast.error(err instanceof Error ? err.message : "Failed to submit change request.");
     } finally {
       setBankSaving(false);
     }

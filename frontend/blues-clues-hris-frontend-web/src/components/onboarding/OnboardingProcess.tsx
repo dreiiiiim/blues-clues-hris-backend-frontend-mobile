@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { submitForReview } from "@/lib/onboardingApi";
-import { Clock, AlertCircle, CheckCircle, User as UserIcon, FileText, ClipboardList, Monitor } from "lucide-react";
+import { Clock, AlertCircle, CheckCircle, XCircle, User as UserIcon, FileText, ClipboardList, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
@@ -138,15 +138,16 @@ export function OnboardingProcess({
     ...documents.filter(d => d.status === "approved"),
     ...displayTasks.filter(t => t.status === "approved" || t.status === "confirmed"),
     ...equipment.filter(e => e.status === "approved" || e.status === "issued"),
-    ...hrForms.filter(f => f.status === "approved" || f.status === "confirmed"),
-    ...profileItems.filter(p => p.status === "confirmed"),
+    ...hrForms.filter(f => f.status === "approved"),
+    ...profileItems.filter(p => p.status === "approved"),
   ].length;
 
   const underReviewCount = [
     ...documents.filter(d => d.status === "for-review"),
     ...displayTasks.filter(t => t.status === "for-review"),
     ...equipment.filter(e => e.status === "for-review"),
-    ...hrForms.filter(f => f.status === "for-review"),
+    ...hrForms.filter(f => f.status === "for-review" || f.status === "confirmed"),
+    ...profileItems.filter(p => p.status === "confirmed"),
   ].length;
 
   const remainingCount = [
@@ -156,6 +157,7 @@ export function OnboardingProcess({
     ...equipment.filter(e => e.status === "pending" || e.status === "rejected"),
     ...hrForms.filter(f => f.status === "pending" || f.status === "rejected"),
   ].length;
+
 
   return (
     <div className="min-h-screen bg-slate-50 p-4 md:p-8">
@@ -184,6 +186,35 @@ export function OnboardingProcess({
 
         {/* Deadline Alert */}
         {getDeadlineAlert()}
+
+        {/* Rejected Items Alert */}
+        {(() => {
+          const rejectedItems = [
+            ...profileItems.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Profile" })),
+            ...documents.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Documents" })),
+            ...hrForms.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "HR Forms" })),
+            ...displayTasks.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Tasks" })),
+            ...equipment.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Equipment" })),
+          ];
+          if (rejectedItems.length === 0) return null;
+          return (
+            <Alert className="border-red-200 bg-red-50">
+              <XCircle className="size-4 text-red-600 shrink-0" />
+              <AlertDescription className="text-red-800">
+                <p className="font-semibold mb-1">Action required — {rejectedItems.length} item{rejectedItems.length > 1 ? "s" : ""} need{rejectedItems.length === 1 ? "s" : ""} your attention:</p>
+                <ul className="list-disc list-inside space-y-0.5 text-sm">
+                  {rejectedItems.map(i => (
+                    <li key={i.onboarding_item_id}>
+                      <span className="font-medium">{i.title}</span>
+                      <span className="text-red-600 ml-1">({i.tab})</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-sm">Check the remarks in each section, correct the information, and resubmit.</p>
+              </AlertDescription>
+            </Alert>
+          );
+        })()}
 
         {/* Progress Section */}
         <Card>
@@ -251,6 +282,9 @@ export function OnboardingProcess({
                   sessionId={session.session_id}
                   remarks={session.remarks}
                   onUpdate={handleUpdateProfile}
+                  profileRejected={session.profile_items?.some(i => i.status === "rejected")}
+                  profileApproved={session.profile_items?.some(i => i.status === "approved")}
+                  profileConfirmed={session.profile_items?.some(i => i.status === "confirmed")}
                 />
               </TabsContent>
 

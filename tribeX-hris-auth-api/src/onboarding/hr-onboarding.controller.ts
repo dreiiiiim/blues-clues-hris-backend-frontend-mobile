@@ -59,7 +59,7 @@ export class HrOnboardingController {
   @Post('sessions/:sessionId/approve')
   @Roles(...HR_ONLY)
   @ApiOperation({ summary: 'Final approval of completed onboarding' })
-  approveSession(@Param('sessionId') sessionId: string) {
-    return this.onboardingService.approveSession(sessionId);
+  approveSession(@Param('sessionId') sessionId: string, @Req() req: any) {
+    return this.onboardingService.approveSession(sessionId, req.user.sub_userid);
   }
 }

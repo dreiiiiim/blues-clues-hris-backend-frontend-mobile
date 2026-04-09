@@ -558,6 +558,17 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
+    // Generate a signed URL for the resume if it's stored as a file path
+    const profile = (app as any).applicant_profile as Record<string, any> | null;
+    if (profile?.resume_url && !profile.resume_url.startsWith('https://')) {
+      const { data: urlData } = await supabase.storage
+        .from('applicant-resumes')
+        .createSignedUrl(profile.resume_url, 60 * 60 * 24 * 7);
+      if (urlData?.signedUrl) {
+        (app as any).applicant_profile = { ...profile, resume_url: urlData.signedUrl };
+      }
+    }
+
     return {
       ...app,
       answers: answers ?? [],
@@ -621,6 +632,17 @@ export class JobsService {
           jobPostingId:  app.job_posting_id,
           companyId,
         });
+        // Also create the 4-stage wizard session for the applicant portal
+        await this.onboardingService.createApplicantSession({
+          applicantId:  app.applicant_id,
+          jobPostingId: app.job_posting_id,
+          companyId,
+        });
+        // Mark applicant as in onboarding — blocks further job applications
+        await supabase
+          .from('applicant_profile')
+          .update({ status: 'onboarding' })
+          .eq('applicant_id', app.applicant_id);
       }
 
       return { message: 'Application status updated' };
@@ -1178,6 +1200,16 @@ export class JobsService {
 
     if (!job) throw new NotFoundException('Job posting not found');
     if (job.status !== 'open') throw new ForbiddenException('This job posting is no longer accepting applications');
+
+    // Block hired/onboarding applicants from applying to new jobs
+    const { data: applicantProfile } = await supabase
+      .from('applicant_profile')
+      .select('status')
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+    if (applicantProfile?.status === 'onboarding' || applicantProfile?.status === 'converted_employee') {
+      throw new ForbiddenException('You have already been hired and cannot apply to new positions.');
+    }
 
     const { data: existing } = await supabase
       .from('job_applications')

@@ -5,6 +5,7 @@ import { useLayoutEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { getAccessToken } from "@/lib/authStorage";
 import { applicantRefreshApi, applicantLogoutApi, getMyOnboarding } from "@/lib/authApi";
+import { getMySession } from "@/lib/onboardingApi";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 import { Briefcase, ClipboardList, FileText, LayoutDashboard, LogOut, Menu, Users, X } from "lucide-react";
@@ -59,10 +60,18 @@ export default function PortalLayout({
         }
       }
       setReady(true);
-      // Silently check for onboarding record — don't block render
-      getMyOnboarding()
-        .then((record) => { if (record) setOnboardingVisible(true); })
-        .catch(() => {});
+      // Show Onboarding tab if applicant has a wizard session OR an old-style submission
+      Promise.all([
+        getMySession().catch((err: any) => {
+          if (err?.status === 401) {
+            router.replace('/applicant/login?converted=true');
+          }
+          return null;
+        }),
+        getMyOnboarding().catch(() => null),
+      ]).then(([session, record]) => {
+        if (session || record) setOnboardingVisible(true);
+      });
     };
 
     init();

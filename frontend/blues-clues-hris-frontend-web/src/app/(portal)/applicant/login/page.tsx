@@ -12,19 +12,23 @@ import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
 // TODO (Sprint 2): swap GoogleSignInButton for GoogleLogin once Client ID is available
 // import { GoogleLogin } from "@react-oauth/google";
 import { Card, CardContent } from "@/components/ui/card";
-import { Search, Briefcase, TrendingUp, AlertCircle, Loader2, Mail } from "lucide-react";
+import { Search, Briefcase, TrendingUp, AlertCircle, Loader2, Mail, UserCheck } from "lucide-react";
 
 function ApplicantPortalAuthInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
   useEffect(() => {
+    if (searchParams.get("converted") === "true") {
+      setConvertedAccount(true);
+      return;
+    }
     const token = getAccessToken();
     const userInfo = getUserInfo();
     if (token && userInfo && userInfo.role === "applicant") {
       router.replace("/applicant/dashboard");
     }
-  }, [router]);
+  }, [router, searchParams]);
 
   const [isSignUp, setIsSignUp] = useState(false);
   const [firstName, setFirstName] = useState("");
@@ -37,11 +41,13 @@ function ApplicantPortalAuthInner() {
   const [successMsg, setSuccessMsg] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [resentEmail, setResentEmail] = useState<string | null>(null);
+  const [convertedAccount, setConvertedAccount] = useState(false);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setResentEmail(null);
+    setConvertedAccount(false);
     setIsLoading(true);
 
     try {
@@ -89,6 +95,8 @@ function ApplicantPortalAuthInner() {
       const msg: string = err?.message || "";
       if (msg.startsWith("UNVERIFIED_RESENT:")) {
         setResentEmail(email);
+      } else if (msg.startsWith("CONVERTED_EMPLOYEE:")) {
+        setConvertedAccount(true);
       } else {
         setError(msg || (isSignUp ? "Registration failed. Please try again." : "Invalid credentials. Please try again."));
       }
@@ -178,6 +186,26 @@ function ApplicantPortalAuthInner() {
                   className="text-blue-700 font-bold underline underline-offset-2 hover:text-blue-900"
                 >
                   Go to verification page →
+                </Link>
+              </div>
+            </div>
+          )}
+
+          {convertedAccount && (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-medium p-4 rounded-xl space-y-2">
+              <div className="flex items-center gap-3">
+                <UserCheck className="h-4 w-4 shrink-0 text-emerald-600" />
+                <span>
+                  <strong>You&apos;re now an official employee!</strong> Your applicant account has been converted.
+                  Please log in through the employee portal.
+                </span>
+              </div>
+              <div className="pl-7">
+                <Link
+                  href="/login"
+                  className="text-emerald-700 font-bold underline underline-offset-2 hover:text-emerald-900"
+                >
+                  Go to Employee Login →
                 </Link>
               </div>
             </div>

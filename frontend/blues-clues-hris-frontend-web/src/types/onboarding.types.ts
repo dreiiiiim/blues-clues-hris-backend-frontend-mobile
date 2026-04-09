@@ -49,6 +49,13 @@ export interface EquipmentItem extends OnboardingItemBase {
 
 export interface HRFormItem extends OnboardingItemBase {}
 
+export interface EmergencyContact {
+  contact_name: string;
+  relationship: string;
+  emergency_phone_number: string;
+  emergency_email_address?: string;
+}
+
 export interface ProfileData {
   profile_id?: string;
   session_id: string;
@@ -62,9 +69,11 @@ export interface ProfileData {
   place_of_birth: string;
   nationality: string;
   civil_status: string;
-  contact_name: string;
-  relationship: string;
-  emergency_phone_number: string;
+  emergency_contacts?: EmergencyContact[];
+  // Legacy flat fields (kept for backward compat reads)
+  contact_name?: string;
+  relationship?: string;
+  emergency_phone_number?: string;
   emergency_email_address?: string;
   status: string;
 }

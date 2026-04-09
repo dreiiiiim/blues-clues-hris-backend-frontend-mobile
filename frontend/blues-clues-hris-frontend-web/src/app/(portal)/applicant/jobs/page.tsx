@@ -11,7 +11,7 @@ import {
   Sparkles, TrendingUp, Users, ChevronRight, Check,
 } from "lucide-react";
 import {
-  getApplicantJobs, applyToJob, getMyApplications, getJobQuestions,
+  getApplicantJobs, applyToJob, getMyApplications, getJobQuestions, getApplicantProfile,
   type JobPosting, type ApplicationQuestion,
 } from "@/lib/authApi";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
@@ -274,16 +274,34 @@ export default function ApplicantJobsPage() {
   const [displayedJob, setDisplayedJob] = useState<JobPosting | null>(null);
   const [detailVisible, setDetailVisible] = useState(false);
   const [applyingJob, setApplyingJob] = useState<JobPosting | null>(null);
+  const [profileComplete, setProfileComplete] = useState(false);
 
   useEffect(() => {
     Promise.all([
       getApplicantJobs().catch(() => [] as JobPosting[]),
       getMyApplications().catch(() => []),
-    ]).then(([fetchedJobs, myApps]) => {
+      getApplicantProfile().catch(() => null),
+    ]).then(([fetchedJobs, myApps, ap]) => {
       setJobs(fetchedJobs);
       setAppliedJobIds(new Set(myApps.map((a: any) => a.job_posting_id)));
+      if (ap) {
+        setProfileComplete(
+          !!(ap.first_name?.trim() && ap.last_name?.trim() && ap.phone_number?.trim()),
+        );
+      }
     }).finally(() => setLoading(false));
   }, []);
+
+  const handleApply = (job: JobPosting) => {
+    if (!profileComplete) {
+      toast.error("Please complete your profile before applying.", {
+        description: "Go to My Profile and fill in your name and phone number.",
+        action: { label: "Go to Profile", onClick: () => window.location.href = "/applicant/profile" },
+      });
+      return;
+    }
+    setApplyingJob(job);
+  };
 
   const jobTypes = useMemo(() => {
     const types = new Set(jobs.map((j) => j.employment_type).filter(Boolean) as string[]);
@@ -752,7 +770,7 @@ export default function ApplicantJobsPage() {
                       </div>
                     ) : (
                       <button
-                        onClick={() => setApplyingJob(displayedJob)}
+                        onClick={() => handleApply(displayedJob)}
                         className="inline-flex items-center gap-2 px-6 py-2.5 rounded-xl bg-white text-slate-900 font-bold text-sm hover:bg-white/92 transition-all shadow-lg shadow-black/25 hover:shadow-xl hover:-translate-y-0.5 active:translate-y-0 active:shadow-md cursor-pointer"
                       >
                         <Zap className="h-4 w-4" />
@@ -814,7 +832,7 @@ export default function ApplicantJobsPage() {
                         <span className="text-xs">Interested? Submit your application today.</span>
                       </div>
                       <button
-                        onClick={() => setApplyingJob(displayedJob)}
+                        onClick={() => handleApply(displayedJob)}
                         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-all hover:-translate-y-px shadow-sm hover:shadow cursor-pointer"
                       >
                         Apply Now <ArrowRight className="h-3.5 w-3.5" />

@@ -340,6 +340,68 @@ export class MailService {
     });
   }
 
+  async sendOnboardingItemReviewedEmail(opts: {
+    to: string;
+    employeeName: string;
+    itemTitle: string;
+    tabCategory: string;
+    status: 'approved' | 'rejected';
+    remarks?: string | null;
+  }): Promise<void> {
+    const isApproved = opts.status === 'approved';
+    const statusLabel = isApproved ? 'Approved' : 'Rejected';
+    const statusColor = isApproved ? '#16a34a' : '#dc2626';
+    const statusBg = isApproved ? '#f0fdf4' : '#fef2f2';
+    const statusBorder = isApproved ? '#bbf7d0' : '#fecaca';
+    const headerBg = isApproved
+      ? 'linear-gradient(135deg,#0f172a 0%,#172554 55%,#134e4a 100%)'
+      : 'linear-gradient(135deg,#1c0a0a 0%,#3b0a0a 100%)';
+
+    const remarksSection = opts.remarks
+      ? `<div style="margin-top:16px;padding:14px 16px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0;">
+           <p style="margin:0 0 4px;font-size:11px;font-weight:bold;text-transform:uppercase;color:#6b7280;letter-spacing:0.08em;">Note from HR</p>
+           <p style="margin:0;font-size:13px;color:#374151;white-space:pre-wrap;">${opts.remarks}</p>
+         </div>`
+      : '';
+
+    const nextStepText = isApproved
+      ? 'No action is needed. Keep completing your remaining onboarding items.'
+      : 'Please log in to your onboarding portal, review the HR note above, correct the issue, and resubmit.';
+
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to: opts.to,
+        subject: `Onboarding Update: "${opts.itemTitle}" has been ${statusLabel}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:520px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+            <div style="background:${headerBg};padding:28px 24px;">
+              <p style="margin:0 0 4px;font-size:11px;font-weight:bold;text-transform:uppercase;color:rgba(255,255,255,0.5);letter-spacing:0.14em;">Blues Clues HRIS</p>
+              <h1 style="margin:0;font-size:20px;color:#ffffff;">Onboarding Item ${statusLabel}</h1>
+            </div>
+            <div style="padding:24px;">
+              <p style="margin:0 0 16px;font-size:14px;color:#374151;">
+                Hi <strong>${opts.employeeName}</strong>,
+              </p>
+              <div style="background:${statusBg};border:1px solid ${statusBorder};border-radius:10px;padding:16px 20px;margin-bottom:16px;">
+                <p style="margin:0 0 4px;font-size:11px;font-weight:bold;text-transform:uppercase;color:${statusColor};letter-spacing:0.08em;">${opts.tabCategory}</p>
+                <p style="margin:0;font-size:15px;font-weight:600;color:${statusColor};">"${opts.itemTitle}" — ${statusLabel}</p>
+              </div>
+              ${remarksSection}
+              <p style="margin-top:20px;font-size:13px;color:#374151;">${nextStepText}</p>
+              <p style="margin-top:20px;font-size:12px;color:#6b7280;">Log in to your onboarding portal to view the full status of all your items.</p>
+            </div>
+            <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:14px 24px;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">Blues Clues HRIS · This is an automated notification</p>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error('Failed to send onboarding item reviewed email', error);
+    }
+  }
+
   async sendVerificationEmail(to: string, verifyLink: string): Promise<void> {
     await this.transporter.sendMail({
       from: `"Blues Clues HRIS" <${this.config.get('MAIL_USER')}>`,
@@ -352,5 +414,86 @@ export class MailService {
         <p>This link expires in 24 hours.</p>
       `,
     });
+  }
+
+  async sendOnboardingApprovedEmail(opts: {
+    to: string;
+    employeeName: string;
+  }): Promise<void> {
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to: opts.to,
+        subject: 'Your onboarding has been approved — Welcome to the team!',
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+            <div style="background:linear-gradient(135deg,#0f172a 0%,#172554 100%);padding:32px 24px;text-align:center;">
+              <h1 style="margin:0;font-size:22px;color:#ffffff;">Blues Clues HRIS</h1>
+            </div>
+            <div style="padding:32px 24px;">
+              <h2 style="margin-top:0;color:#0c1a2e;">Onboarding Complete!</h2>
+              <p style="color:#374151;">Hi <strong>${opts.employeeName}</strong>,</p>
+              <p style="color:#374151;">
+                Great news — your onboarding has been reviewed and <strong>approved</strong> by HR.
+                Your account setup is now complete. Welcome to the team!
+              </p>
+              <p style="margin-top:24px;color:#6b7280;font-size:12px;">
+                You can log in to your employee portal to view your profile and get started.
+              </p>
+            </div>
+            <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 24px;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">Blues Clues HRIS · This is an automated notification</p>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error('Failed to send onboarding approved email', error);
+    }
+  }
+
+  async sendProfileChangeReviewedEmail(opts: {
+    to: string;
+    employeeName: string;
+    fieldType: 'legal_name' | 'bank';
+    status: 'approved' | 'rejected';
+    reviewReason: string;
+  }): Promise<void> {
+    const fieldLabel = opts.fieldType === 'legal_name' ? 'Legal Name' : 'Bank Account';
+    const statusLabel = opts.status === 'approved' ? 'Approved' : 'Rejected';
+    const statusColor = opts.status === 'approved' ? '#16a34a' : '#dc2626';
+    const statusBg = opts.status === 'approved' ? '#f0fdf4' : '#fef2f2';
+    const statusBorder = opts.status === 'approved' ? '#bbf7d0' : '#fecaca';
+
+    try {
+      await this.transporter.sendMail({
+        from: this.from,
+        to: opts.to,
+        subject: `Your ${fieldLabel} change request has been ${statusLabel}`,
+        html: `
+          <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+            <div style="background:linear-gradient(135deg,#0f172a 0%,#172554 100%);padding:32px 24px;text-align:center;">
+              <h1 style="margin:0;font-size:22px;color:#ffffff;">Blues Clues HRIS</h1>
+            </div>
+            <div style="padding:32px 24px;">
+              <h2 style="margin-top:0;color:#0c1a2e;">Profile Change Request Update</h2>
+              <p style="color:#374151;">Hi <strong>${opts.employeeName}</strong>,</p>
+              <p style="color:#374151;">Your request to update your <strong>${fieldLabel}</strong> has been reviewed by HR.</p>
+              <div style="background:${statusBg};border:1px solid ${statusBorder};border-radius:8px;padding:16px;margin:20px 0;">
+                <p style="margin:0;font-weight:bold;color:${statusColor};font-size:15px;">Status: ${statusLabel}</p>
+                ${opts.reviewReason ? `<p style="margin:8px 0 0;color:#374151;font-size:13px;">Reason: ${opts.reviewReason}</p>` : ''}
+              </div>
+              ${opts.status === 'rejected' ? `<p style="color:#374151;font-size:13px;">You may submit a new request with the correct information from your employee profile page.</p>` : ''}
+              <p style="margin-top:24px;color:#6b7280;font-size:12px;">Log in to your employee portal to view your updated profile.</p>
+            </div>
+            <div style="background:#f9fafb;border-top:1px solid #e5e7eb;padding:16px 24px;">
+              <p style="margin:0;font-size:11px;color:#9ca3af;text-align:center;">Blues Clues HRIS · This is an automated notification</p>
+            </div>
+          </div>
+        `,
+      });
+    } catch (error) {
+      this.logger.error('Failed to send profile change reviewed email', error);
+    }
   }
 }

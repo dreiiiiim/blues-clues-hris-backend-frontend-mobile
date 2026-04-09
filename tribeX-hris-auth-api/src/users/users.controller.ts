@@ -7,14 +7,21 @@ import {
   Delete,
   HttpCode,
   Param,
+  Query,
   Body,
   Req,
   UseGuards,
   BadRequestException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { CreateChangeRequestDto } from './dto/create-change-request.dto';
+import { ReviewChangeRequestDto } from './dto/review-change-request.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -132,6 +139,37 @@ export class UsersController {
     );
   }
 
+  // ---- Profile Change Requests ----
+  // NOTE: these exact-path routes are declared before ':id' so NestJS priority routing applies
+
+  @Post('me/change-requests')
+  submitChangeRequest(@Req() req: any, @Body() dto: CreateChangeRequestDto) {
+    return this.usersService.submitChangeRequest(req.user.sub_userid, req.user.company_id, dto);
+  }
+
+  @Get('me/change-requests')
+  getMyChangeRequests(@Req() req: any) {
+    return this.usersService.getMyChangeRequests(req.user.sub_userid);
+  }
+
+  @Get('change-requests')
+  @UseGuards(RolesGuard)
+  @Roles('HR Officer', 'HR Recruiter', 'Admin', 'System Admin')
+  getChangeRequests(@Req() req: any, @Query('status') status?: string) {
+    return this.usersService.getChangeRequestsForCompany(req.user.company_id, status);
+  }
+
+  @Patch('change-requests/:requestId')
+  @UseGuards(RolesGuard)
+  @Roles('HR Officer', 'HR Recruiter', 'Admin', 'System Admin')
+  reviewChangeRequest(
+    @Param('requestId') requestId: string,
+    @Req() req: any,
+    @Body() dto: ReviewChangeRequestDto,
+  ) {
+    return this.usersService.reviewChangeRequest(requestId, req.user.sub_userid, req.user.company_id, dto);
+  }
+
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles(...HR_AND_ABOVE)
@@ -182,6 +220,18 @@ export class UsersController {
 
   @UseGuards(RolesGuard)
   @Roles(...HR_AND_ABOVE)
+  @Patch(':id/assign-email')
+  async assignCompanyEmail(
+    @Param('id') id: string,
+    @Body('email') email: string,
+    @Req() req: any,
+  ) {
+    if (!email?.trim()) throw new BadRequestException('email is required');
+    return this.usersService.assignCompanyEmail(id, email.trim().toLowerCase(), req.user.company_id, req.user.sub_userid);
+  }
+
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
   @Patch(':id/resend-invite')
   async resendInvite(@Param('id') id: string, @Req() req: any) {
     return this.usersService.resendInvite(
@@ -212,5 +262,54 @@ export class UsersController {
   @HttpCode(200)
   updateMe(@Req() req: any, @Body() body: any) {
     return this.usersService.updateMe(req.user.sub_userid, body);
+  }
+
+  // ---- Employee Documents ----
+
+  @Get('me/documents')
+  getMyDocuments(@Req() req: any) {
+    return this.usersService.getMyDocuments(req.user.sub_userid);
+  }
+
+  @Post('me/documents')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  uploadEmployeeDocument(
+    @Req() req: any,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('document_type') docType: string,
+  ) {
+    if (!docType) throw new BadRequestException('document_type is required.');
+    return this.usersService.uploadEmployeeDocument(req.user.sub_userid, docType, file);
+  }
+
+  @Delete('me/documents/:id')
+  deleteEmployeeDocument(@Req() req: any, @Param('id') id: string) {
+    return this.usersService.deleteEmployeeDocument(req.user.sub_userid, id);
+  }
+
+  @Get('documents/pending')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  getPendingDocuments(@Req() req: any) {
+    return this.usersService.getPendingEmployeeDocuments(req.user.company_id);
+  }
+
+  @Patch('documents/:id/approve')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  approveDocument(@Param('id') id: string, @Req() req: any) {
+    return this.usersService.approveEmployeeDocument(id, req.user.sub_userid);
+  }
+
+  @Patch('documents/:id/reject')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  rejectDocument(
+    @Param('id') id: string,
+    @Req() req: any,
+    @Body('hr_notes') hrNotes: string,
+  ) {
+    if (!hrNotes) throw new BadRequestException('hr_notes is required when rejecting.');
+    return this.usersService.rejectEmployeeDocument(id, req.user.sub_userid, hrNotes);
   }
 }

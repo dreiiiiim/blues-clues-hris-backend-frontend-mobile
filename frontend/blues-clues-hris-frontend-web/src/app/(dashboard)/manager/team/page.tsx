@@ -12,8 +12,9 @@ import {
   Search, MoreHorizontal, X,
   ChevronLeft, ChevronRight, UserX, UserCheck,
   Filter, Download, Check, Mail, Eye,
-  Hash, User, Building2, Calendar, Shield,
+  Hash, User, Building2, Calendar, Shield, TrendingUp, AtSign,
 } from "lucide-react";
+import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -157,12 +158,14 @@ function RowMenu({
   onDeactivate,
   onReactivate,
   onResendInvite,
+  onAssignEmail,
 }: {
   readonly employee: Employee;
   readonly onView: () => void;
   readonly onDeactivate: () => void;
   readonly onReactivate: () => void;
   readonly onResendInvite: () => void;
+  readonly onAssignEmail: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -209,6 +212,9 @@ function RowMenu({
           {employee.account_status === "Pending" && (
             <MenuRow icon={Mail} label="Resend Invite" onClick={close(onResendInvite)} color="text-blue-600" />
           )}
+          {employee.account_status !== "Inactive" && (
+            <MenuRow icon={AtSign} label="Assign Company Email" onClick={close(onAssignEmail)} color="text-violet-600" />
+          )}
           <div className="border-t border-border my-1" />
           {employee.account_status === "Inactive" ? (
             <MenuRow icon={UserCheck} label="Reactivate"  onClick={close(onReactivate)}  color="text-green-600" />
@@ -217,6 +223,81 @@ function RowMenu({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+// Assign Company Email modal
+function AssignEmailModal({
+  employee,
+  onClose,
+  onSaved,
+}: {
+  readonly employee: Employee;
+  readonly onClose: () => void;
+  readonly onSaved: (newEmail: string) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSave = async () => {
+    if (!email.trim() || !email.includes("@")) {
+      toast.error("Please enter a valid email address.");
+      return;
+    }
+    setLoading(true);
+    try {
+      await apiFetch(`/users/${employee.user_id}/assign-email`, {
+        method: "PATCH",
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+      });
+      onSaved(email.trim().toLowerCase());
+      toast.success(`Company email assigned. ${employee.first_name} must log in with their new email.`);
+      onClose();
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to assign company email.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm flex flex-col">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+          <div>
+            <h2 className="font-bold text-lg">Assign Company Email</h2>
+            <p className="text-xs text-muted-foreground">
+              {employee.first_name} {employee.last_name} · {employee.email}
+            </p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+        </div>
+        <div className="px-6 py-6 space-y-4">
+          <p className="text-sm text-muted-foreground">
+            The employee currently logs in with their personal email. Once you assign a company email, their login email will change and their existing sessions will be revoked.
+          </p>
+          <div className="space-y-1.5">
+            <label htmlFor="assign-email-input" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">
+              Company Email *
+            </label>
+            <Input
+              id="assign-email-input"
+              type="email"
+              placeholder="firstname.lastname@company.com"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              onKeyDown={e => e.key === "Enter" && handleSave()}
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 px-6 pb-6">
+          <Button variant="outline" onClick={onClose} disabled={loading}>Cancel</Button>
+          <Button onClick={handleSave} disabled={loading || !email.trim()}>
+            {loading ? "Assigning..." : "Assign Email"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -497,6 +578,7 @@ export default function ManagerTeamPage() {
   const [stats, setStats]             = useState<Stats | null>(null);
   const [roles, setRoles]             = useState<Role[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [onboardingMap, setOnboardingMap] = useState<Record<string, { progress_percentage: number; status: string }>>({});
   const [loading, setLoading]         = useState(true);
   const [now, setNow]                 = useState(() => Date.now());
   const [search, setSearch]           = useState(searchParams.get("q") ?? "");
@@ -507,8 +589,9 @@ export default function ManagerTeamPage() {
     setSearch(searchParams.get("q") ?? "");
   }, [searchParams]);
 
-  const [viewEmployee, setViewEmployee]   = useState<Employee | null>(null);
-  const [confirmDeact, setConfirmDeact]   = useState<Employee | null>(null);
+  const [viewEmployee, setViewEmployee]       = useState<Employee | null>(null);
+  const [confirmDeact, setConfirmDeact]       = useState<Employee | null>(null);
+  const [assignEmailEmployee, setAssignEmailEmployee] = useState<Employee | null>(null);
   const [showFilter, setShowFilter]       = useState(false);
   const [statusFilter, setStatusFilter]   = useState<Set<string>>(new Set());
   const [deptFilter, setDeptFilter]       = useState("");
@@ -543,6 +626,16 @@ export default function ManagerTeamPage() {
         setDepartments(Array.isArray(deptsData) ? deptsData : []);
       } catch {
         setDepartments([]);
+      }
+      try {
+        const sessions = await apiFetch<Array<{ account_id: string; progress_percentage: number; status: string }>>("/onboarding/hr/sessions");
+        const map: Record<string, { progress_percentage: number; status: string }> = {};
+        for (const s of sessions) {
+          map[s.account_id] = { progress_percentage: s.progress_percentage ?? 0, status: s.status ?? '' };
+        }
+        setOnboardingMap(map);
+      } catch {
+        setOnboardingMap({});
       }
     } catch {
       toast.error("Failed to load team data.");
@@ -761,6 +854,7 @@ export default function ManagerTeamPage() {
                 <th className="px-5 py-3">Role</th>
                 <th className="px-5 py-3">Department</th>
                 <th className="px-5 py-3">Status</th>
+                <th className="px-5 py-3">Onboarding</th>
                 <th className="px-5 py-3">Invite Expires In</th>
                 <th className="px-5 py-3">Last Login</th>
                 <th className="px-5 py-3 text-right">Actions</th>
@@ -769,14 +863,14 @@ export default function ManagerTeamPage() {
             <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">
+                  <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
                     Loading team...
                   </td>
                 </tr>
               ) : (
                 paged.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">
+                    <td colSpan={9} className="px-5 py-10 text-center text-muted-foreground">
                       No team members found.
                     </td>
                   </tr>
@@ -809,6 +903,26 @@ export default function ManagerTeamPage() {
                   <td className="px-5 py-4">
                     <StatusBadge status={e.account_status} />
                   </td>
+                  <td className="px-5 py-4 min-w-[140px]">
+                    {onboardingMap[e.user_id] ? (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                            {onboardingMap[e.user_id].status === 'approved' ? 'Complete' : onboardingMap[e.user_id].status}
+                          </span>
+                          <span className="text-[10px] font-semibold text-foreground">
+                            {onboardingMap[e.user_id].progress_percentage}%
+                          </span>
+                        </div>
+                        <Progress
+                          value={onboardingMap[e.user_id].progress_percentage}
+                          className="h-1.5"
+                        />
+                      </div>
+                    ) : (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    )}
+                  </td>
                   <td className="px-5 py-4">
                     {e.account_status === "Pending" ? (
                       <div>
@@ -833,6 +947,7 @@ export default function ManagerTeamPage() {
                       onDeactivate={() => setConfirmDeact(e)}
                       onReactivate={() => handleReactivate(e)}
                       onResendInvite={() => handleResendInvite(e)}
+                      onAssignEmail={() => setAssignEmailEmployee(e)}
                     />
                   </td>
                 </tr>
@@ -876,6 +991,18 @@ export default function ManagerTeamPage() {
           employee={confirmDeact}
           onClose={() => setConfirmDeact(null)}
           onConfirm={() => handleDeactivate(confirmDeact)}
+        />
+      )}
+      {assignEmailEmployee && (
+        <AssignEmailModal
+          employee={assignEmailEmployee}
+          onClose={() => setAssignEmailEmployee(null)}
+          onSaved={(newEmail) => {
+            setEmployees(prev => prev.map(e =>
+              e.user_id === assignEmailEmployee.user_id ? { ...e, email: newEmail } : e
+            ));
+            setAssignEmailEmployee(null);
+          }}
         />
       )}
     </div>

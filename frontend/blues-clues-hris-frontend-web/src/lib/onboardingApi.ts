@@ -1,5 +1,5 @@
 import { API_BASE_URL } from './api';
-import { getAccessToken } from './authStorage';
+import { getAccessToken, getUserInfo } from './authStorage';
 import type { OnboardingSession, OnboardingSessionSummary, OnboardingTemplate, ProfileData, TemplateItem } from '@/types/onboarding.types';
 
 function headers() {
@@ -9,12 +9,28 @@ function headers() {
   };
 }
 
-// ---- Employee endpoints ----
+// Applicants use /onboarding/portal/... (ApplicantJwtAuthGuard)
+// Employees use /onboarding/applicant/... (JwtAuthGuard + RolesGuard)
+function onboardingBase() {
+  return getUserInfo()?.role === 'applicant'
+    ? `${API_BASE_URL}/onboarding/portal`
+    : `${API_BASE_URL}/onboarding/applicant`;
+}
+
+// ---- Employee / Applicant shared endpoints ----
 
 export async function getMySession(): Promise<OnboardingSession | null> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/applicant/session`, { headers: headers() });
+  const res = await fetch(`${onboardingBase()}/session`, { headers: headers() });
+  if (res.status === 401) {
+    const body = await res.json().catch(() => ({}));
+    const err: any = new Error(body?.message || 'Unauthorized');
+    err.status = 401;
+    throw err;
+  }
   if (!res.ok) throw new Error('Failed to fetch onboarding session');
-  return res.json();
+  const text = await res.text();
+  if (!text || text.trim() === '') return null; // no session assigned yet
+  return JSON.parse(text);
 }
 
 export async function uploadDocument(onboardingItemId: string, file: File, isProofOfReceipt = false): Promise<any> {
@@ -22,7 +38,7 @@ export async function uploadDocument(onboardingItemId: string, file: File, isPro
   formData.append('onboardingItemId', onboardingItemId);
   formData.append('file', file);
   const res = await fetch(
-    `${API_BASE_URL}/onboarding/applicant/upload-document?isProofOfReceipt=${isProofOfReceipt}`,
+    `${onboardingBase()}/upload-document?isProofOfReceipt=${isProofOfReceipt}`,
     {
       method: 'POST',
       headers: { Authorization: `Bearer ${getAccessToken()}` },
@@ -34,7 +50,7 @@ export async function uploadDocument(onboardingItemId: string, file: File, isPro
 }
 
 export async function confirmTask(onboardingItemId: string): Promise<any> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/applicant/items/${onboardingItemId}/confirm`, {
+  const res = await fetch(`${onboardingBase()}/items/${onboardingItemId}/confirm`, {
     method: 'POST',
     headers: headers(),
   });
@@ -43,17 +59,21 @@ export async function confirmTask(onboardingItemId: string): Promise<any> {
 }
 
 export async function saveProfile(sessionId: string, profile: Omit<ProfileData, 'profile_id' | 'session_id' | 'status'>): Promise<ProfileData> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/applicant/session/${sessionId}/profile`, {
+  const res = await fetch(`${onboardingBase()}/session/${sessionId}/profile`, {
     method: 'PUT',
     headers: headers(),
     body: JSON.stringify(profile),
   });
-  if (!res.ok) throw new Error('Failed to save profile');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg = Array.isArray(body?.message) ? body.message.join(', ') : (body?.message || 'Failed to save profile');
+    throw new Error(msg);
+  }
   return res.json();
 }
 
 export async function submitForReview(sessionId: string): Promise<any> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/applicant/session/${sessionId}/submit`, {
+  const res = await fetch(`${onboardingBase()}/session/${sessionId}/submit`, {
     method: 'POST',
     headers: headers(),
   });
@@ -62,7 +82,7 @@ export async function submitForReview(sessionId: string): Promise<any> {
 }
 
 export async function requestEquipment(onboardingItemId: string, is_requested: boolean, delivery_method: 'office' | 'delivery', delivery_address?: string): Promise<any> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/applicant/items/${onboardingItemId}/request-equipment`, {
+  const res = await fetch(`${onboardingBase()}/items/${onboardingItemId}/request-equipment`, {
     method: 'PATCH',
     headers: headers(),
     body: JSON.stringify({ is_requested, delivery_method, delivery_address }),

@@ -358,11 +358,18 @@ function CreateJobModal({
   const [questions, setQuestions] = useState<Question[]>([]);
   const [saving, setSaving] = useState(false);
   const [savingQuestions, setSavingQuestions] = useState(false);
+  const [departments, setDepartments] = useState<{ department_id: string; department_name: string }[]>([]);
 
   const [form, setForm] = useState({
     title: "", description: "", location: "",
-    employment_type: "", salary_range: "", closes_at: "",
+    employment_type: "", salary_range: "", closes_at: "", department_id: "",
   });
+
+  useEffect(() => {
+    apiFetch<{ department_id: string; department_name: string }[]>("/users/departments")
+      .then(setDepartments)
+      .catch(() => {});
+  }, []);
 
   const handleCreatePosting = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -373,6 +380,7 @@ function CreateJobModal({
       if (form.employment_type)     payload.employment_type = form.employment_type;
       if (form.salary_range.trim()) payload.salary_range = form.salary_range.trim();
       if (form.closes_at)           payload.closes_at = new Date(form.closes_at).toISOString();
+      if (form.department_id)       payload.department_id = form.department_id;
 
       const job = await apiFetch<JobPosting>("/jobs", { method: "POST", body: JSON.stringify(payload) });
       setCreatedJob(job);
@@ -465,6 +473,20 @@ function CreateJobModal({
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 />
               </div>
+              <div className="space-y-1.5">
+                <label htmlFor="create-department" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</label>
+                <select
+                  id="create-department"
+                  value={form.department_id}
+                  onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value }))}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">Select department</option>
+                  {departments.map((d) => (
+                    <option key={d.department_id} value={d.department_id}>{d.department_name}</option>
+                  ))}
+                </select>
+              </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label htmlFor="create-location" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Location</label>
@@ -534,6 +556,7 @@ function EditJobModal({
   onSave: (updated: JobPosting) => void;
 }>) {
   const [saving, setSaving] = useState(false);
+  const [departments, setDepartments] = useState<{ department_id: string; department_name: string }[]>([]);
   const [form, setForm] = useState({
     title: job.title,
     description: job.description,
@@ -541,7 +564,15 @@ function EditJobModal({
     employment_type: job.employment_type ?? "",
     salary_range: job.salary_range ?? "",
     closes_at: job.closes_at ? job.closes_at.slice(0, 10) : "",
+    department_id: job.department_id ?? "",
+    status: job.status,
   });
+
+  useEffect(() => {
+    apiFetch<{ department_id: string; department_name: string }[]>("/users/departments")
+      .then(setDepartments)
+      .catch(() => {});
+  }, []);
 
   const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -556,6 +587,8 @@ function EditJobModal({
           employment_type: form.employment_type || null,
           salary_range: form.salary_range.trim() || null,
           closes_at: form.closes_at ? new Date(form.closes_at).toISOString() : null,
+          department_id: form.department_id || null,
+          status: form.status,
         }),
       });
       toast.success("Job posting updated!");
@@ -586,6 +619,19 @@ function EditJobModal({
               <Input id="edit-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Senior Software Engineer" required className="h-10" />
             </div>
             <div className="space-y-1.5">
+              <label htmlFor="edit-status" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</label>
+              <select
+                id="edit-status"
+                value={form.status}
+                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as "open" | "closed" | "draft" }))}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+                <option value="draft">Draft</option>
+              </select>
+            </div>
+            <div className="space-y-1.5">
               <label htmlFor="edit-description" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Description *</label>
               <textarea
                 id="edit-description"
@@ -595,6 +641,20 @@ function EditJobModal({
                 required rows={4}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               />
+            </div>
+            <div className="space-y-1.5">
+              <label htmlFor="edit-department" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</label>
+              <select
+                id="edit-department"
+                value={form.department_id}
+                onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value }))}
+                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <option value="">Select department</option>
+                {departments.map((d) => (
+                  <option key={d.department_id} value={d.department_id}>{d.department_name}</option>
+                ))}
+              </select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">

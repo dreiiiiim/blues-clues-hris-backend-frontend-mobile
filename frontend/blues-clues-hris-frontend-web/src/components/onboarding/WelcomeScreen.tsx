@@ -1,12 +1,27 @@
+"use client";
+
+import { useState } from "react";
 import { PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 interface WelcomeScreenProps {
-  onStart: () => void;
+  sessionId: string;
+  onStart: (dontShowAgain: boolean) => void;
 }
 
-export function WelcomeScreen({ onStart }: Readonly<WelcomeScreenProps>) {
+export function WelcomeScreen({ sessionId, onStart }: Readonly<WelcomeScreenProps>) {
+  const [dontShowAgain, setDontShowAgain] = useState(false);
+  const [starting, setStarting] = useState(false);
+
+  const handleStart = async () => {
+    setStarting(true);
+    if (dontShowAgain) {
+      localStorage.setItem(`onboarding_welcome_done_${sessionId}`, "1");
+    }
+    await onStart(dontShowAgain);
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
       <Card className="max-w-2xl w-full">
@@ -18,7 +33,7 @@ export function WelcomeScreen({ onStart }: Readonly<WelcomeScreenProps>) {
           </div>
           <CardTitle className="text-3xl">Congratulations!</CardTitle>
           <CardDescription className="text-lg">
-            Welcome to the team! We're excited to have you on board. Let's get you started with the onboarding process.
+            Welcome to the team! We&apos;re excited to have you on board. Let&apos;s get you started with the onboarding process.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -43,8 +58,22 @@ export function WelcomeScreen({ onStart }: Readonly<WelcomeScreenProps>) {
               </li>
             </ul>
           </div>
-          <Button onClick={onStart} className="w-full" size="lg">
-            Start Onboarding Process
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              id="dont-show-again"
+              type="checkbox"
+              checked={dontShowAgain}
+              onChange={(e) => setDontShowAgain(e.target.checked)}
+              className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+            />
+            <label htmlFor="dont-show-again" className="text-xs text-muted-foreground cursor-pointer select-none">
+              Don&apos;t show this welcome screen again
+            </label>
+          </div>
+
+          <Button onClick={handleStart} disabled={starting} className="w-full" size="lg">
+            {starting ? "Starting..." : "Start Onboarding Process"}
           </Button>
         </CardContent>
       </Card>
