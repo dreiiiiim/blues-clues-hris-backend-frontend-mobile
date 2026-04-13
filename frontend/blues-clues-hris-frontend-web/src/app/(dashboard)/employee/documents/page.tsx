@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Upload,
   FileText,
@@ -65,7 +64,7 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status }: Readonly<{ status: string }>) {
   if (status === "approved") {
     return (
       <Badge className="bg-green-100 text-green-700 hover:bg-green-100 gap-1">
@@ -151,7 +150,7 @@ export default function EmployeeDocumentsPage() {
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
-      <div className="relative overflow-hidden rounded-2xl bg-[#1e3a8a] text-white p-8 shadow-sm">
+      <div className="relative overflow-hidden rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] text-white p-8 shadow-sm">
         <div className="absolute top-0 right-0 h-40 w-40 rounded-full bg-white/10 -translate-y-1/3 translate-x-1/3" />
         <div className="absolute bottom-0 right-16 h-24 w-24 rounded-full bg-white/10 translate-y-1/2" />
         <div className="relative z-10">

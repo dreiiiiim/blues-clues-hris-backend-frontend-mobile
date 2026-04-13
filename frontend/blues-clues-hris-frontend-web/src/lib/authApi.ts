@@ -503,16 +503,49 @@ export type EmployeeProfile = {
   username: string | null;
   department_id: string | null;
   start_date: string | null;
+  phone_number: string | null;
   personal_email: string | null;
   date_of_birth: string | null;
   place_of_birth: string | null;
   nationality: string | null;
   civil_status: string | null;
   complete_address: string | null;
+  emergency_contact_name: string | null;
+  emergency_contact_phone: string | null;
+  emergency_contact_relationship: string | null;
   bank_name: string | null;
   bank_account_number: string | null;
   bank_account_name: string | null;
   avatar_url: string | null;
+};
+
+export type LeaveReason =
+  | 'Sick Leave'
+  | 'Emergency Leave'
+  | 'WFH / Remote'
+  | 'Personal Leave'
+  | 'Vacation Leave'
+  | 'On Leave (Approved)'
+  | 'Other';
+
+export type EmployeeTimesheetEntry = {
+  date: string;
+  time_in: { timestamp: string; latitude: number | null; longitude: number | null } | null;
+  time_out: { timestamp: string; latitude: number | null; longitude: number | null } | null;
+  absence: { timestamp: string; absence_reason: LeaveReason | null; absence_notes: string | null } | null;
+};
+
+export type LeaveBalanceCard = {
+  type: 'Vacation' | 'Sick' | 'Emergency' | 'Personal';
+  remaining: number | null;
+  total: number | null;
+};
+
+export type LeaveRequestItem = {
+  date: string;
+  reason: LeaveReason | null;
+  notes: string | null;
+  status: 'approved' | 'reported';
 };
 
 export async function getApplicantProfile(): Promise<ApplicantProfile> {
@@ -558,6 +591,61 @@ export async function getEmployeeProfile(): Promise<EmployeeProfile> {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch profile');
   return data as EmployeeProfile;
+}
+
+export async function getMyTimesheetApi(from?: string, to?: string): Promise<EmployeeTimesheetEntry[]> {
+  const qs = new URLSearchParams();
+  if (from) qs.set('from', from);
+  if (to) qs.set('to', to);
+  const query = qs.toString();
+  const endpoint = query
+    ? `${API_BASE_URL}/timekeeping/my-timesheet?${query}`
+    : `${API_BASE_URL}/timekeeping/my-timesheet`;
+  const res = await authFetch(endpoint);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch timesheet');
+  return data as EmployeeTimesheetEntry[];
+}
+
+export async function reportAbsenceApi(body: { reason: LeaveReason; notes?: string }): Promise<{ log_id: string; date: string; reason: LeaveReason; notes: string | null }> {
+  const res = await authFetch(`${API_BASE_URL}/timekeeping/report-absence`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to file leave');
+  return data as { log_id: string; date: string; reason: LeaveReason; notes: string | null };
+}
+
+export async function getMyLeaveBalances(): Promise<LeaveBalanceCard[]> {
+  const res = await authFetch(`${API_BASE_URL}/timekeeping/leave-balances`);
+
+  // Backend may not expose leave balances yet; keep UI functional with unavailable values.
+  if (res.status === 404) {
+    return [
+      { type: 'Vacation', remaining: null, total: null },
+      { type: 'Sick', remaining: null, total: null },
+      { type: 'Emergency', remaining: null, total: null },
+      { type: 'Personal', remaining: null, total: null },
+    ];
+  }
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch leave balances');
+  return data as LeaveBalanceCard[];
+}
+
+export async function getMyLeaveRequests(): Promise<LeaveRequestItem[]> {
+  const timesheet = await getMyTimesheetApi();
+  return timesheet
+    .filter((row) => row.absence)
+    .map((row) => ({
+      date: row.date,
+      reason: row.absence?.absence_reason ?? null,
+      notes: row.absence?.absence_notes ?? null,
+      status: row.absence?.absence_reason === 'On Leave (Approved)' ? 'approved' : 'reported',
+    }));
 }
 
 export async function updateEmployeeProfile(body: Partial<Omit<EmployeeProfile, 'user_id' | 'employee_id' | 'email' | 'username' | 'first_name' | 'last_name' | 'department_id' | 'start_date'>>): Promise<EmployeeProfile> {
@@ -675,7 +763,7 @@ export type EmployeeDocument = {
 export async function getMyEmployeeDocuments(): Promise<EmployeeDocument[]> {
   const res = await authFetch(`${API_BASE_URL}/users/me/documents`);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as any)?.message || 'Failed to fetch documents');
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch documents');
   return data as EmployeeDocument[];
 }
 
@@ -688,7 +776,7 @@ export async function uploadMyDocument(docType: string, file: File): Promise<Emp
     body: formData,
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as any)?.message || 'Upload failed');
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Upload failed');
   return data as EmployeeDocument;
 }
 
@@ -696,14 +784,14 @@ export async function deleteMyDocument(docId: string): Promise<void> {
   const res = await authFetch(`${API_BASE_URL}/users/me/documents/${docId}`, { method: 'DELETE' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as any)?.message || 'Delete failed');
+    throw new Error((data as { message?: string })?.message || 'Delete failed');
   }
 }
 
 export async function getPendingEmployeeDocuments(): Promise<(EmployeeDocument & { user_profile: { first_name: string; last_name: string; employee_id: string } })[]> {
   const res = await authFetch(`${API_BASE_URL}/users/documents/pending`);
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((data as any)?.message || 'Failed to fetch pending documents');
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to fetch pending documents');
   return data as any[];
 }
 
@@ -711,7 +799,7 @@ export async function approveEmployeeDocument(docId: string): Promise<void> {
   const res = await authFetch(`${API_BASE_URL}/users/documents/${docId}/approve`, { method: 'PATCH' });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as any)?.message || 'Approve failed');
+    throw new Error((data as { message?: string })?.message || 'Approve failed');
   }
 }
 
@@ -723,7 +811,7 @@ export async function rejectEmployeeDocument(docId: string, hrNotes: string): Pr
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
-    throw new Error((data as any)?.message || 'Reject failed');
+    throw new Error((data as { message?: string })?.message || 'Reject failed');
   }
 }
 

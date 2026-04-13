@@ -12,7 +12,8 @@ import {
   Search, MoreHorizontal, X,
   ChevronLeft, ChevronRight, UserX, UserCheck,
   Filter, Download, Check, Mail, Eye,
-  Hash, User, Building2, Calendar, Shield, TrendingUp, AtSign,
+  Hash, User, Building2, Calendar, Shield, AtSign,
+  Loader2,
 } from "lucide-react";
 import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
@@ -903,7 +904,7 @@ export default function ManagerTeamPage() {
                   <td className="px-5 py-4">
                     <StatusBadge status={e.account_status} />
                   </td>
-                  <td className="px-5 py-4 min-w-[140px]">
+                  <td className="px-5 py-4 min-w-35">
                     {onboardingMap[e.user_id] ? (
                       <div className="space-y-1">
                         <div className="flex items-center justify-between">

@@ -386,7 +386,7 @@ function TopPerformersBar({ entries }: Readonly<{ entries: PeriodEntry[] }>) {
   ];
 
   return (
-    <div className="flex items-center gap-3 p-4 bg-gradient-to-r from-primary/5 to-transparent border border-primary/10 rounded-xl mb-4">
+    <div className="flex items-center gap-3 p-4 bg-linear-to-r from-primary/5 to-transparent border border-primary/10 rounded-xl mb-4">
       <div className="flex items-center gap-1.5 shrink-0">
         <Star className="h-4 w-4 text-amber-500" />
         <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Top Attendance</span>
@@ -558,7 +558,7 @@ function DayCompactRow({ day }: Readonly<{ day: SliderDay }>) {
       }`}
     >
       <div className={`h-2 w-2 rounded-full shrink-0 ${dotCls}`} />
-      <div className="w-[68px] shrink-0">
+      <div className="w-17 shrink-0">
         <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest leading-none">
           {dayLabel}
         </p>

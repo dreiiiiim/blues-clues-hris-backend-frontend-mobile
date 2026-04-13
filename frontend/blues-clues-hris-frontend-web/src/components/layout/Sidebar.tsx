@@ -18,9 +18,12 @@ import {
   Layers,
   ClipboardCheck,
   Clock,
+  CalendarDays,
   Loader2,
   ScrollText,
   Trophy,
+  GitBranch,
+  Building2,
 } from "lucide-react";
 
 import {
@@ -62,6 +65,8 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
   employee: [
     { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
     { name: "Timekeeping", href: "/employee/timekeeping",  icon: Clock },
+    { name: "Leave",       href: "/employee/leave",        icon: CalendarDays },
+    { name: "Payslips",    href: "/employee/payslips",     icon: DollarSign },
     { name: "My Profile",  href: "/employee/profile",      icon: Users },
     { name: "Documents",   href: "/employee/documents",    icon: FileCheck },
   ],
@@ -71,6 +76,9 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "Recruitment",  href: "/hr/jobs",         icon: Briefcase },
     { name: "Candidates",   href: "/hr/candidates",   icon: Trophy },
     { name: "Onboarding",   href: "/hr/onboarding",   icon: UserPlus },
+    { name: "Approvals",    href: "/hr/approvals",    icon: ClipboardCheck },
+    { name: "Directory",    href: "/hr/directory",    icon: Building2 },
+    { name: "Org Chart",    href: "/hr/org-chart",    icon: GitBranch },
     { name: "Compensation", href: "/hr/payroll",      icon: DollarSign },
     { name: "Performance",  href: "/hr/performance",  icon: BarChart },
   ],

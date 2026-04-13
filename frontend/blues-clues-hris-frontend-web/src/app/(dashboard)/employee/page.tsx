@@ -17,7 +17,6 @@ import {
   FileCheck,
   FileText,
   Landmark,
-  Loader2,
   ShieldCheck,
   User,
   Timer,
@@ -88,14 +87,27 @@ function getTodayLabel() {
   });
 }
 
+function getDocumentStatusMeta(doc: EmployeeDocument | undefined) {
+  if (doc?.status === "approved") {
+    return { statusColor: "text-green-600", statusLabel: "Approved", dotColor: "bg-green-500" };
+  }
+  if (doc?.status === "pending") {
+    return { statusColor: "text-amber-600", statusLabel: "Pending review", dotColor: "bg-amber-500" };
+  }
+  if (doc?.status === "rejected") {
+    return { statusColor: "text-red-600", statusLabel: "Rejected", dotColor: "bg-red-500" };
+  }
+  return { statusColor: "text-gray-400", statusLabel: "Not uploaded", dotColor: "bg-gray-300" };
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({
   label, value, sub, icon: Icon, color,
-}: {
+}: Readonly<{
   label: string; value: string; sub?: string;
   icon: React.ElementType; color: string;
-}) {
+}>) {
   return (
     <Card className="rounded-2xl border-gray-100 shadow-sm">
       <CardContent className="p-5 flex items-center gap-4">
@@ -114,9 +126,9 @@ function StatCard({
 
 function QuickAction({
   href, icon: Icon, label, desc, color,
-}: {
+}: Readonly<{
   href: string; icon: React.ElementType; label: string; desc: string; color: string;
-}) {
+}>) {
   return (
     <Link href={href} className="group block">
       <div className="flex items-center gap-4 p-4 rounded-2xl border border-gray-200 bg-white hover:border-primary/40 hover:bg-primary/5 transition-all cursor-pointer">
@@ -133,9 +145,314 @@ function QuickAction({
   );
 }
 
+function EmployeeHero({
+  loading,
+  firstName,
+  todayLabel,
+  todayCfg,
+  timeIn,
+  hoursWorked,
+}: Readonly<{
+  loading: boolean;
+  firstName: string;
+  todayLabel: string;
+  todayCfg: { label: string; cls: string } | null;
+  timeIn: string | null;
+  hoursWorked: string | null;
+}>) {
+  return (
+    <section className="relative overflow-hidden rounded-[26px] bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 py-8 text-white shadow-sm md:px-8 md:py-10">
+      <div className="absolute inset-y-0 right-0 w-80 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_65%)]" />
+      <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
+      <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/60">Staff Portal</p>
+          <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">
+            {loading ? "Loading…" : `Welcome back, ${firstName}!`}
+          </h1>
+          <p className="mt-1.5 text-sm text-white/70">{todayLabel}</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          {loading ? (
+            <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur w-36 h-16 animate-pulse" />
+          ) : (
+            <>
+              <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Today</p>
+                <div className="mt-1 flex items-center gap-2">
+                  <Clock className="h-3.5 w-3.5 text-white/70" />
+                  <p className="text-sm font-bold">
+                    {todayCfg ? (
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${todayCfg.cls}`}>
+                        {todayCfg.label}
+                      </span>
+                    ) : (
+                      <span className="text-white/60 text-xs">Not clocked in</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              {timeIn && (
+                <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Time In</p>
+                  <p className="mt-1 text-sm font-bold">{fmtTime(timeIn)}</p>
+                </div>
+              )}
+              {hoursWorked && (
+                <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Hours Worked</p>
+                  <p className="mt-1 text-sm font-bold">{hoursWorked}</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function EmployeeSetupTracker({
+  overallSetupPct,
+  profileDone,
+  missingProfileFields,
+  allDocsDone,
+  docs,
+}: Readonly<{
+  overallSetupPct: number;
+  profileDone: boolean;
+  missingProfileFields: string[];
+  allDocsDone: boolean;
+  docs: EmployeeDocument[];
+}>) {
+  return (
+    <Card className="rounded-2xl border-primary/20 bg-linear-to-br from-blue-50/80 to-indigo-50/50 shadow-sm overflow-hidden">
+      <CardHeader className="pb-3 border-b border-primary/10">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-primary text-white flex items-center justify-center">
+              <Sparkles className="h-4.5 w-4.5" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-bold tracking-tight text-gray-900">
+                Get Started — Employee Setup
+              </CardTitle>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Complete your profile and upload your documents to finish setup.
+              </p>
+            </div>
+          </div>
+          <span className="text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1 rounded-full uppercase tracking-wide shrink-0">
+            {overallSetupPct}% Complete
+          </span>
+        </div>
+        <Progress value={overallSetupPct} className="mt-4 h-2" />
+      </CardHeader>
+
+      <CardContent className="p-5 grid sm:grid-cols-2 gap-4">
+        <div className={`rounded-xl border p-4 space-y-3 ${profileDone ? "bg-white border-green-200" : "bg-white border-amber-200"}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${profileDone ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                <User className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Personal Information</p>
+                <p className="text-xs text-muted-foreground">Fill in your profile details</p>
+              </div>
+            </div>
+            <StepChip done={profileDone} />
+          </div>
+
+          {!profileDone && missingProfileFields.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Missing fields</p>
+              <div className="flex flex-wrap gap-1.5">
+                {missingProfileFields.map((field) => (
+                  <span key={field} className="rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                    {field}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="pt-1">
+            <Button size="sm" variant={profileDone ? "outline" : "default"} className="h-8 text-xs" asChild>
+              <Link href="/employee/profile">
+                {profileDone ? "View Profile" : "Complete Profile"}
+                <ArrowRight className="h-3 w-3 ml-1.5" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+
+        <div className={`rounded-xl border p-4 space-y-3 ${allDocsDone ? "bg-white border-green-200" : "bg-white border-amber-200"}`}>
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2.5">
+              <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${allDocsDone ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                <Upload className="h-4 w-4" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold text-gray-900">Required Documents</p>
+                <p className="text-xs text-muted-foreground">Upload & get HR approval</p>
+              </div>
+            </div>
+            <StepChip done={allDocsDone} />
+          </div>
+
+          <div className="space-y-1.5">
+            {REQUIRED_DOC_TYPES.map(({ id, label, icon: DocIcon }) => {
+              const doc = docs.find((item) => item.document_type === id);
+              const { statusColor, statusLabel, dotColor } = getDocumentStatusMeta(doc);
+
+              return (
+                <div key={id} className="flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <DocIcon className={`h-3.5 w-3.5 shrink-0 ${statusColor}`} />
+                    <span className="text-gray-700 truncate">{label}</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                    <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
+                    <span className={`${statusColor} font-medium`}>{statusLabel}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="pt-1">
+            <Button size="sm" variant={allDocsDone ? "outline" : "default"} className="h-8 text-xs" asChild>
+              <Link href="/employee/documents">
+                {allDocsDone ? "View Documents" : "Upload Documents"}
+                <ArrowRight className="h-3 w-3 ml-1.5" />
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmployeeTimekeepingCard({
+  loading,
+  todayCfg,
+  timeIn,
+  timeOut,
+  hoursWorked,
+  todayStatus,
+}: Readonly<{
+  loading: boolean;
+  todayCfg: { label: string; cls: string } | null;
+  timeIn: string | null;
+  timeOut: string | null;
+  hoursWorked: string | null;
+  todayStatus: MyStatus["current_status"];
+}>) {
+  return (
+    <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
+      <CardHeader className="pb-3 bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)] border-b border-border">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
+              <Clock className="h-4.5 w-4.5" />
+            </div>
+            <CardTitle className="text-base font-bold tracking-tight">Today&apos;s Timekeeping</CardTitle>
+          </div>
+          <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" asChild>
+            <Link href="/employee/timekeeping">View all <ArrowRight className="h-3 w-3 ml-1" /></Link>
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="p-5 space-y-3">
+        {loading ? (
+          <div className="space-y-2 animate-pulse">
+            {[1, 2, 3].map((item) => <div key={item} className="h-12 rounded-xl bg-muted/40" />)}
+          </div>
+        ) : (
+          <>
+            <TkRow label="Status" value={
+              todayCfg ? (
+                <Badge className={`border text-[10px] font-bold uppercase tracking-wide ${todayCfg.cls}`}>
+                  {todayCfg.label}
+                </Badge>
+              ) : (
+                <span className="text-xs text-muted-foreground">No record yet</span>
+              )
+            } />
+            <TkRow label="Time In" value={<span className="text-sm font-semibold">{fmtTime(timeIn)}</span>} />
+            <TkRow label="Time Out" value={<span className="text-sm font-semibold">{fmtTime(timeOut)}</span>} />
+            {hoursWorked && (
+              <TkRow label="Hours Worked" value={<span className="text-sm font-semibold text-primary">{hoursWorked}</span>} />
+            )}
+            {!todayStatus && (
+              <div className="pt-1">
+                <Button size="sm" className="w-full h-9 text-xs" asChild>
+                  <Link href="/employee/timekeeping">
+                    <Timer className="h-3.5 w-3.5 mr-2" /> Go to Timekeeping
+                  </Link>
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function EmployeeQuickActionsCard({
+  approvedDocsCount,
+  pendingDocsCount,
+  profileDone,
+  missingProfileFieldsCount,
+}: Readonly<{
+  approvedDocsCount: number;
+  pendingDocsCount: number;
+  profileDone: boolean;
+  missingProfileFieldsCount: number;
+}>) {
+  return (
+    <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
+      <CardHeader className="pb-3 bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)] border-b border-border">
+        <div className="flex items-center gap-3">
+          <div className="p-2 bg-violet-100 text-violet-700 rounded-lg">
+            <TrendingUp className="h-4.5 w-4.5" />
+          </div>
+          <CardTitle className="text-base font-bold tracking-tight">Quick Actions</CardTitle>
+        </div>
+      </CardHeader>
+      <CardContent className="p-5 space-y-3">
+        <QuickAction
+          href="/employee/timekeeping"
+          icon={Clock}
+          label="Timekeeping"
+          desc="Clock in/out and view your timesheet"
+          color="bg-blue-100 text-blue-700"
+        />
+        <QuickAction
+          href="/employee/documents"
+          icon={FileCheck}
+          label="My Documents"
+          desc={`${approvedDocsCount} approved · ${pendingDocsCount} pending`}
+          color="bg-green-100 text-green-700"
+        />
+        <QuickAction
+          href="/employee/profile"
+          icon={User}
+          label="My Profile"
+          desc={profileDone ? "Profile complete" : `${missingProfileFieldsCount} fields to fill in`}
+          color="bg-violet-100 text-violet-700"
+        />
+      </CardContent>
+    </Card>
+  );
+}
+
 // ─── Setup step status chip ───────────────────────────────────────────────────
 
-function StepChip({ done }: { done: boolean }) {
+function StepChip({ done }: Readonly<{ done: boolean }>) {
   return done ? (
     <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-green-700">
       <CheckCircle2 className="h-3 w-3" /> Done
@@ -186,6 +503,10 @@ export default function EmployeeDashboardPage() {
 
   const setupDone        = profileDone && allDocsDone;
   const overallSetupPct  = Math.round((profilePct + docsPct) / 2);
+  let startDateDisplay = "—";
+  if (!loading && profile?.start_date) {
+    startDateDisplay = new Date(profile.start_date).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  }
 
   const todayStatus      = tkStatus?.current_status ?? null;
   const timeIn           = tkStatus?.time_in?.timestamp ?? null;
@@ -203,59 +524,19 @@ export default function EmployeeDashboardPage() {
 
   // ── Missing profile fields ───────────────────────────────────────────────────
   const missingProfileFields = PROFILE_FIELDS.filter(({ key }) => !profile?.[key]).map(f => f.label);
+  const firstName = profile?.first_name || user?.name?.split(" ")[0] || "Employee";
+  const todayLabel = getTodayLabel();
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto animate-in fade-in duration-500">
-
-      {/* ── Hero ─────────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden rounded-[26px] bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 py-8 text-white shadow-sm md:px-8 md:py-10">
-        <div className="absolute inset-y-0 right-0 w-80 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_65%)]" />
-        <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/60">Staff Portal</p>
-            <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">
-              {loading ? "Loading…" : `Welcome back, ${profile?.first_name || user?.name?.split(" ")[0] || "Employee"}!`}
-            </h1>
-            <p className="mt-1.5 text-sm text-white/70">{getTodayLabel()}</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            {loading ? (
-              <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur w-36 h-16 animate-pulse" />
-            ) : (
-              <>
-                <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Today</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5 text-white/70" />
-                    <p className="text-sm font-bold">
-                      {todayCfg ? (
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${todayCfg.cls}`}>
-                          {todayCfg.label}
-                        </span>
-                      ) : (
-                        <span className="text-white/60 text-xs">Not clocked in</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-                {timeIn && (
-                  <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Time In</p>
-                    <p className="mt-1 text-sm font-bold">{fmtTime(timeIn)}</p>
-                  </div>
-                )}
-                {hoursWorked && (
-                  <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Hours Worked</p>
-                    <p className="mt-1 text-sm font-bold">{hoursWorked}</p>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-      </section>
+      <EmployeeHero
+        loading={loading}
+        firstName={firstName}
+        todayLabel={todayLabel}
+        todayCfg={todayCfg}
+        timeIn={timeIn}
+        hoursWorked={hoursWorked}
+      />
 
       {/* ── Stat row ─────────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -282,9 +563,7 @@ export default function EmployeeDashboardPage() {
         />
         <StatCard
           label="Start Date"
-          value={loading ? "—" : (profile?.start_date
-            ? new Date(profile.start_date).toLocaleDateString("en-US", { month: "short", year: "numeric" })
-            : "—")}
+          value={startDateDisplay}
           sub={profile?.employee_id ? `ID: ${profile.employee_id}` : undefined}
           icon={CalendarDays}
           color="bg-amber-50 text-amber-700"
@@ -293,130 +572,13 @@ export default function EmployeeDashboardPage() {
 
       {/* ── New Employee Setup Tracker (hidden when fully done) ──────────────── */}
       {!loading && !setupDone && (
-        <Card className="rounded-2xl border-primary/20 bg-gradient-to-br from-blue-50/80 to-indigo-50/50 shadow-sm overflow-hidden">
-          <CardHeader className="pb-3 border-b border-primary/10">
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-center gap-3">
-                <div className="h-9 w-9 rounded-xl bg-primary text-white flex items-center justify-center">
-                  <Sparkles className="h-4.5 w-4.5 h-[18px] w-[18px]" />
-                </div>
-                <div>
-                  <CardTitle className="text-base font-bold tracking-tight text-gray-900">
-                    Get Started — Employee Setup
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Complete your profile and upload your documents to finish setup.
-                  </p>
-                </div>
-              </div>
-              <span className="text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1 rounded-full uppercase tracking-wide shrink-0">
-                {overallSetupPct}% Complete
-              </span>
-            </div>
-            <Progress value={overallSetupPct} className="mt-4 h-2" />
-          </CardHeader>
-
-          <CardContent className="p-5 grid sm:grid-cols-2 gap-4">
-
-            {/* Step 1 — Profile */}
-            <div className={`rounded-xl border p-4 space-y-3 ${profileDone ? "bg-white border-green-200" : "bg-white border-amber-200"}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${profileDone ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                    <User className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">Personal Information</p>
-                    <p className="text-xs text-muted-foreground">Fill in your profile details</p>
-                  </div>
-                </div>
-                <StepChip done={profileDone} />
-              </div>
-
-              {!profileDone && missingProfileFields.length > 0 && (
-                <div className="space-y-1.5">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Missing fields</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {missingProfileFields.map(f => (
-                      <span key={f} className="rounded-md bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                        {f}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="pt-1">
-                <Button size="sm" variant={profileDone ? "outline" : "default"} className="h-8 text-xs" asChild>
-                  <Link href="/employee/profile">
-                    {profileDone ? "View Profile" : "Complete Profile"}
-                    <ArrowRight className="h-3 w-3 ml-1.5" />
-                  </Link>
-                </Button>
-              </div>
-            </div>
-
-            {/* Step 2 — Documents */}
-            <div className={`rounded-xl border p-4 space-y-3 ${allDocsDone ? "bg-white border-green-200" : "bg-white border-amber-200"}`}>
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2.5">
-                  <div className={`h-8 w-8 rounded-lg flex items-center justify-center ${allDocsDone ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
-                    <Upload className="h-4 w-4" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">Required Documents</p>
-                    <p className="text-xs text-muted-foreground">Upload & get HR approval</p>
-                  </div>
-                </div>
-                <StepChip done={allDocsDone} />
-              </div>
-
-              <div className="space-y-1.5">
-                {REQUIRED_DOC_TYPES.map(({ id, label, icon: DocIcon }) => {
-                  const doc = docs.find(d => d.document_type === id);
-                  const statusColor =
-                    !doc                       ? "text-gray-400"
-                    : doc.status === "approved" ? "text-green-600"
-                    : doc.status === "pending"  ? "text-amber-600"
-                    :                            "text-red-600";
-                  const statusLabel =
-                    !doc                       ? "Not uploaded"
-                    : doc.status === "approved" ? "Approved"
-                    : doc.status === "pending"  ? "Pending review"
-                    :                            "Rejected";
-                  const dotColor =
-                    !doc                       ? "bg-gray-300"
-                    : doc.status === "approved" ? "bg-green-500"
-                    : doc.status === "pending"  ? "bg-amber-500"
-                    :                            "bg-red-500";
-
-                  return (
-                    <div key={id} className="flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <DocIcon className={`h-3.5 w-3.5 shrink-0 ${statusColor}`} />
-                        <span className="text-gray-700 truncate">{label}</span>
-                      </div>
-                      <div className="flex items-center gap-1.5 shrink-0 ml-2">
-                        <span className={`h-1.5 w-1.5 rounded-full ${dotColor}`} />
-                        <span className={`${statusColor} font-medium`}>{statusLabel}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-
-              <div className="pt-1">
-                <Button size="sm" variant={allDocsDone ? "outline" : "default"} className="h-8 text-xs" asChild>
-                  <Link href="/employee/documents">
-                    {allDocsDone ? "View Documents" : "Upload Documents"}
-                    <ArrowRight className="h-3 w-3 ml-1.5" />
-                  </Link>
-                </Button>
-              </div>
-            </div>
-
-          </CardContent>
-        </Card>
+        <EmployeeSetupTracker
+          overallSetupPct={overallSetupPct}
+          profileDone={profileDone}
+          missingProfileFields={missingProfileFields}
+          allDocsDone={allDocsDone}
+          docs={docs}
+        />
       )}
 
       {/* ── All-done banner (shown once setup complete) ───────────────────────── */}
@@ -432,94 +594,21 @@ export default function EmployeeDashboardPage() {
 
       {/* ── Bottom split: Timekeeping today + Quick Actions ──────────────────── */}
       <div className="grid gap-6 md:grid-cols-[1fr_1fr] items-start">
+        <EmployeeTimekeepingCard
+          loading={loading}
+          todayCfg={todayCfg}
+          timeIn={timeIn}
+          timeOut={timeOut}
+          hoursWorked={hoursWorked}
+          todayStatus={todayStatus}
+        />
 
-        {/* Timekeeping today */}
-        <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-          <CardHeader className="pb-3 bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)] border-b border-border">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-blue-100 text-blue-700 rounded-lg">
-                  <Clock className="h-4.5 w-4.5 h-[18px] w-[18px]" />
-                </div>
-                <CardTitle className="text-base font-bold tracking-tight">Today&apos;s Timekeeping</CardTitle>
-              </div>
-              <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" asChild>
-                <Link href="/employee/timekeeping">View all <ArrowRight className="h-3 w-3 ml-1" /></Link>
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent className="p-5 space-y-3">
-            {loading ? (
-              <div className="space-y-2 animate-pulse">
-                {[1,2,3].map(i => <div key={i} className="h-12 rounded-xl bg-muted/40" />)}
-              </div>
-            ) : (
-              <>
-                <TkRow label="Status" value={
-                  todayCfg ? (
-                    <Badge className={`border text-[10px] font-bold uppercase tracking-wide ${todayCfg.cls}`}>
-                      {todayCfg.label}
-                    </Badge>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">No record yet</span>
-                  )
-                } />
-                <TkRow label="Time In"  value={<span className="text-sm font-semibold">{fmtTime(timeIn)}</span>} />
-                <TkRow label="Time Out" value={<span className="text-sm font-semibold">{fmtTime(timeOut)}</span>} />
-                {hoursWorked && (
-                  <TkRow label="Hours Worked" value={
-                    <span className="text-sm font-semibold text-primary">{hoursWorked}</span>
-                  } />
-                )}
-                {!todayStatus && (
-                  <div className="pt-1">
-                    <Button size="sm" className="w-full h-9 text-xs" asChild>
-                      <Link href="/employee/timekeeping">
-                        <Timer className="h-3.5 w-3.5 mr-2" /> Go to Timekeeping
-                      </Link>
-                    </Button>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Quick actions */}
-        <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-          <CardHeader className="pb-3 bg-[linear-gradient(155deg,rgba(37,99,235,0.06),transparent)] border-b border-border">
-            <div className="flex items-center gap-3">
-              <div className="p-2 bg-violet-100 text-violet-700 rounded-lg">
-                <TrendingUp className="h-[18px] w-[18px]" />
-              </div>
-              <CardTitle className="text-base font-bold tracking-tight">Quick Actions</CardTitle>
-            </div>
-          </CardHeader>
-          <CardContent className="p-5 space-y-3">
-            <QuickAction
-              href="/employee/timekeeping"
-              icon={Clock}
-              label="Timekeeping"
-              desc="Clock in/out and view your timesheet"
-              color="bg-blue-100 text-blue-700"
-            />
-            <QuickAction
-              href="/employee/documents"
-              icon={FileCheck}
-              label="My Documents"
-              desc={`${approvedDocs.length} approved · ${pendingDocs.length} pending`}
-              color="bg-green-100 text-green-700"
-            />
-            <QuickAction
-              href="/employee/profile"
-              icon={User}
-              label="My Profile"
-              desc={profileDone ? "Profile complete" : `${missingProfileFields.length} fields to fill in`}
-              color="bg-violet-100 text-violet-700"
-            />
-          </CardContent>
-        </Card>
-
+        <EmployeeQuickActionsCard
+          approvedDocsCount={approvedDocs.length}
+          pendingDocsCount={pendingDocs.length}
+          profileDone={profileDone}
+          missingProfileFieldsCount={missingProfileFields.length}
+        />
       </div>
     </div>
   );
@@ -527,7 +616,7 @@ export default function EmployeeDashboardPage() {
 
 // ─── Helper component ─────────────────────────────────────────────────────────
 
-function TkRow({ label, value }: { label: string; value: React.ReactNode }) {
+function TkRow({ label, value }: Readonly<{ label: string; value: React.ReactNode }>) {
   return (
     <div className="flex items-center justify-between p-3 rounded-xl bg-muted/20 border border-border/60">
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</p>

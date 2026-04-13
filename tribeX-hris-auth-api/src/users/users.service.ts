@@ -1184,10 +1184,15 @@ export class UsersService {
     const supabase = this.supabaseService.getClient();
     const { data, error } = await supabase
       .from('user_profile')
-      .select('user_id, employee_id, first_name, middle_name, last_name, email, username, department_id, start_date, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url')
+      .select('*')
       .eq('user_id', userId)
       .maybeSingle();
-    if (error || !data) throw new NotFoundException('Profile not found');
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to fetch profile: ${error.message}`,
+      );
+    }
+    if (!data) throw new NotFoundException('Profile not found');
     return data;
   }
 
@@ -1216,9 +1221,13 @@ export class UsersService {
       .from('user_profile')
       .update(patch)
       .eq('user_id', userId)
-      .select('user_id, employee_id, first_name, middle_name, last_name, email, username, department_id, start_date, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url')
+      .select('*')
       .maybeSingle();
-    if (error) throw new InternalServerErrorException('Failed to update profile');
+    if (error) {
+      throw new InternalServerErrorException(
+        `Failed to update profile: ${error.message}`,
+      );
+    }
     return data;
   }
 

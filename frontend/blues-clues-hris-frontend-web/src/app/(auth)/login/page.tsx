@@ -31,7 +31,7 @@ export default function EmployeeLoginPage() {
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading]   = useState(false);
 
-  const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleLogin = async (e: { preventDefault: () => void }) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);

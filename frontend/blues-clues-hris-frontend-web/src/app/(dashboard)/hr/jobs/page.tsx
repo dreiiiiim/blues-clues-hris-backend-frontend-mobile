@@ -1,6 +1,5 @@
 "use client";
 
-import React from "react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
@@ -21,7 +20,6 @@ import {
 import { PipelineKanbanView } from "./_components/PipelineKanbanView";
 import {
   getApplicationDetail, getMyCompany, sendInterviewSchedule, resendInterviewEmail,
-  cancelInterviewSchedule,
   type ApplicationDetail,
 } from "@/lib/authApi";
 import { toast } from "sonner";
@@ -112,6 +110,16 @@ const PIPELINE_STAGES = [
   { value: "hired",               label: "Hired",               icon: CheckCircle2,  dot: "bg-green-500",  badge: "bg-green-100 text-green-700 border-green-200",   tab: "border-green-500 text-green-700" },
   { value: "rejected",            label: "Rejected",            icon: XCircle,       dot: "bg-red-500",    badge: "bg-red-100 text-red-700 border-red-200",         tab: "border-red-500 text-red-700"     },
 ] as const;
+
+function getApplicantNoteTone(response: string) {
+  if (response === "accepted") {
+    return "border-green-200 bg-green-50 text-green-700 dark:border-green-700/30 dark:bg-green-900/20 dark:text-green-300";
+  }
+  if (response === "declined") {
+    return "border-red-200 bg-red-50 text-red-600 dark:border-red-700/30 dark:bg-red-900/10 dark:text-red-400";
+  }
+  return "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700/30 dark:bg-amber-900/20 dark:text-amber-300";
+}
 
 interface PipelineApplication {
   application_id: string;
@@ -1085,7 +1093,7 @@ function MoveConfirmDialog({
   updating: boolean;
 }>) {
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-80 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-sm animate-in fade-in zoom-in-95 duration-200">
         <div className="px-5 py-5 space-y-4">
           {/* Icon + title */}
@@ -1186,7 +1194,7 @@ function ScheduleSummaryDialog({
   const summaryDuration = formatDuration(computeDuration(schedule.time, schedule.endTime));
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4">
+    <div className="fixed inset-0 z-80 flex items-center justify-center bg-black/50 p-4">
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md animate-in fade-in zoom-in-95 duration-200">
 
         {/* Header */}
@@ -1411,13 +1419,7 @@ function ScheduleInfoBanner({
 
       {/* Applicant response note (if declined or reschedule requested) */}
       {schedule.applicantResponse && schedule.applicantResponseNote && (
-        <div className={`rounded-lg border px-3 py-2 text-xs space-y-0.5 ${
-          schedule.applicantResponse === "accepted"
-            ? "border-green-200 bg-green-50 text-green-700 dark:border-green-700/30 dark:bg-green-900/20 dark:text-green-300"
-            : schedule.applicantResponse === "declined"
-            ? "border-red-200 bg-red-50 text-red-600 dark:border-red-700/30 dark:bg-red-900/10 dark:text-red-400"
-            : "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-700/30 dark:bg-amber-900/20 dark:text-amber-300"
-        }`}>
+        <div className={`rounded-lg border px-3 py-2 text-xs space-y-0.5 ${getApplicantNoteTone(schedule.applicantResponse)}`}>
           <p className="font-bold uppercase tracking-wide text-[10px] opacity-70">Applicant Note</p>
           <p>{schedule.applicantResponseNote}</p>
           {schedule.applicantRespondedAt && (
@@ -1598,18 +1600,18 @@ function InterviewScheduleForm({
 
       {/* Date — full width */}
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           Date *
-        </label>
+        </p>
         <Input type="date" value={form.date} onChange={field("date")} className="h-9" />
       </div>
 
       {/* Time range */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             Interview Time *
-          </label>
+          </p>
           {durationLabel && !timeInvalid && (
             <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
               <Clock className="h-3 w-3" />
@@ -1649,9 +1651,9 @@ function InterviewScheduleForm({
 
       {/* Format — icon button group */}
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           Format
-        </label>
+        </p>
         <div className="grid grid-cols-3 gap-2">
           {FORMAT_OPTIONS.map(({ value, label, Icon }) => {
             const selected = form.format === value;
@@ -1677,9 +1679,9 @@ function InterviewScheduleForm({
       {/* Location / Link / Phone */}
       {form.format === "in_person" && (
         <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             Office / Location
-          </label>
+          </p>
           <Input
             value={form.location}
             onChange={field("location")}
@@ -1690,9 +1692,9 @@ function InterviewScheduleForm({
       )}
       {form.format === "video" && (
         <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             Meeting Link
-          </label>
+          </p>
           <Input
             value={form.meetingLink}
             onChange={field("meetingLink")}
@@ -1703,9 +1705,9 @@ function InterviewScheduleForm({
       )}
       {form.format === "phone" && (
         <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             Contact Number
-          </label>
+          </p>
           <Input
             value={form.location}
             onChange={field("location")}
@@ -1718,9 +1720,9 @@ function InterviewScheduleForm({
       {/* Interviewer */}
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             Interviewer *
-          </label>
+          </p>
           <Input
             value={form.interviewer}
             onChange={field("interviewer")}
@@ -1729,9 +1731,9 @@ function InterviewScheduleForm({
           />
         </div>
         <div className="space-y-1.5">
-          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
             Title / Role
-          </label>
+          </p>
           <Input
             value={form.interviewerTitle}
             onChange={field("interviewerTitle")}
@@ -1743,9 +1745,9 @@ function InterviewScheduleForm({
 
       {/* Notes */}
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           Notes to Applicant
-        </label>
+        </p>
         <textarea
           value={form.notes}
           onChange={field("notes")}
@@ -2841,19 +2843,21 @@ export default function HRJobsPage() {
             <td className="px-5 py-4">
               <div className="space-y-1">
                 <p className="text-[11px] text-muted-foreground">Posted {timeAgo(job.posted_at)}</p>
-                {job.closes_at && (
-                  isUrgent ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full
-                      bg-red-50 text-red-600 border border-red-200
-                      dark:bg-red-900/20 dark:text-red-400 dark:border-red-700/40">
-                      <Clock className="h-2.5 w-2.5" /> Closes in {d}d
-                    </span>
-                  ) : isOverdue ? (
-                    <p className="text-[11px] text-muted-foreground/50">Closed {formatDate(job.closes_at)}</p>
-                  ) : (
-                    <p className="text-[11px] text-muted-foreground/60">Closes {formatDate(job.closes_at)}</p>
-                  )
-                )}
+                {job.closes_at && (() => {
+                  if (isUrgent) {
+                    return (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full
+                        bg-red-50 text-red-600 border border-red-200
+                        dark:bg-red-900/20 dark:text-red-400 dark:border-red-700/40">
+                        <Clock className="h-2.5 w-2.5" /> Closes in {d}d
+                      </span>
+                    );
+                  }
+                  if (isOverdue) {
+                    return <p className="text-[11px] text-muted-foreground/50">Closed {formatDate(job.closes_at)}</p>;
+                  }
+                  return <p className="text-[11px] text-muted-foreground/60">Closes {formatDate(job.closes_at)}</p>;
+                })()}
               </div>
             </td>
 
@@ -3225,7 +3229,7 @@ export default function HRJobsPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto overflow-y-auto max-h-[600px]">
+        <div className="overflow-x-auto overflow-y-auto max-h-150">
           <table className="w-full text-sm text-left">
             <thead className="text-[10px] font-bold text-muted-foreground bg-muted/40 border-b border-border uppercase tracking-widest sticky top-0 z-10">
               <tr>

@@ -11,7 +11,6 @@ import { getEmployeeProfile, updateEmployeeProfile } from "@/lib/authApi";
 import { submitChangeRequest, getMyChangeRequests } from "@/lib/changeRequestApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -32,7 +31,6 @@ import {
   Loader2,
   Pencil,
   Clock,
-  Upload,
   User,
   CreditCard,
   MapPin,
@@ -51,6 +49,9 @@ interface ExtendedProfile {
   placeOfBirth: string;
   nationality: string;
   civilStatus: string;
+  emergencyContactName: string;
+  emergencyContactPhone: string;
+  emergencyContactRelationship: string;
 }
 
 interface BankInfo {
@@ -68,9 +69,28 @@ interface ApprovalModalState {
   newValue: string;
 }
 
+async function compressImageToDataUrl(file: File, maxSize = 1024, quality = 0.82): Promise<string> {
+  const imageBitmap = await createImageBitmap(file);
+  const ratio = Math.min(1, maxSize / Math.max(imageBitmap.width, imageBitmap.height));
+  const targetWidth = Math.max(1, Math.round(imageBitmap.width * ratio));
+  const targetHeight = Math.max(1, Math.round(imageBitmap.height * ratio));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("Image compression is not supported in this browser.");
+
+  ctx.drawImage(imageBitmap, 0, 0, targetWidth, targetHeight);
+  imageBitmap.close();
+
+  return canvas.toDataURL("image/jpeg", quality);
+}
+
 // ─── Permission Badge ──────────────────────────────────────────────────────────
 
-function PermBadge({ type }: { type: "self" | "approval" | "system" | "immutable" }) {
+function PermBadge({ type }: Readonly<{ type: "self" | "approval" | "system" | "immutable" }>) {
   const map = {
     self: {
       label: "Self-service",
@@ -105,11 +125,11 @@ function FieldRow({
   label,
   permType,
   children,
-}: {
+}: Readonly<{
   label: string;
   permType: "self" | "approval" | "system" | "immutable";
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <div className="space-y-1.5">
       <div className="flex items-center gap-2 flex-wrap">
@@ -129,31 +149,22 @@ function ApprovalModal({
   state,
   onClose,
   onSubmit,
-}: {
+}: Readonly<{
   state: ApprovalModalState;
   onClose: () => void;
-  onSubmit: (reason: string, file: File | null) => void;
-}) {
+  onSubmit: (reason: string) => void;
+}>) {
   const [reason, setReason] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [dragging, setDragging] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
+  const valueFieldId = "change-request-value";
+  const reasonFieldId = "change-request-reason";
 
   const handleSubmit = () => {
     if (!reason.trim()) {
       toast.error("Please provide a reason for the change request.");
       return;
     }
-    onSubmit(reason.trim(), file);
+    onSubmit(reason.trim());
     setReason("");
-    setFile(null);
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setDragging(false);
-    const dropped = e.dataTransfer.files[0];
-    if (dropped) setFile(dropped);
   };
 
   return (
@@ -167,10 +178,11 @@ function ApprovalModal({
 
         <div className="space-y-4 pt-1">
           <div className="space-y-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <label htmlFor={valueFieldId} className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
               New Value
             </label>
             <Input
+              id={valueFieldId}
               value={state.newValue}
               readOnly
               className="h-9 rounded-md border bg-muted/30 px-3 shadow-xs text-sm"
@@ -178,48 +190,21 @@ function ApprovalModal({
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            <label htmlFor={reasonFieldId} className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
               Reason <span className="text-red-500">*</span>
             </label>
             <Textarea
+              id={reasonFieldId}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               placeholder="Explain why you need this change..."
-              className="min-h-[90px] rounded-md border bg-transparent px-3 shadow-xs resize-none text-sm"
+              className="min-h-22.5 rounded-md border bg-transparent px-3 shadow-xs resize-none text-sm"
             />
           </div>
 
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              Supporting Document (optional)
-            </label>
-            <div
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-              onDragLeave={() => setDragging(false)}
-              onDrop={handleDrop}
-              onClick={() => fileRef.current?.click()}
-              className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all duration-200 ${
-                dragging
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-primary/50 hover:bg-muted/30"
-              }`}
-            >
-              <Upload className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
-              {file ? (
-                <p className="text-sm font-medium text-foreground">{file.name}</p>
-              ) : (
-                <p className="text-sm text-muted-foreground">
-                  Drag a file here or <span className="text-primary font-semibold">browse</span>
-                </p>
-              )}
-              <input
-                ref={fileRef}
-                type="file"
-                className="hidden"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            Supporting document attachment is not yet available in this flow.
+          </p>
 
           <div className="flex gap-2 pt-1">
             <Button onClick={handleSubmit} className="flex-1">
@@ -245,7 +230,7 @@ export default function EmployeeProfilePage() {
   const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Extended profile state
-  const [extended, setExtended] = useState<ExtendedProfile>({ phone: "", personalEmail: "", address: "", dob: "", placeOfBirth: "", nationality: "", civilStatus: "" });
+  const [extended, setExtended] = useState<ExtendedProfile>({ phone: "", personalEmail: "", address: "", dob: "", placeOfBirth: "", nationality: "", civilStatus: "", emergencyContactName: "", emergencyContactPhone: "", emergencyContactRelationship: "" });
   const [extendedEditing, setExtendedEditing] = useState(false);
   const [extendedDraft, setExtendedDraft] = useState<ExtendedProfile>({ ...extended });
   const [extendedSaving, setExtendedSaving] = useState(false);
@@ -253,7 +238,6 @@ export default function EmployeeProfilePage() {
   // Bank state
   const [bank, setBank] = useState<BankInfo>({ bankName: "", accountNumber: "", accountName: "" });
   const [bankDraft, setBankDraft] = useState<BankInfo>({ ...bank });
-  const [bankSaving, setBankSaving] = useState(false);
 
   // Legal name state
   const [legalName, setLegalName] = useState({ first: "", middle: "", last: "" });
@@ -276,32 +260,49 @@ export default function EmployeeProfilePage() {
       setJwtPayload(payload);
     }
 
-    Promise.all([
-      getEmployeeProfile(),
-      getMyChangeRequests(),
-    ])
-      .then(([p, changeReqs]) => {
+    getEmployeeProfile()
+      .then(async (p) => {
         if (p.avatar_url) setProfilePhoto(p.avatar_url);
         setLegalName({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
         setLegalNameDraft({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
-        const ext: ExtendedProfile = { phone: p.personal_email ? "" : "", personalEmail: p.personal_email ?? "", address: p.complete_address ?? "", dob: p.date_of_birth ?? "", placeOfBirth: p.place_of_birth ?? "", nationality: p.nationality ?? "", civilStatus: p.civil_status ?? "" };
-        // phone comes from JWT / user table differently — try JWT first
-        const jwtPhone = token ? parseJwt(token)?.phone_number ?? "" : "";
-        ext.phone = jwtPhone;
+        const ext: ExtendedProfile = {
+          phone: p.phone_number ?? "",
+          personalEmail: p.personal_email ?? "",
+          address: p.complete_address ?? "",
+          dob: p.date_of_birth ?? "",
+          placeOfBirth: p.place_of_birth ?? "",
+          nationality: p.nationality ?? "",
+          civilStatus: p.civil_status ?? "",
+          emergencyContactName: p.emergency_contact_name ?? "",
+          emergencyContactPhone: p.emergency_contact_phone ?? "",
+          emergencyContactRelationship: p.emergency_contact_relationship ?? "",
+        };
+        if (!ext.phone) {
+          const jwtPhone = token ? parseJwt(token)?.phone_number ?? "" : "";
+          ext.phone = jwtPhone;
+        }
         setExtended(ext);
         setExtendedDraft(ext);
         const bk: BankInfo = { bankName: p.bank_name ?? "", accountNumber: p.bank_account_number ?? "", accountName: p.bank_account_name ?? "" };
         setBank(bk);
         setBankDraft(bk);
-        if (p.employee_id) setJwtPayload((prev) => ({ ...(prev ?? {}), employee_id: p.employee_id! }));
+        if (p.employee_id) {
+          const employeeIdFromProfile = p.employee_id;
+          setJwtPayload((prev) => (prev ? { ...prev, employee_id: employeeIdFromProfile } : { employee_id: employeeIdFromProfile }));
+        }
 
-        // Restore pending state from DB
-        const pendingLegal = changeReqs.find(r => r.field_type === 'legal_name' && r.status === 'pending');
-        const pendingBank  = changeReqs.find(r => r.field_type === 'bank'       && r.status === 'pending');
-        if (pendingLegal)      setPendingSection('legal-name');
-        else if (pendingBank)  setPendingSection('bank');
+        // Restore pending state from DB, but don't fail profile render if this call fails.
+        try {
+          const changeReqs = await getMyChangeRequests();
+          const pendingLegal = changeReqs.find(r => r.field_type === 'legal_name' && r.status === 'pending');
+          const pendingBank  = changeReqs.find(r => r.field_type === 'bank'       && r.status === 'pending');
+          if (pendingLegal)      setPendingSection('legal-name');
+          else if (pendingBank)  setPendingSection('bank');
+        } catch {
+          setPendingSection(null);
+        }
       })
-      .catch(() => toast.error("Failed to load profile."))
+      .catch((err) => toast.error(err instanceof Error ? err.message : "Failed to load profile."))
       .finally(() => setLoading(false));
   }, []);
 
@@ -309,18 +310,16 @@ export default function EmployeeProfilePage() {
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const b64 = ev.target?.result as string;
-      setProfilePhoto(b64);
+    void (async () => {
       try {
+        const b64 = await compressImageToDataUrl(file);
+      setProfilePhoto(b64);
         await updateEmployeeProfile({ avatar_url: b64 });
         toast.success("Profile photo updated.");
       } catch {
         toast.error("Failed to save profile photo.");
       }
-    };
-    reader.readAsDataURL(file);
+    })();
   };
 
   // ── Contact & Address save ────────────────────────────────────────────────
@@ -328,12 +327,16 @@ export default function EmployeeProfilePage() {
     setExtendedSaving(true);
     try {
       await updateEmployeeProfile({
-        personal_email:  extendedDraft.personalEmail.trim() || null as any,
-        date_of_birth:   extendedDraft.dob || null as any,
-        place_of_birth:  extendedDraft.placeOfBirth.trim() || null as any,
-        nationality:     extendedDraft.nationality.trim() || null as any,
-        civil_status:    extendedDraft.civilStatus || null as any,
-        complete_address: extendedDraft.address.trim() || null as any,
+        phone_number: extendedDraft.phone.trim() || null,
+        personal_email: extendedDraft.personalEmail.trim() || null,
+        date_of_birth: extendedDraft.dob || null,
+        place_of_birth: extendedDraft.placeOfBirth.trim() || null,
+        nationality: extendedDraft.nationality.trim() || null,
+        civil_status: extendedDraft.civilStatus || null,
+        complete_address: extendedDraft.address.trim() || null,
+        emergency_contact_name: extendedDraft.emergencyContactName.trim() || null,
+        emergency_contact_phone: extendedDraft.emergencyContactPhone.trim() || null,
+        emergency_contact_relationship: extendedDraft.emergencyContactRelationship.trim() || null,
       });
       setExtended(extendedDraft);
       setExtendedEditing(false);
@@ -359,9 +362,8 @@ export default function EmployeeProfilePage() {
     setApprovalModal({ open: true, section, fieldLabel, newValue });
   };
 
-  const handleApprovalSubmit = async (reason: string, _file: File | null) => {
+  const handleApprovalSubmit = async (reason: string) => {
     const section = approvalModal.section;
-    setBankSaving(true);
     try {
       const requestedChanges: Record<string, string> =
         section === "bank"
@@ -387,8 +389,6 @@ export default function EmployeeProfilePage() {
       toast.success("Change request submitted — awaiting HR approval.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to submit change request.");
-    } finally {
-      setBankSaving(false);
     }
   };
 
@@ -401,7 +401,7 @@ export default function EmployeeProfilePage() {
 
   if (loading || !user) {
     return (
-      <div className="flex items-center justify-center min-h-[200px] gap-2 text-muted-foreground">
+      <div className="flex items-center justify-center min-h-50 gap-2 text-muted-foreground">
         <Loader2 className="h-5 w-5 animate-spin" />
         <span className="text-sm">Loading profile...</span>
       </div>
@@ -423,11 +423,15 @@ export default function EmployeeProfilePage() {
 
       <div className="flex flex-col md:flex-row gap-6 items-start">
         {/* ── Left Sidebar ──────────────────────────────────────────────────── */}
-        <div className="w-full md:w-[280px] md:sticky md:top-6 shrink-0">
+        <div className="w-full md:w-70 md:sticky md:top-6 shrink-0">
           <div className="bg-card border rounded-xl shadow-sm p-5 space-y-4">
             {/* Avatar */}
             <div className="flex flex-col items-center gap-3">
-              <div className="relative group cursor-pointer" onClick={() => photoInputRef.current?.click()}>
+              <button
+                type="button"
+                className="relative group cursor-pointer"
+                onClick={() => photoInputRef.current?.click()}
+              >
                 <div className="h-24 w-24 rounded-full border-4 border-primary/20 overflow-hidden bg-primary/10 flex items-center justify-center text-3xl font-bold text-primary">
                   {profilePhoto ? (
                     <img src={profilePhoto} alt="Profile" className="h-full w-full object-cover" />
@@ -445,7 +449,7 @@ export default function EmployeeProfilePage() {
                   className="hidden"
                   onChange={handlePhotoChange}
                 />
-              </div>
+              </button>
 
               <div className="text-center">
                 <p className="text-base font-bold tracking-tight">{displayName}</p>
@@ -470,6 +474,7 @@ export default function EmployeeProfilePage() {
               {[
                 { id: "personal-info", label: "Personal Info", icon: User },
                 { id: "contact-address", label: "Contact & Address", icon: MapPin },
+                { id: "emergency-contact", label: "Emergency Contact", icon: User },
                 { id: "bank-account", label: "Bank Account", icon: CreditCard },
               ].map(({ id, label, icon: Icon }) => (
                 <a
@@ -683,12 +688,62 @@ export default function EmployeeProfilePage() {
                 onChange={(e) => setExtendedDraft({ ...extendedDraft, address: e.target.value })}
                 disabled={!extendedEditing}
                 placeholder="Street, Barangay, City, Province, ZIP"
-                className="min-h-[80px] rounded-md border bg-transparent px-3 shadow-xs resize-none disabled:bg-muted/40 disabled:text-muted-foreground"
+                className="min-h-20 rounded-md border bg-transparent px-3 shadow-xs resize-none disabled:bg-muted/40 disabled:text-muted-foreground"
               />
             </FieldRow>
           </section>
 
-          {/* ── Section 3: Bank Account ────────────────────────────────────── */}
+          {/* ── Section 3: Emergency Contact ─────────────────────────────── */}
+          <section id="emergency-contact" className="bg-card border rounded-xl shadow-sm p-6 space-y-5 scroll-mt-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold tracking-tight">Emergency Contact</h2>
+              {extendedEditing ? (
+                <span className="text-xs font-medium text-muted-foreground">Included in current edit session</span>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-3 text-xs cursor-pointer"
+                  onClick={() => setExtendedEditing(true)}
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Edit
+                </Button>
+              )}
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <FieldRow label="Contact Name" permType="self">
+                <Input
+                  value={extendedDraft.emergencyContactName}
+                  onChange={(e) => setExtendedDraft({ ...extendedDraft, emergencyContactName: e.target.value })}
+                  disabled={!extendedEditing}
+                  placeholder="Full name"
+                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                />
+              </FieldRow>
+              <FieldRow label="Relationship" permType="self">
+                <Input
+                  value={extendedDraft.emergencyContactRelationship}
+                  onChange={(e) => setExtendedDraft({ ...extendedDraft, emergencyContactRelationship: e.target.value })}
+                  disabled={!extendedEditing}
+                  placeholder="e.g. Spouse, Parent, Sibling"
+                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                />
+              </FieldRow>
+              <FieldRow label="Contact Phone" permType="self">
+                <Input
+                  value={extendedDraft.emergencyContactPhone}
+                  onChange={(e) => setExtendedDraft({ ...extendedDraft, emergencyContactPhone: e.target.value })}
+                  disabled={!extendedEditing}
+                  placeholder="+63 900 000 0000"
+                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                />
+              </FieldRow>
+            </div>
+          </section>
+
+          {/* ── Section 4: Bank Account ────────────────────────────────────── */}
           <section id="bank-account" className="bg-card border rounded-xl shadow-sm p-6 space-y-5 scroll-mt-6">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-bold tracking-tight">Bank Account</h2>

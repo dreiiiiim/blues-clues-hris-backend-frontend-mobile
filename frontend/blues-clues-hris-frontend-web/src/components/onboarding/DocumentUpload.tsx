@@ -74,10 +74,14 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
     onUpdate(documents.map(doc => {
       if (doc.onboarding_item_id !== onboardingItemId) return doc;
       const last = doc.upload_history.at(-1) ?? null;
+      let restoredStatus: DocumentItem["status"] = "pending";
+      if (last) {
+        restoredStatus = last.status === "approved" ? "approved" : "submitted";
+      }
       return {
         ...doc,
         files: last ? [last] : [],
-        status: last ? (last.status === "approved" ? "approved" : "submitted") as const : "pending" as const,
+        status: restoredStatus,
       };
     }));
   };

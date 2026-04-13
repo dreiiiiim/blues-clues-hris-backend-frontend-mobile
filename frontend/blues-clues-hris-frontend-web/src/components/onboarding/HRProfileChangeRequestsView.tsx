@@ -13,7 +13,7 @@ import {
 } from "@/lib/changeRequestApi";
 import { toast } from "sonner";
 
-function FieldDiff({ changes }: { changes: Record<string, string> }) {
+function FieldDiff({ changes }: Readonly<{ changes: Record<string, string> }>) {
   const labels: Record<string, string> = {
     first_name: "First Name",
     middle_name: "Middle Name",
@@ -34,7 +34,7 @@ function FieldDiff({ changes }: { changes: Record<string, string> }) {
   );
 }
 
-export default function HRProfileChangeRequestsView() {
+export default function HRProfileChangeRequestsView({ refreshSignal = 0 }: Readonly<{ refreshSignal?: number }>) {
   const [requests, setRequests]     = useState<ChangeRequest[]>([]);
   const [loading, setLoading]       = useState(true);
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({});
@@ -49,7 +49,7 @@ export default function HRProfileChangeRequestsView() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [refreshSignal]);
 
   const handleApprove = async (req: ChangeRequest) => {
     setProcessing((p) => ({ ...p, [req.request_id]: true }));
@@ -112,7 +112,7 @@ export default function HRProfileChangeRequestsView() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
-          {requests.length} pending request{requests.length !== 1 ? "s" : ""}
+          {requests.length} pending request{requests.length === 1 ? "" : "s"}
         </p>
         <Button variant="ghost" size="sm" onClick={load} className="gap-2">
           <RefreshCw className="h-3.5 w-3.5" /> Refresh

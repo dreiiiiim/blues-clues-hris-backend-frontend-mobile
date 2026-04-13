@@ -625,7 +625,7 @@ export default function EmployeeTimekeepingPage() {
               type="button"
               disabled={isFuture}
               onClick={() => isClickable && setCalDayModal({ dateStr, entry: entry ?? null })}
-              className={`relative rounded-xl border p-2 min-h-[5.5rem] flex flex-col transition-all text-left w-full ${cellClass} ${isClickable ? "cursor-pointer" : ""}`}
+              className={`relative rounded-xl border p-2 min-h-22 flex flex-col transition-all text-left w-full ${cellClass} ${isClickable ? "cursor-pointer" : ""}`}
             >
               <div className={`text-sm font-bold mb-1 ${isToday ? "text-primary" : "text-foreground"}`}>{day}</div>
 

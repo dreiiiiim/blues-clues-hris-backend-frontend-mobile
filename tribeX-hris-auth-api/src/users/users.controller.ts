@@ -170,6 +170,19 @@ export class UsersController {
     return this.usersService.reviewChangeRequest(requestId, req.user.sub_userid, req.user.company_id, dto);
   }
 
+  // Keep exact "me" routes above ":id" routes to avoid path collision.
+  @Get('me')
+  @HttpCode(200)
+  getMe(@Req() req: any) {
+    return this.usersService.getMe(req.user.sub_userid);
+  }
+
+  @Patch('me')
+  @HttpCode(200)
+  updateMe(@Req() req: any, @Body() body: any) {
+    return this.usersService.updateMe(req.user.sub_userid, body);
+  }
+
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles(...HR_AND_ABOVE)
@@ -250,18 +263,6 @@ export class UsersController {
       req.user.company_id,
       req.user.sub_userid,
     );
-  }
-
-  @Get('me')
-  @HttpCode(200)
-  getMe(@Req() req: any) {
-    return this.usersService.getMe(req.user.sub_userid);
-  }
-
-  @Patch('me')
-  @HttpCode(200)
-  updateMe(@Req() req: any, @Body() body: any) {
-    return this.usersService.updateMe(req.user.sub_userid, body);
   }
 
   // ---- Employee Documents ----
