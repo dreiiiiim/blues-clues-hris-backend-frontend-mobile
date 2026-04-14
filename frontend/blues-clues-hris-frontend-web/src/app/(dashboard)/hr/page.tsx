@@ -12,9 +12,9 @@ import { toast } from "sonner";
 import {
   MoreHorizontal, Filter, Download,
   Search, ChevronLeft, ChevronRight, UserX,
-  UserCheck, Check,
+  UserCheck, Check, Pencil, AtSign, Loader2, X,
   Users, UserPlus, Briefcase, FileText, CalendarCheck, Bell,
-  ArrowRight, Clock,
+  ArrowRight, Clock, Shield, Building2, Calendar, Hash, User, Eye,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -73,7 +73,21 @@ const STATUS_STYLES: Record<string, string> = {
 // ─── API helpers ──────────────────────────────────────────────────────────────
 
 async function apiFetch<T = unknown>(path: string, init?: RequestInit): Promise<T> {
-  const res = await authFetch(`${API_BASE_URL}${path}`, init);
+  const headers = new Headers(init?.headers);
+  const body = init?.body;
+  if (body && !(body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  // authFetch spreads headers as a plain object, so convert Headers → Record
+  const headersObj: Record<string, string> = {};
+  headers.forEach((value, key) => { headersObj[key] = value; });
+
+  const res = await authFetch(`${API_BASE_URL}${path}`, {
+    cache: "no-store",
+    ...init,
+    headers: headersObj,
+  });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { message?: string })?.message || "Request failed");
   return data as T;
@@ -91,7 +105,11 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(d / 30)}mo ago`;
 }
 
-function computeTodayAttendance(punches: TodayPunch[], employees: Employee[]): AttendanceStats {
+function computeTodayAttendance(punches: TodayPunch[], employees: Employee[], roles: Role[]): AttendanceStats {
+  const employeeRoleIds = new Set(
+    roles.filter(r => r.role_name === "Employee").map(r => r.role_id)
+  );
+
   const byEmployee: Record<string, TodayPunch[]> = {};
   for (const p of punches) {
     if (!byEmployee[p.employee_id]) byEmployee[p.employee_id] = [];
@@ -99,7 +117,9 @@ function computeTodayAttendance(punches: TodayPunch[], employees: Employee[]): A
   }
 
   let present = 0, late = 0, absent = 0;
-  const activeEmployees = employees.filter(e => e.account_status === "Active");
+  const activeEmployees = employees.filter(
+    e => e.account_status === "Active" && e.role_id !== null && employeeRoleIds.has(e.role_id)
+  );
 
   for (const emp of activeEmployees) {
     const empPunches = byEmployee[emp.employee_id ?? ""] ?? [];
@@ -188,15 +208,306 @@ function ResponseBadge({ response }: Readonly<{ response: string | null | undefi
   );
 }
 
-// Row action dropdown — HR can only deactivate or reactivate, not edit
-function RowMenu({
+// ─── Edit Employee Modal ───────────────────────────────────────────────────────
+
+function EditEmployeeModal({
   employee,
-  onDeactivate,
-  onReactivate,
+  roles,
+  departments,
+  onClose,
+  onSaved,
 }: Readonly<{
   employee: Employee;
+  roles: Role[];
+  departments: Department[];
+  onClose: () => void;
+  onSaved: (updated: Employee) => void;
+}>) {
+  const [form, setForm] = useState({
+    role_id: employee.role_id ?? "",
+    department_id: employee.department_id ?? "",
+    start_date: employee.start_date ?? "",
+  });
+  const [companyEmail, setCompanyEmail] = useState("");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(false);
+
+  const set = (field: string, value: string) =>
+    setForm(f => ({ ...f, [field]: value }));
+
+  const validate = () => {
+    const e: Record<string, string> = {};
+    if (!form.role_id) e.role_id = "Role is required";
+    if (companyEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(companyEmail))
+      e.companyEmail = "Enter a valid email address";
+    return e;
+  };
+
+  const handleSave = async () => {
+    const e = validate();
+    if (Object.keys(e).length) { setErrors(e); return; }
+    setLoading(true);
+    try {
+      let persisted = await apiFetch<Employee>(`/users/${employee.user_id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          role_id: form.role_id || null,
+          department_id: form.department_id || null,
+          start_date: form.start_date || null,
+        }),
+      });
+
+      let updatedEmail = employee.email;
+      if (companyEmail.trim()) {
+        await apiFetch(`/users/${employee.user_id}/assign-email`, {
+          method: "PATCH",
+          body: JSON.stringify({ email: companyEmail.trim().toLowerCase() }),
+        });
+        updatedEmail = companyEmail.trim().toLowerCase();
+        persisted = await apiFetch<Employee>(`/users/${employee.user_id}`);
+        toast.success(`Company email assigned — ${employee.first_name} must sign in with their new email.`);
+      } else {
+        toast.success("Employee profile updated.");
+      }
+
+      onSaved({
+        ...employee,
+        ...persisted,
+        email: updatedEmail,
+      });
+      onClose();
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || "Failed to update employee.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const hasCompanyEmail = !!companyEmail.trim();
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm border border-primary/20 shrink-0">
+              {(employee.first_name ?? "?").charAt(0)}
+            </div>
+            <div>
+              <h2 className="font-bold text-base leading-tight">Edit Employee</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {employee.first_name} {employee.last_name} · <span className="font-mono">{employee.employee_id}</span>
+              </p>
+            </div>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose} className="shrink-0">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 px-6 py-6 space-y-6 overflow-y-auto">
+
+          {/* Employment Details */}
+          <div className="space-y-4">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Employment Details</p>
+
+            <div className="space-y-1.5">
+              <label htmlFor="hr-edit-role" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Shield className="h-3 w-3 text-muted-foreground" /> Role <span className="text-red-500">*</span>
+              </label>
+              <select
+                id="hr-edit-role"
+                value={form.role_id}
+                onChange={e => set("role_id", e.target.value)}
+                className={`w-full h-9 rounded-md border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30 ${
+                  errors.role_id ? "border-red-400" : "border-input"
+                }`}
+              >
+                <option value="">Select role…</option>
+                {roles.map(r => <option key={r.role_id} value={r.role_id}>{r.role_name}</option>)}
+              </select>
+              {errors.role_id && <p className="text-xs text-red-500">{errors.role_id}</p>}
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="hr-edit-department" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Building2 className="h-3 w-3 text-muted-foreground" /> Department
+              </label>
+              <select
+                id="hr-edit-department"
+                value={form.department_id}
+                onChange={e => set("department_id", e.target.value)}
+                className="w-full h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-ring/30"
+              >
+                <option value="">Select department…</option>
+                {departments.map(d => <option key={d.department_id} value={d.department_id}>{d.department_name}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="hr-edit-start-date" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <Calendar className="h-3 w-3 text-muted-foreground" /> Start Date
+              </label>
+              <Input
+                id="hr-edit-start-date"
+                type="date"
+                value={form.start_date}
+                onChange={e => set("start_date", e.target.value)}
+              />
+            </div>
+          </div>
+
+          {/* Company Email */}
+          <div className="space-y-3">
+            <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Company Email</p>
+
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800 space-y-1">
+              <p className="font-semibold">About login emails</p>
+              <p className="text-amber-700/80 leading-relaxed">
+                {employee.first_name} currently signs in with their personal email{" "}
+                <span className="font-mono font-medium break-all">({employee.email})</span>.
+                Assigning a company email will switch their login and revoke all active sessions.
+              </p>
+            </div>
+
+            <div className="space-y-1.5">
+              <label htmlFor="hr-edit-company-email" className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                <AtSign className="h-3 w-3 text-muted-foreground" /> Company Email
+                <span className="text-[10px] font-normal text-muted-foreground">(optional)</span>
+              </label>
+              <Input
+                id="hr-edit-company-email"
+                type="email"
+                placeholder="firstname.lastname@company.com"
+                value={companyEmail}
+                onChange={e => setCompanyEmail(e.target.value)}
+                className={errors.companyEmail ? "border-red-400 focus-visible:ring-red-300" : ""}
+              />
+              {errors.companyEmail && <p className="text-xs text-red-500">{errors.companyEmail}</p>}
+              {hasCompanyEmail && !errors.companyEmail && (
+                <p className="text-xs text-amber-600 flex items-center gap-1">
+                  <Check className="h-3 w-3" />
+                  Sessions will be revoked — employee must re-login with new email
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-5 border-t border-border flex gap-3 shrink-0">
+          <Button variant="outline" className="flex-1" onClick={onClose} disabled={loading}>
+            Cancel
+          </Button>
+          <Button className="flex-1" onClick={handleSave} disabled={loading}>
+            {loading
+              ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" />Saving…</>
+              : "Save Changes"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── View Profile Sheet ────────────────────────────────────────────────────────
+
+function ProfileField({ icon: Icon, label, value }: Readonly<{ icon: React.ElementType; label: string; value?: string | null }>) {
+  return (
+    <div className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
+      <div className="h-7 w-7 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
+        <p className="text-sm font-medium text-foreground truncate">{value ?? "—"}</p>
+      </div>
+    </div>
+  );
+}
+
+function ViewProfileSheet({
+  employee, roles, departments, onClose,
+}: Readonly<{
+  employee: Employee;
+  roles: Role[];
+  departments: Department[];
+  onClose: () => void;
+}>) {
+  const name = `${employee.first_name ?? ""} ${employee.last_name ?? ""}`.trim() || employee.email;
+  const roleName = roles.find(r => r.role_id === employee.role_id)?.role_name ?? null;
+  const deptName = departments.find(d => d.department_id === employee.department_id)?.department_name ?? null;
+  const formatField = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return Number.isNaN(d.getTime()) ? dateStr : d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-sm cursor-default" aria-label="Close" onClick={onClose} />
+      <div className="relative ml-auto h-full w-full max-w-md bg-background shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border shrink-0">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary mb-0.5">Employee Profile</p>
+            <h2 className="text-lg font-bold text-foreground">{name}</h2>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold text-2xl border border-primary/10 shrink-0">
+              {name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <p className="font-bold text-xl">{name}</p>
+              <p className="text-sm text-muted-foreground">{employee.email}</p>
+              <div className="mt-1.5"><StatusBadge status={employee.account_status ?? ""} /></div>
+            </div>
+          </div>
+          <div className="space-y-3">
+            <ProfileField icon={Hash}      label="Employee ID"  value={employee.employee_id} />
+            <ProfileField icon={User}      label="Username"     value={employee.username} />
+            <ProfileField icon={Shield}    label="Role"         value={roleName} />
+            <ProfileField icon={Building2} label="Department"   value={deptName} />
+            <ProfileField icon={Calendar}  label="Start Date"   value={formatField(employee.start_date)} />
+            <ProfileField icon={Calendar}  label="Last Login"   value={formatField(employee.last_login)} />
+          </div>
+          {employee.account_status === "Pending" && employee.invite_expires_at && (
+            <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 text-sm text-amber-800 dark:text-amber-300">
+              <p className="font-semibold mb-0.5">Invite pending</p>
+              <p className="text-xs opacity-80">Expires {formatField(employee.invite_expires_at)}</p>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Row action dropdown ───────────────────────────────────────────────────────
+
+function RowMenu({
+  employee,
+  onView,
+  onEdit,
+  onDeactivate,
+  onReactivate,
+  hideEdit,
+  hideDeactivate,
+}: Readonly<{
+  employee: Employee;
+  onView: () => void;
+  onEdit: () => void;
   onDeactivate: () => void;
   onReactivate: () => void;
+  hideEdit?: boolean;
+  hideDeactivate?: boolean;
 }>) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -235,22 +546,40 @@ function RowMenu({
         <div
           ref={menuRef}
           style={{ top: menuPos.top, right: menuPos.right }}
-          className="fixed z-50 w-44 bg-card border border-border rounded-lg shadow-lg py-1 text-sm"
+          className="fixed z-50 w-48 bg-card border border-border rounded-lg shadow-lg py-1 text-sm"
         >
-          {employee.account_status === "Inactive" ? (
+          <button
+            className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground"
+            onClick={() => { onView(); setOpen(false); }}
+          >
+            <Eye className="h-3.5 w-3.5" /> View Profile
+          </button>
+          {!hideEdit && <div className="border-t border-border my-1" />}
+          {!hideEdit && (
             <button
-              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600"
-              onClick={() => { onReactivate(); setOpen(false); }}
+              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-foreground"
+              onClick={() => { onEdit(); setOpen(false); }}
             >
-              <UserCheck className="h-3.5 w-3.5" /> Reactivate
+              <Pencil className="h-3.5 w-3.5" /> Edit Profile
             </button>
-          ) : (
-            <button
-              className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-red-600"
-              onClick={() => { onDeactivate(); setOpen(false); }}
-            >
-              <UserX className="h-3.5 w-3.5" /> Deactivate
-            </button>
+          )}
+          {(!hideEdit || !hideDeactivate) && <div className="border-t border-border my-1" />}
+          {!hideDeactivate && (
+            employee.account_status === "Inactive" ? (
+              <button
+                className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-green-600"
+                onClick={() => { onReactivate(); setOpen(false); }}
+              >
+                <UserCheck className="h-3.5 w-3.5" /> Reactivate
+              </button>
+            ) : (
+              <button
+                className="flex items-center gap-2 px-3 py-2 w-full hover:bg-muted/50 text-red-600"
+                onClick={() => { onDeactivate(); setOpen(false); }}
+              >
+                <UserX className="h-3.5 w-3.5" /> Deactivate
+              </button>
+            )
           )}
         </div>
       )}
@@ -410,9 +739,14 @@ export default function HRDashboardPage() {
   const [search, setSearch]             = useState("");
   const [page, setPage]                 = useState(1);
   const [confirmDeact, setConfirmDeact] = useState<Employee | null>(null);
-  const [showFilter, setShowFilter]     = useState(false);
-  const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
-  const filterRef                       = useRef<HTMLDivElement>(null);
+  const [viewEmployee, setViewEmployee] = useState<Employee | null>(null);
+  const [editEmployee, setEditEmployee] = useState<Employee | null>(null);
+  const [showFilter, setShowFilter]       = useState(false);
+  const [filterPos, setFilterPos]         = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+  const [statusFilter, setStatusFilter]   = useState<Set<string>>(new Set());
+  const [deptFilter, setDeptFilter]       = useState<Set<string>>(new Set());
+  const filterRef                         = useRef<HTMLDivElement>(null);
+  const filterBtnRef                      = useRef<HTMLButtonElement>(null);
 
   // Widget state
   const [jobs, setJobs]                     = useState<JobSummary[]>([]);
@@ -421,9 +755,13 @@ export default function HRDashboardPage() {
   const [loadingWidgets, setLoadingWidgets] = useState(true);
   const [attendanceError, setAttendanceError] = useState(false);
 
+  const filterDropdownRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setShowFilter(false);
+      const target = e.target as Node;
+      const inBtn      = filterRef.current?.contains(target);
+      const inDropdown = filterDropdownRef.current?.contains(target);
+      if (!inBtn && !inDropdown) setShowFilter(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
@@ -481,7 +819,7 @@ export default function HRDashboardPage() {
   const alertCount       = pendingResponses + rescheduleCount;
 
   // Computed attendance
-  const attendanceStats: AttendanceStats = computeTodayAttendance(todayPunches, employees);
+  const attendanceStats: AttendanceStats = computeTodayAttendance(todayPunches, employees, roles);
   const attendanceRate = attendanceStats.rate;
   const attendanceColor = getAttendanceColor(attendanceRate);
 
@@ -495,7 +833,8 @@ export default function HRDashboardPage() {
       (e.employee_id ?? "").toLowerCase().includes(q)
     );
     const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status ?? "");
-    return matchesSearch && matchesStatus;
+    const matchesDept   = deptFilter.size === 0 || (e.department_id !== null && deptFilter.has(e.department_id));
+    return matchesSearch && matchesStatus && matchesDept;
   });
 
   const toggleStatus = (status: string) => {
@@ -506,6 +845,17 @@ export default function HRDashboardPage() {
     });
     setPage(1);
   };
+
+  const toggleDept = (deptId: string) => {
+    setDeptFilter(prev => {
+      const next = new Set(prev);
+      next.has(deptId) ? next.delete(deptId) : next.add(deptId);
+      return next;
+    });
+    setPage(1);
+  };
+
+  const totalFilterCount = statusFilter.size + deptFilter.size;
 
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
@@ -549,7 +899,7 @@ export default function HRDashboardPage() {
     </tr>
   );
   const tableRows = loading || paged.length === 0 ? tableRowsPlaceholder : paged.map(e => (
-    <tr key={e.user_id} className="hover:bg-primary/5 transition-colors">
+    <tr key={e.user_id} className="hover:bg-primary/5 transition-colors cursor-pointer" onClick={() => setViewEmployee(e)}>
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
           <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
@@ -579,14 +929,18 @@ export default function HRDashboardPage() {
       <td className="px-5 py-4">
         <StatusBadge status={e.account_status ?? ""} />
       </td>
-      <td className="px-5 py-4 text-right">
+      <td className="px-5 py-4 text-right" onClick={ev => ev.stopPropagation()}>
         {e.user_id === currentUserId ? (
           <span className="text-[11px] text-muted-foreground italic px-2">You</span>
         ) : (
           <RowMenu
             employee={e}
+            onView={() => setViewEmployee(e)}
+            onEdit={() => setEditEmployee(e)}
             onDeactivate={() => setConfirmDeact(e)}
             onReactivate={() => handleReactivate(e)}
+            hideEdit={roles.find(r => r.role_id === e.role_id)?.role_name !== "Employee"}
+            hideDeactivate={roles.find(r => r.role_id === e.role_id)?.role_name === "System Admin"}
           />
         )}
       </td>
@@ -768,37 +1122,75 @@ export default function HRDashboardPage() {
             {/* Filter */}
             <div className="relative shrink-0" ref={filterRef}>
               <Button
-                variant="outline" size="icon" className={`h-9 w-9 ${statusFilter.size > 0 ? "border-primary text-primary" : ""}`}
-                onClick={() => setShowFilter(v => !v)}
+                ref={filterBtnRef}
+                variant="outline" size="icon" className={`h-9 w-9 ${totalFilterCount > 0 ? "border-primary text-primary" : ""}`}
+                onClick={() => {
+                  if (filterBtnRef.current) {
+                    const rect = filterBtnRef.current.getBoundingClientRect();
+                    const spaceBelow = window.innerHeight - rect.bottom;
+                    const right = window.innerWidth - rect.right;
+                    setFilterPos(
+                      spaceBelow >= 320
+                        ? { top: rect.bottom + 8, right }
+                        : { bottom: window.innerHeight - rect.top + 8, right }
+                    );
+                  }
+                  setShowFilter(v => !v);
+                }}
               >
                 <Filter className="h-4 w-4" />
-                {statusFilter.size > 0 && (
+                {totalFilterCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
-                    {statusFilter.size}
+                    {totalFilterCount}
                   </span>
                 )}
               </Button>
               {showFilter && (
-                <div className="absolute right-0 top-10 z-50 w-44 bg-card border border-border rounded-lg shadow-lg py-1.5">
+                <div
+                  ref={filterDropdownRef}
+                  style={{
+                    position: "fixed",
+                    top:    filterPos?.top    !== undefined ? filterPos.top    : undefined,
+                    bottom: filterPos?.bottom !== undefined ? filterPos.bottom : undefined,
+                    right:  filterPos?.right  !== undefined ? filterPos.right  : 0,
+                  }}
+                  className="z-[200] w-52 bg-card border border-border rounded-lg shadow-lg py-1.5 max-h-[60vh] overflow-y-auto"
+                >
                   <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</p>
                   {(["Active", "Inactive", "Pending"] as const).map(s => (
                     <button
                       key={s}
-                      className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
+                      className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground cursor-pointer"
                       onClick={() => toggleStatus(s)}
                     >
                       <span>{s}</span>
                       {statusFilter.has(s) && <Check className="h-3.5 w-3.5 text-primary" />}
                     </button>
                   ))}
-                  {statusFilter.size > 0 && (
+                  {departments.length > 0 && (
+                    <>
+                      <div className="border-t border-border my-1" />
+                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</p>
+                      {departments.map(d => (
+                        <button
+                          key={d.department_id}
+                          className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground cursor-pointer"
+                          onClick={() => toggleDept(d.department_id)}
+                        >
+                          <span className="truncate">{d.department_name}</span>
+                          {deptFilter.has(d.department_id) && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {totalFilterCount > 0 && (
                     <>
                       <div className="border-t border-border my-1" />
                       <button
-                        className="px-3 py-2 w-full text-left text-xs text-muted-foreground hover:bg-muted/50"
-                        onClick={() => { setStatusFilter(new Set()); setPage(1); }}
+                        className="px-3 py-2 w-full text-left text-xs text-muted-foreground hover:bg-muted/50 cursor-pointer"
+                        onClick={() => { setStatusFilter(new Set()); setDeptFilter(new Set()); setPage(1); }}
                       >
-                        Clear filters
+                        Clear all filters
                       </button>
                     </>
                   )}
@@ -849,6 +1241,31 @@ export default function HRDashboardPage() {
           </div>
         </div>
       </div>
+
+      {/* View profile sheet */}
+      {viewEmployee && (
+        <ViewProfileSheet
+          employee={viewEmployee}
+          roles={roles}
+          departments={departments}
+          onClose={() => setViewEmployee(null)}
+        />
+      )}
+
+      {/* Edit employee modal */}
+      {editEmployee && (
+        <EditEmployeeModal
+          employee={editEmployee}
+          roles={roles}
+          departments={departments}
+          onClose={() => setEditEmployee(null)}
+          onSaved={(updated) => {
+            setEmployees(prev => prev.map(e => e.user_id === updated.user_id ? updated : e));
+            void load();
+            setEditEmployee(null);
+          }}
+        />
+      )}
 
       {/* Deactivate confirmation */}
       {confirmDeact && (

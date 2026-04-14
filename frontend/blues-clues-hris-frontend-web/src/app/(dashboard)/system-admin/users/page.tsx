@@ -66,9 +66,20 @@ const STATUS_STYLES: Record<string, string> = {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const headers = new Headers(init.headers);
+  const body = init.body;
+  if (body && !(body instanceof FormData) && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  // authFetch spreads headers as a plain object, so convert Headers → Record
+  const headersObj: Record<string, string> = {};
+  headers.forEach((value, key) => { headersObj[key] = value; });
+
   const res = await authFetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
+    cache: "no-store",
     ...init,
+    headers: headersObj,
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as Record<string, unknown>)?.message as string || "Request failed");
@@ -378,7 +389,7 @@ function EditEmployeeModal({
     if (Object.keys(errs).length) { setErrors(errs); return; }
     setLoading(true);
     try {
-      await apiFetch(`/users/${employee.user_id}`, {
+      const persisted = await apiFetch<Employee>(`/users/${employee.user_id}`, {
         method: "PATCH",
         body: JSON.stringify({
           first_name: form.first_name,
@@ -390,11 +401,7 @@ function EditEmployeeModal({
       });
       onSaved({
         ...employee,
-        first_name: form.first_name,
-        last_name: form.last_name,
-        role_id: form.role_id || null,
-        department_id: form.department_id || null,
-        start_date: form.start_date || null,
+        ...persisted,
       });
       toast.success("Employee updated.");
     } catch (err: any) {
@@ -818,6 +825,7 @@ export default function AdminUsersPage() {
 
   const handleEditSaved = (updated: Employee) => {
     setEmployees(prev => prev.map(e => e.user_id === updated.user_id ? updated : e));
+    void load();
     setEditEmployee(null);
   };
 
@@ -950,7 +958,7 @@ export default function AdminUsersPage() {
   ) : (
     <>
       {paged.map(e => (
-        <tr key={e.user_id} className="hover:bg-muted/20 transition-colors">
+        <tr key={e.user_id} className="hover:bg-muted/20 transition-colors cursor-pointer" onClick={() => setViewEmployee(e)}>
           <td className="px-5 py-4">
             <div className="flex items-center gap-3">
               <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
@@ -968,7 +976,7 @@ export default function AdminUsersPage() {
           <td className="px-5 py-4"><StatusBadge status={e.account_status} /></td>
           <td className="px-5 py-4"><span className="text-xs text-muted-foreground">{formatDate(e.invite_expires_at)}</span></td>
           <td className="px-5 py-4"><span className="text-xs text-muted-foreground">{formatDate(e.last_login)}</span></td>
-          <td className="px-5 py-4 text-right">
+          <td className="px-5 py-4 text-right" onClick={ev => ev.stopPropagation()}>
             {e.user_id === currentUserId ? (
               <span className="text-[11px] text-muted-foreground italic px-2">You</span>
             ) : (

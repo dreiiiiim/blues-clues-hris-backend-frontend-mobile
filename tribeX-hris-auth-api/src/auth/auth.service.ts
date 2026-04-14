@@ -11,7 +11,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 type UserRow = {
   user_id: string;
   company_id: string;
-  role_id: number;
+  role_id: string | null;
   email: string;
   username: string | null;
   employee_id: string | null;
@@ -250,6 +250,8 @@ export class AuthService {
       throw new UnauthorizedException('Incorrect password. Please try again.');
     }
 
+    if (!user.role_id) throw new UnauthorizedException('No role assigned to this account. Please contact your administrator.');
+
     // Fetch role + company in parallel — neither depends on the other
     const [
       { data: roleRow, error: roleError },
@@ -404,6 +406,8 @@ export class AuthService {
     if (userErr || !user) throw new UnauthorizedException('User not found');
     if (user.account_status === 'Inactive')
       throw new UnauthorizedException('Account deactivated');
+
+    if (!user.role_id) throw new UnauthorizedException('No role assigned to this account. Please contact your administrator.');
 
     const { data: roleRow, error: roleErr } = await supabase
       .from('role')

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TimekeepingController } from './timekeeping.controller';
 import { TimekeepingService } from './timekeeping.service';
+import { TimekeepingTasksService } from './timekeeping.tasks';
 import { AuthModule } from '../auth/auth.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 
@@ -10,7 +11,7 @@ import { SupabaseModule } from '../supabase/supabase.module';
     SupabaseModule, // provides SupabaseService
   ],
   controllers: [TimekeepingController],
-  providers: [TimekeepingService],
-  exports: [TimekeepingService], // export so Yellow Tribe API or other modules can consume it
+  providers: [TimekeepingService, TimekeepingTasksService],
+  exports: [TimekeepingService],
 })
 export class TimekeepingModule {}

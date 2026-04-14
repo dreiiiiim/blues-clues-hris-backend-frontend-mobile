@@ -159,6 +159,7 @@ function RowMenu({
   onReactivate,
   onResendInvite,
   onAssignEmail,
+  hideDeactivate,
 }: {
   readonly employee: Employee;
   readonly onView: () => void;
@@ -166,6 +167,7 @@ function RowMenu({
   readonly onReactivate: () => void;
   readonly onResendInvite: () => void;
   readonly onAssignEmail: () => void;
+  readonly hideDeactivate?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [menuPos, setMenuPos] = useState<{ top: number; right: number } | null>(null);
@@ -215,11 +217,13 @@ function RowMenu({
           {employee.account_status !== "Inactive" && (
             <MenuRow icon={AtSign} label="Assign Company Email" onClick={close(onAssignEmail)} color="text-violet-600" />
           )}
-          <div className="border-t border-border my-1" />
-          {employee.account_status === "Inactive" ? (
-            <MenuRow icon={UserCheck} label="Reactivate"  onClick={close(onReactivate)}  color="text-green-600" />
-          ) : (
-            <MenuRow icon={UserX}    label="Deactivate"  onClick={close(onDeactivate)}  color="text-red-600" />
+          {!hideDeactivate && <div className="border-t border-border my-1" />}
+          {!hideDeactivate && (
+            employee.account_status === "Inactive" ? (
+              <MenuRow icon={UserCheck} label="Reactivate"  onClick={close(onReactivate)}  color="text-green-600" />
+            ) : (
+              <MenuRow icon={UserX}    label="Deactivate"  onClick={close(onDeactivate)}  color="text-red-600" />
+            )
           )}
         </div>
       )}
@@ -304,16 +308,16 @@ function AssignEmailModal({
 
 // View Profile sheet (right-side slide-in)
 function ProfileField({ icon: Icon, label, value }: {
-  readonly icon: React.ElementType; readonly label: string; readonly value: string;
+  readonly icon: React.ElementType; readonly label: string; readonly value?: string | null;
 }) {
   return (
-    <div className="flex items-start gap-3 py-3 border-b border-border last:border-0">
-      <div className="p-1.5 rounded-md bg-muted text-muted-foreground mt-0.5 shrink-0">
-        <Icon className="h-3.5 w-3.5" />
+    <div className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
+      <div className="h-7 w-7 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
+        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
       </div>
-      <div>
+      <div className="min-w-0">
         <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
-        <p className="text-sm font-medium text-foreground mt-0.5">{value || "—"}</p>
+        <p className="text-sm font-medium text-foreground truncate">{value ?? "—"}</p>
       </div>
     </div>
   );
@@ -330,45 +334,51 @@ function ViewProfileSheet({
   readonly departments: Department[];
   readonly onClose: () => void;
 }) {
-  const roleName = roles.find(r => r.role_id === employee.role_id)?.role_name ?? "—";
-  const deptName = departments.find(d => d.department_id === employee.department_id)?.department_name ?? "—";
+  const name = `${employee.first_name} ${employee.last_name}`.trim() || employee.email;
+  const roleName = roles.find(r => r.role_id === employee.role_id)?.role_name ?? null;
+  const deptName = departments.find(d => d.department_id === employee.department_id)?.department_name ?? null;
+  const formatField = (dateStr: string | null) => {
+    if (!dateStr) return null;
+    const d = new Date(dateStr);
+    return Number.isNaN(d.getTime()) ? dateStr : d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end">
-      <button type="button" className="absolute inset-0 bg-black/30 cursor-default" aria-label="Close" onClick={onClose} />
-      <div className="relative bg-card w-full max-w-sm h-full shadow-2xl flex flex-col overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-border">
+    <div className="fixed inset-0 z-50 flex">
+      <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-sm cursor-default" aria-label="Close" onClick={onClose} />
+      <div className="relative ml-auto h-full w-full max-w-md bg-background shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-border shrink-0">
           <div>
-            <h2 className="font-bold text-lg">Employee Profile</h2>
-            <p className="text-xs text-muted-foreground">{employee.email}</p>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary mb-0.5">Employee Profile</p>
+            <h2 className="text-lg font-bold text-foreground">{name}</h2>
           </div>
-          <Button variant="ghost" size="icon" onClick={onClose}><X className="h-4 w-4" /></Button>
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors">
+            <X className="h-4 w-4" />
+          </button>
         </div>
-
-        <div className="flex-1 px-6 py-6 overflow-y-auto">
-          {/* Avatar + name */}
-          <div className="flex items-center gap-4 mb-6">
-            <div className="h-14 w-14 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xl border border-primary/20 shrink-0">
-              {employee.first_name.charAt(0)}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="flex items-center gap-4">
+            <div className="h-16 w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold text-2xl border border-primary/10 shrink-0">
+              {name.charAt(0).toUpperCase()}
             </div>
             <div>
-              <p className="font-bold text-lg leading-tight">{employee.first_name} {employee.last_name}</p>
-              <StatusBadge status={employee.account_status} />
+              <p className="font-bold text-xl">{name}</p>
+              <p className="text-sm text-muted-foreground">{employee.email}</p>
+              <div className="mt-1.5"><StatusBadge status={employee.account_status} /></div>
             </div>
           </div>
-
-          {/* Fields */}
-          <ProfileField icon={Hash}      label="Employee ID" value={employee.employee_id} />
-          <ProfileField icon={User}      label="Username"    value={employee.username} />
-          <ProfileField icon={Shield}    label="Role"        value={roleName} />
-          <ProfileField icon={Building2} label="Department"  value={deptName} />
-          <ProfileField icon={Calendar}  label="Start Date"  value={formatDate(employee.start_date)} />
-          <ProfileField icon={Calendar}  label="Last Login"  value={formatLastLogin(employee.last_login)} />
-
+          <div className="space-y-3">
+            <ProfileField icon={Hash}      label="Employee ID"  value={employee.employee_id} />
+            <ProfileField icon={User}      label="Username"     value={employee.username} />
+            <ProfileField icon={Shield}    label="Role"         value={roleName} />
+            <ProfileField icon={Building2} label="Department"   value={deptName} />
+            <ProfileField icon={Calendar}  label="Start Date"   value={formatField(employee.start_date)} />
+            <ProfileField icon={Calendar}  label="Last Login"   value={formatField(employee.last_login)} />
+          </div>
           {employee.account_status === "Pending" && employee.invite_expires_at && (
-            <div className="mt-4 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg">
-              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 uppercase tracking-widest mb-0.5">Invite Expiry</p>
-              <p className="text-sm text-amber-800 dark:text-amber-300">{formatInviteDeadline(employee.invite_expires_at)}</p>
+            <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 text-sm text-amber-800 dark:text-amber-300">
+              <p className="font-semibold mb-0.5">Invite pending</p>
+              <p className="text-xs opacity-80">Expires {formatField(employee.invite_expires_at)}</p>
             </div>
           )}
         </div>
@@ -875,7 +885,7 @@ export default function ManagerTeamPage() {
                     </td>
                   </tr>
                 ) : paged.map(e => (
-                <tr key={e.user_id} className="hover:bg-muted/20 transition-colors">
+                <tr key={e.user_id} className="hover:bg-muted/20 transition-colors cursor-pointer" onClick={() => setViewEmployee(e)}>
                   <td className="px-5 py-4">
                     <div className="flex items-center gap-3">
                       <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
@@ -940,7 +950,7 @@ export default function ManagerTeamPage() {
                   <td className="px-5 py-4">
                     <span className="text-xs text-muted-foreground">{formatLastLogin(e.last_login)}</span>
                   </td>
-                  <td className="px-5 py-4 text-right">
+                  <td className="px-5 py-4 text-right" onClick={ev => ev.stopPropagation()}>
                     <RowMenu
                       employee={e}
                       onView={() => setViewEmployee(e)}
@@ -948,6 +958,7 @@ export default function ManagerTeamPage() {
                       onReactivate={() => handleReactivate(e)}
                       onResendInvite={() => handleResendInvite(e)}
                       onAssignEmail={() => setAssignEmailEmployee(e)}
+                      hideDeactivate={roles.find(r => r.role_id === e.role_id)?.role_name === "System Admin"}
                     />
                   </td>
                 </tr>

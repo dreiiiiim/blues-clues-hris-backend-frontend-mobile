@@ -6,8 +6,8 @@ import Link from "next/link";
 import { getUserInfo, getAccessToken, parseJwt, type StoredUser } from "@/lib/authStorage";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import {
-  getApplicantJobs, applyToJob, getMyApplications, getJobQuestions,
-  type JobPosting, type ApplicationQuestion, type MyApplication,
+  getApplicantJobs, applyToJob, getMyApplications, getJobQuestions, getApplicantProfile,
+  type JobPosting, type ApplicationQuestion, type MyApplication, type ApplicantProfile,
 } from "@/lib/authApi";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,8 @@ import {
   Check, Briefcase, MapPin, Clock,
   Search, ChevronRight, Building2, X, Loader2, CheckCircle,
   DollarSign, FileText, TrendingUp, CalendarClock, Sparkles,
-  ArrowUpRight,
+  ArrowUpRight, AlertTriangle, User, Phone, Mail, Calendar,
+  Globe, Heart, Home, Upload,
 } from "lucide-react";
 
 // ─── Application Form Modal ───────────────────────────────────────────────────
@@ -248,6 +249,144 @@ function ApplicationForm({
   );
 }
 
+// ─── Profile Completeness ─────────────────────────────────────────────────────
+
+const PROFILE_FIELDS: { key: keyof ApplicantProfile; label: string; icon: React.ElementType }[] = [
+  { key: "phone_number",    label: "Phone number",   icon: Phone    },
+  { key: "personal_email",  label: "Personal email", icon: Mail     },
+  { key: "date_of_birth",   label: "Date of birth",  icon: Calendar },
+  { key: "place_of_birth",  label: "Place of birth", icon: MapPin   },
+  { key: "nationality",     label: "Nationality",    icon: Globe    },
+  { key: "civil_status",    label: "Civil status",   icon: Heart    },
+  { key: "complete_address",label: "Home address",   icon: Home     },
+];
+
+function computeCompleteness(profile: ApplicantProfile | null) {
+  if (!profile) return { pct: 0, filled: 0, total: PROFILE_FIELDS.length, missing: PROFILE_FIELDS, hasResume: false };
+  const missing = PROFILE_FIELDS.filter(f => !profile[f.key]);
+  const filled  = PROFILE_FIELDS.length - missing.length;
+  const pct     = Math.round((filled / PROFILE_FIELDS.length) * 100);
+  return { pct, filled, total: PROFILE_FIELDS.length, missing, hasResume: !!profile.resume_url };
+}
+
+function ProfileCompletenessBanner({ profile }: { readonly profile: ApplicantProfile | null }) {
+  const { pct, filled, total, missing, hasResume } = computeCompleteness(profile);
+  const isComplete = pct === 100;
+
+  if (isComplete && hasResume) return null; // fully done — hide banner
+
+  const circumference = 2 * Math.PI * 20;
+  const dashOffset    = circumference - (pct / 100) * circumference;
+
+  return (
+    <div className={`rounded-2xl border p-5 ${
+      isComplete
+        ? "bg-emerald-50 border-emerald-200"
+        : pct >= 60
+        ? "bg-amber-50 border-amber-200"
+        : "bg-red-50 border-red-200"
+    }`}>
+      <div className="flex items-start gap-4">
+
+        {/* Progress ring */}
+        <div className="shrink-0 relative">
+          <svg width="52" height="52" viewBox="0 0 52 52" className="-rotate-90">
+            <circle cx="26" cy="26" r="20" fill="none" strokeWidth="4"
+              className={isComplete ? "stroke-emerald-200" : pct >= 60 ? "stroke-amber-200" : "stroke-red-200"} />
+            <circle cx="26" cy="26" r="20" fill="none" strokeWidth="4"
+              strokeDasharray={circumference}
+              strokeDashoffset={dashOffset}
+              strokeLinecap="round"
+              className={`transition-all duration-700 ${isComplete ? "stroke-emerald-500" : pct >= 60 ? "stroke-amber-500" : "stroke-red-500"}`} />
+          </svg>
+          <span className={`absolute inset-0 flex items-center justify-center text-[11px] font-bold ${
+            isComplete ? "text-emerald-700" : pct >= 60 ? "text-amber-700" : "text-red-600"
+          }`}>{pct}%</span>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              {isComplete ? (
+                <>
+                  <p className="font-semibold text-emerald-800 text-sm flex items-center gap-1.5">
+                    <CheckCircle className="h-4 w-4" /> Profile complete!
+                  </p>
+                  <p className="text-xs text-emerald-700/80 mt-0.5">
+                    Your details will auto-fill during onboarding.
+                    {!hasResume && " Upload your resume to finish."}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <p className={`font-semibold text-sm flex items-center gap-1.5 ${pct >= 60 ? "text-amber-800" : "text-red-700"}`}>
+                    <AlertTriangle className="h-4 w-4" />
+                    Profile incomplete — {filled} of {total} fields filled
+                  </p>
+                  <p className={`text-xs mt-0.5 ${pct >= 60 ? "text-amber-700/80" : "text-red-600/80"}`}>
+                    Complete your profile so your details auto-fill during onboarding when you get hired.
+                  </p>
+                </>
+              )}
+            </div>
+            <Link href="/applicant/profile">
+              <Button size="sm" variant="outline"
+                className={`h-7 text-xs shrink-0 ${
+                  isComplete
+                    ? "border-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                    : pct >= 60
+                    ? "border-amber-300 text-amber-700 hover:bg-amber-100"
+                    : "border-red-300 text-red-700 hover:bg-red-100"
+                }`}>
+                <User className="h-3 w-3 mr-1" />
+                {isComplete ? "View Profile" : "Complete Profile"}
+              </Button>
+            </Link>
+          </div>
+
+          {/* Missing fields chips */}
+          {!isComplete && missing.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {missing.map(f => (
+                <span key={f.key}
+                  className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                    pct >= 60
+                      ? "bg-amber-100 border-amber-300 text-amber-800"
+                      : "bg-red-100 border-red-300 text-red-700"
+                  }`}>
+                  <f.icon className="h-2.5 w-2.5" />
+                  {f.label}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Resume nudge */}
+          {!hasResume && (
+            <div className={`mt-2.5 flex items-center gap-1.5 text-[11px] ${
+              isComplete ? "text-emerald-700" : pct >= 60 ? "text-amber-700" : "text-red-600"
+            }`}>
+              <Upload className="h-3 w-3 shrink-0" />
+              <span>Resume not uploaded — add it in your profile for a stronger application.</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Progress bar */}
+      {!isComplete && (
+        <div className="mt-4 h-1.5 rounded-full bg-white/60 overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${pct >= 60 ? "bg-amber-400" : "bg-red-400"}`}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(dateStr: string): string {
@@ -322,13 +461,16 @@ export default function ApplicantDashboardPage() {
   const [search, setSearch] = useState("");
   const [applyingJob, setApplyingJob] = useState<JobPosting | null>(null);
   const [latestApp, setLatestApp] = useState<MyApplication | null>(null);
+  const [profile, setProfile] = useState<ApplicantProfile | null>(null);
 
   useEffect(() => {
     setSession(getUserInfo());
     Promise.all([
       getApplicantJobs().catch(() => [] as JobPosting[]),
       getMyApplications().catch(() => [] as MyApplication[]),
-    ]).then(([jobList, myApps]) => {
+      getApplicantProfile().catch(() => null),
+    ]).then(([jobList, myApps, myProfile]) => {
+      setProfile(myProfile);
       setJobs(jobList);
       setApplications(myApps);
       setAppliedJobIds(new Set(myApps.map((a) => a.job_posting_id)));
@@ -451,6 +593,9 @@ export default function ApplicantDashboardPage() {
           ))}
         </div>
       </div>
+
+      {/* ── Profile Completeness ── */}
+      {!loading && <ProfileCompletenessBanner profile={profile} />}
 
       {/* ── Application Stage Tracker ── */}
       <div className="rounded-2xl border border-border shadow-sm overflow-hidden bg-card">

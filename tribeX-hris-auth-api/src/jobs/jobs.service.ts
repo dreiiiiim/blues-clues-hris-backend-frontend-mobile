@@ -331,7 +331,8 @@ export class JobsService {
           last_name,
           email,
           phone_number,
-          applicant_code
+          applicant_code,
+          status
         )
       `)
       .eq('job_posting_id', jobPostingId)
@@ -360,7 +361,7 @@ export class JobsService {
       const applicantIds = uniqueSfiaApps.map((a: { applicant_id: string }) => a.applicant_id);
       const { data: profiles } = await supabase
         .from('applicant_profile')
-        .select('applicant_id, first_name, last_name, email, phone_number, applicant_code')
+        .select('applicant_id, first_name, last_name, email, phone_number, applicant_code, status')
         .in('applicant_id', applicantIds);
       sfiaProfiles = (profiles ?? []) as ApplicantProfileRow[];
     }
@@ -377,9 +378,15 @@ export class JobsService {
       }),
     );
 
-    return [...(regularApps ?? []), ...normalizedSfiaApps].sort(
+    const all = [...(regularApps ?? []), ...normalizedSfiaApps].sort(
       (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime(),
     );
+
+    // Exclude applicants already converted to employees so they don't show in the pipeline
+    return all.filter((a: any) => {
+      const profile = a.applicant_profile as { status?: string } | null;
+      return profile?.status !== 'converted_employee';
+    });
   }
 
   async getRankedCandidates(
@@ -590,6 +597,21 @@ export class JobsService {
 
     if (app) {
       await this.findOnePosting(app.job_posting_id, companyId);
+
+      // Block re-hiring an applicant already converted to an employee
+      if (status === 'hired') {
+        const { data: applicantProfile } = await supabase
+          .from('applicant_profile')
+          .select('status')
+          .eq('applicant_id', app.applicant_id)
+          .maybeSingle();
+
+        if (applicantProfile?.status === 'converted_employee') {
+          throw new ConflictException(
+            'This applicant has already been converted to an employee and cannot be re-hired.',
+          );
+        }
+      }
 
       // Enforce one-hire-per-company constraint
       if (status === 'hired') {

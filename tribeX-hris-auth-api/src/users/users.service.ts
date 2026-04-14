@@ -321,6 +321,31 @@ export class UsersService {
     }
   }
 
+  private async validateRoleBelongsToCompany(
+    supabase: ReturnType<SupabaseService['getClient']>,
+    roleId: string,
+    companyId: string,
+  ): Promise<void> {
+    const { data: roleRow, error: roleError } = await supabase
+      .from('role')
+      .select('role_id, company_id')
+      .eq('role_id', roleId)
+      .maybeSingle();
+    if (roleError) throw new InternalServerErrorException(roleError.message);
+    if (!roleRow) throw new BadRequestException('Selected role does not exist.');
+    if (roleRow.company_id && roleRow.company_id !== companyId) {
+      throw new BadRequestException('Selected role belongs to a different company.');
+    }
+  }
+
+  private normalizeOptionalString(value: unknown): string | null | undefined {
+    if (value === undefined) return undefined;
+    if (value === null) return null;
+    if (typeof value !== 'string') return String(value);
+    const normalized = value.trim();
+    return normalized.length > 0 ? normalized : null;
+  }
+
   private throwInsertUserError(insertError: { message: string; code?: string }): never {
     const dbCode = (insertError as any)?.code as string | undefined;
     if (dbCode === '23505') {
@@ -949,42 +974,69 @@ export class UsersService {
     if (findError) throw new BadRequestException(findError.message);
     if (!user) throw new NotFoundException('User not found in your company');
 
-    // Block reassigning to a different department if user already has one
-    if (
-      dto.department_id !== undefined &&
-      dto.department_id !== null &&
-      user.department_id !== null &&
-      user.department_id !== dto.department_id
-    ) {
-      await this.auditService.logIncident(
-        `Department assignment failed: ${user.email} is already assigned to a department`,
-        'WARNING',
-        { companyId, performedBy: adminUserId, targetUserId: id },
-      );
-      throw new ConflictException(
-        'User is already assigned to a department. Remove the current assignment before assigning a new one.',
-      );
+    const updates: Record<string, any> = {};
+    const normalizedFirstName = this.normalizeOptionalString(dto.first_name);
+    const normalizedLastName = this.normalizeOptionalString(dto.last_name);
+    const normalizedRoleId = this.normalizeOptionalString(dto.role_id);
+    const normalizedDepartmentId = this.normalizeOptionalString(
+      dto.department_id,
+    );
+    const normalizedStartDate = this.normalizeOptionalString(dto.start_date);
+
+    if (normalizedFirstName !== undefined) {
+      if (!normalizedFirstName) {
+        throw new BadRequestException('first_name cannot be empty.');
+      }
+      updates.first_name = normalizedFirstName;
     }
 
-    const updates: Record<string, any> = {};
-    if (dto.first_name !== undefined) updates.first_name = dto.first_name;
-    if (dto.last_name !== undefined) updates.last_name = dto.last_name;
-    if (dto.role_id !== undefined) updates.role_id = dto.role_id;
-    if (dto.department_id !== undefined)
-      updates.department_id = dto.department_id;
-    if (dto.start_date !== undefined) updates.start_date = dto.start_date;
+    if (normalizedLastName !== undefined) {
+      if (!normalizedLastName) {
+        throw new BadRequestException('last_name cannot be empty.');
+      }
+      updates.last_name = normalizedLastName;
+    }
+
+    if (normalizedRoleId !== undefined) {
+      if (!normalizedRoleId) {
+        throw new BadRequestException('role_id is required.');
+      }
+      await this.validateRoleBelongsToCompany(supabase, normalizedRoleId, companyId);
+      updates.role_id = normalizedRoleId;
+    }
+
+    if (normalizedDepartmentId !== undefined) {
+      if (normalizedDepartmentId) {
+        await this.validateDepartmentBelongsToCompany(
+          supabase,
+          { department_id: normalizedDepartmentId },
+          companyId,
+        );
+      }
+      updates.department_id = normalizedDepartmentId;
+    }
+
+    if (normalizedStartDate !== undefined) {
+      updates.start_date = normalizedStartDate;
+    }
 
     if (Object.keys(updates).length === 0) {
       return { message: 'No fields to update' };
     }
 
-    const { error: updateError } = await supabase
+    const { data: updatedUser, error: updateError } = await supabase
       .from('user_profile')
       .update(updates)
       .eq('user_id', id)
-      .eq('company_id', companyId);
+      .eq('company_id', companyId)
+      .select(
+        'user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status',
+      )
+      .maybeSingle();
 
     if (updateError) throw new BadRequestException(updateError.message);
+    if (!updatedUser)
+      throw new NotFoundException('User not found in your company');
 
     const changes = Object.keys(updates)
       .map((field) => {
@@ -1001,7 +1053,16 @@ export class UsersService {
       id,
     );
 
-    return { message: 'User updated successfully' };
+    const [lastLoginByUser, inviteExpiryByUser] = await Promise.all([
+      this.getLastLoginMap([id]),
+      this.getInviteExpiryMap([id]),
+    ]);
+
+    return {
+      ...updatedUser,
+      last_login: lastLoginByUser[id] ?? null,
+      invite_expires_at: inviteExpiryByUser[id] ?? null,
+    };
   }
 
   async remove(id: string, companyId: string, adminUserId: string) {

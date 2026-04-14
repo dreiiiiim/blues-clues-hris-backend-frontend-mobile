@@ -728,7 +728,24 @@ export async function rejectEmployeeDocument(docId: string, hrNotes: string): Pr
 }
 
 export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
-  const access = getAccessToken();
+  let access = getAccessToken();
+
+  // On full page reload, access token is lost (memory-only by design).
+  // If we still have user context, proactively refresh first to avoid an
+  // expected 401 on the initial protected request.
+  if (!access && getUserInfo()) {
+    try {
+      if (!refreshPromise) {
+        const userInfo = getUserInfo();
+        const doRefresh = userInfo?.role === "applicant" ? applicantRefreshApi : refreshApi;
+        refreshPromise = doRefresh().finally(() => { refreshPromise = null; });
+      }
+      const refreshed = await refreshPromise as { access_token?: string };
+      if (refreshed?.access_token) access = refreshed.access_token;
+    } catch {
+      // Ignore here and let the normal 401 + refresh fallback handle it.
+    }
+  }
 
   // 1) try request with access token
   // credentials: "include" ensures the HttpOnly refresh cookie is forwarded

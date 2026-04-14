@@ -1,15 +1,17 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import {
   Clock, Search, Download, ChevronLeft, ChevronRight,
-  Users, CheckCircle2, Timer, MapPin, MapPinOff,
+  Users, CheckCircle2, Timer, MapPin, MapPinOff, Calendar, CalendarDays,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
+import { EmployeeScheduleEditModal } from "@/components/timekeeping/EmployeeScheduleEditModal";
+import { AttendanceCalendarGrid, type CalendarDayData, type CalendarViewMode } from "@/components/timekeeping/AttendanceCalendarGrid";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -33,6 +35,7 @@ type PunchRow = {
 };
 
 type RosterEntry = {
+  user_id: string;
   employee_id: string;
   first_name: string;
   last_name: string;
@@ -69,6 +72,7 @@ function formatTime(timestamp: string | null): string {
   if (!timestamp) return "—";
   return parseTs(timestamp).toLocaleTimeString("en-US", {
     hour: "2-digit", minute: "2-digit",
+    hour12: true,
     timeZone: "Asia/Manila",
   });
 }
@@ -125,6 +129,7 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
     }
 
     return {
+      user_id: user.user_id,
       employee_id: user.employee_id,
       first_name: user.first_name,
       last_name: user.last_name,
@@ -205,12 +210,22 @@ const ITEMS_PER_PAGE = 8;
 
 export default function ManagerTimekeepingPage() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
+  const [users, setUsers]               = useState<UserRow[]>([]);
+  const [allPunches, setAllPunches]     = useState<PunchRow[]>([]);
   const [roster, setRoster]             = useState<RosterEntry[]>([]);
   const [loading, setLoading]           = useState(true);
   const [fetchError, setFetchError]     = useState(false);
   const [search, setSearch]             = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage]                 = useState(1);
+
+  // Calendar
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [calendarMode, setCalendarMode] = useState<CalendarViewMode>("month");
+  const [calPickerNav, setCalPickerNav] = useState<Date | null>(null);
+
+  // Schedule view modal (manager is view-only)
+  const [editScheduleFor, setEditScheduleFor]     = useState<{ userId: string; name: string } | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -225,7 +240,7 @@ export default function ManagerTimekeepingPage() {
       authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${dateStr}&to=${dateStr}`)
         .then(r => { if (!r.ok) { throw new Error('Unexpected error'); } return r.json() as Promise<PunchRow[]>; }),
     ])
-      .then(([users, punches]) => setRoster(buildFullRoster(users, punches)))
+      .then(([u, punches]) => { setUsers(u); setAllPunches(punches); setRoster(buildFullRoster(u, punches)); })
       .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, [selectedDate]);
@@ -242,23 +257,42 @@ export default function ManagerTimekeepingPage() {
     });
   }, [roster, search, statusFilter]);
 
+  const effectiveLabel = useMemo(() => {
+    return formatDisplayDate(selectedDate);
+  }, [selectedDate]);
+
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paged      = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
-  function goToPrev()  { setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; }); }
-  function goToNext()  { setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; }); }
-  function goToToday() { setSelectedDate(new Date()); }
+  const goToPrev  = useCallback(() => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; }), []);
+  const goToNext  = useCallback(() => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; }), []);
+  const goToToday = useCallback(() => setSelectedDate(new Date()), []);
+
+  const calendarDays = useMemo<CalendarDayData[]>(() => {
+    const today = toDateString(new Date());
+    const dateMap: Record<string, { hasPresent: boolean; hasAbsent: boolean }> = {};
+    for (const p of allPunches) {
+      const d = p.timestamp.split("T")[0];
+      if (!dateMap[d]) dateMap[d] = { hasPresent: false, hasAbsent: false };
+      if (p.log_type === "time-in") dateMap[d].hasPresent = true;
+      if (p.log_type === "time-out") {/* skip */}
+    }
+    return Object.entries(dateMap).map(([date, s]): CalendarDayData => ({
+      date,
+      status: date > today ? "future" : s.hasPresent ? "present" : "absent",
+    }));
+  }, [allPunches]);
 
   const emptyMessage = (search || statusFilter !== "all") ? "No records match your search." : "No entries found for this date.";
   const tableBodyPlaceholder = loading ? (
-    <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">Loading timekeeping data...</td></tr>
+    <tr><td colSpan={7} className="px-6 py-10 text-center text-muted-foreground text-sm">Loading timekeeping data...</td></tr>
   ) : fetchError ? (
-    <tr><td colSpan={6} className="px-6 py-10 text-center text-destructive text-sm">Failed to load data. Please refresh or contact support.</td></tr>
+    <tr><td colSpan={7} className="px-6 py-10 text-center text-destructive text-sm">Failed to load data. Please refresh or contact support.</td></tr>
   ) : (
-    <tr><td colSpan={6} className="px-6 py-10 text-center text-muted-foreground text-sm">{emptyMessage}</td></tr>
+    <tr><td colSpan={7} className="px-6 py-10 text-center text-muted-foreground text-sm">{emptyMessage}</td></tr>
   );
   const tableBody = loading || fetchError || paged.length === 0 ? tableBodyPlaceholder : paged.map(log => (
-    <tr key={log.employee_id} className="hover:bg-muted/30 transition-colors">
+    <tr key={log.employee_id} className="hover:bg-primary/5 transition-colors">
       <td className="px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="h-9 w-9 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs border border-primary/5 shrink-0">
@@ -291,11 +325,32 @@ export default function ManagerTimekeepingPage() {
           )
         )}
       </td>
+      <td className="px-6 py-4">
+        <button
+          onClick={() => setEditScheduleFor({ userId: log.user_id, name: `${log.first_name} ${log.last_name}` })}
+          className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors cursor-pointer"
+        >
+          <CalendarDays className="h-3.5 w-3.5" />
+          View Schedule
+        </button>
+      </td>
     </tr>
   ));
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+
+      {/* Schedule Modal */}
+      {editScheduleFor && (
+        <EmployeeScheduleEditModal
+          employeeId={editScheduleFor.userId}
+          employeeName={editScheduleFor.name}
+          currentSchedule={null}
+          readOnly
+          effectiveLabel={effectiveLabel}
+          onClose={() => setEditScheduleFor(null)}
+        />
+      )}
 
       {/* Header + Date Nav */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -305,10 +360,23 @@ export default function ManagerTimekeepingPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold">Team Timekeeping</h1>
-            <p className="text-xs text-muted-foreground mt-0.5">Monitor your team&apos;s daily attendance and compliance</p>
+            <p className="text-xs text-muted-foreground mt-0.5">Monitor your team&apos;s daily attendance and schedule</p>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Calendar toggle */}
+          <button
+            onClick={() => setShowCalendar(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all cursor-pointer ${
+              showCalendar ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50"
+            }`}
+          >
+            <Calendar className="h-3.5 w-3.5" />
+            Calendar
+          </button>
+          <span className="px-3 py-2 rounded-lg border border-border text-xs font-semibold text-muted-foreground">
+            Schedule access: view only
+          </span>
           <Button variant="outline" size="icon" className="h-9 w-9" onClick={goToPrev}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -338,6 +406,30 @@ export default function ManagerTimekeepingPage() {
         <StatCard icon={Timer}        label="Late Arrivals" value={String(stats.late)}               sub="needs follow-up"                        colorClass="bg-amber-50 text-amber-600" />
         <StatCard icon={Clock}        label="Avg Hours"     value={`${stats.avg_hours.toFixed(1)}h`} sub="per employee"                           colorClass="bg-blue-50 text-blue-600" />
       </div>
+
+      {/* Calendar Grid View */}
+      {showCalendar && (
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm animate-in fade-in duration-300">
+          <div className="mb-4">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Team Calendar</p>
+            <p className="text-sm font-semibold text-foreground mt-0.5">Click a day to view that day&apos;s roster</p>
+          </div>
+          <AttendanceCalendarGrid
+            mode={calendarMode}
+            referenceDate={calPickerNav ?? selectedDate}
+            days={calendarDays}
+            loading={loading}
+            showModeToggle
+            onModeChange={setCalendarMode}
+            onNavigate={(d) => setCalPickerNav(d)}
+            onDayClick={(date) => {
+              setSelectedDate(new Date(date + "T00:00:00"));
+              setShowCalendar(false);
+              setCalPickerNav(null);
+            }}
+          />
+        </div>
+      )}
 
       {/* Table */}
       <Card className="border-border overflow-hidden">
@@ -383,6 +475,7 @@ export default function ManagerTimekeepingPage() {
                 <th className="px-6 py-4">Hours</th>
                 <th className="px-6 py-4">Status</th>
                 <th className="px-6 py-4">GPS</th>
+                <th className="px-6 py-4">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
@@ -412,3 +505,5 @@ export default function ManagerTimekeepingPage() {
     </div>
   );
 }
+
+

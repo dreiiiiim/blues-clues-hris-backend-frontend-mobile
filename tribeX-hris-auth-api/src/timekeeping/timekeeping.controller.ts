@@ -2,6 +2,7 @@ import {
   Controller,
   Post,
   Get,
+  Put,
   Param,
   Body,
   Req,
@@ -18,6 +19,8 @@ import {
 import { TimekeepingService } from './timekeeping.service';
 import { TimePunchDto } from './dto/time-punch.dto';
 import { ReportAbsenceDto } from './dto/report-absence.dto';
+import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
+import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -31,6 +34,9 @@ const HR_AND_ABOVE = [
   'HR Interviewer',
   'Manager',
 ];
+
+// Roles that can create/edit schedules
+const SCHEDULE_MANAGERS = ['System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer'];
 
 @ApiTags('Timekeeping')
 @ApiBearerAuth()
@@ -71,6 +77,22 @@ export class TimekeepingController {
   })
   reportAbsence(@Body() dto: ReportAbsenceDto, @Req() req: any) {
     return this.timekeepingService.reportAbsence(req.user.sub_userid, dto);
+  }
+
+  @Post('auto-mark-absent')
+  @UseGuards(RolesGuard)
+  @Roles('System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer')
+  @ApiOperation({
+    summary: 'System: Auto-mark absent employees',
+    description:
+      'Marks all employees scheduled for today as absent if they have ' +
+      'no clock-in and did not self-report an absence. ' +
+      'Intended to be called at end of business day (or by a cron scheduler). ' +
+      'Safe to call multiple times — duplicate absences are skipped. ' +
+      'Restricted to HR/System Admin roles.',
+  })
+  autoMarkAbsent() {
+    return this.timekeepingService.autoMarkAbsentEmployees();
   }
 
   @Get('my-status')
@@ -161,5 +183,63 @@ export class TimekeepingController {
       date,
       req.user.company_id,
     );
+  }
+
+  // ─── Schedule CRUD ──────────────────────────────────────────────────────────
+
+  @Get('my-schedule')
+  @ApiOperation({ summary: 'Employee: Get own work schedule' })
+  getMySchedule(@Req() req: any) {
+    return this.timekeepingService.getMySchedule(req.user.sub_userid);
+  }
+
+  @Get('my-stats')
+  @ApiOperation({ summary: 'Employee: Get attendance stats for a date range' })
+  @ApiQuery({ name: 'from', required: true, example: '2026-04-01' })
+  @ApiQuery({ name: 'to', required: true, example: '2026-04-30' })
+  getMyStats(
+    @Req() req: any,
+    @Query('from') from: string,
+    @Query('to') to: string,
+  ) {
+    return this.timekeepingService.getMyStats(req.user.sub_userid, from, to);
+  }
+
+  @Get('schedules')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR/Manager: Get all employees with their assigned schedules' })
+  getAllSchedules(@Req() req: any) {
+    return this.timekeepingService.getAllSchedules(req.user.company_id);
+  }
+
+  @Get('employees/:userId/schedule')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR/Manager: Get a specific employee\'s schedule' })
+  @ApiParam({ name: 'userId', description: 'user_id of the target employee' })
+  getEmployeeSchedule(@Param('userId') userId: string, @Req() req: any) {
+    return this.timekeepingService.getEmployeeSchedule(userId, req.user.company_id);
+  }
+
+  @Put('employees/:userId/schedule')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({ summary: 'HR/System Admin: Create or update an employee\'s schedule' })
+  @ApiParam({ name: 'userId', description: 'user_id of the target employee' })
+  upsertSchedule(
+    @Param('userId') userId: string,
+    @Body() dto: UpsertScheduleDto,
+    @Req() req: any,
+  ) {
+    return this.timekeepingService.upsertEmployeeSchedule(userId, dto, req.user.company_id, req.user.sub_userid);
+  }
+
+  @Post('schedules/bulk')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({ summary: 'HR/System Admin: Bulk-assign a schedule to company, department, or selected employees' })
+  bulkAssignSchedule(@Body() dto: BulkScheduleDto, @Req() req: any) {
+    return this.timekeepingService.bulkAssignSchedule(dto, req.user.company_id, req.user.sub_userid);
   }
 }

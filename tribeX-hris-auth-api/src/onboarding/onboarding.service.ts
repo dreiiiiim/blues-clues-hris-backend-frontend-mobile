@@ -685,7 +685,7 @@ export class OnboardingService {
         try {
           const [{ data: applicant }, { data: staging }] = await Promise.all([
             supabase.from('applicant_profile').select('email, company_id').eq('applicant_id', accountId).maybeSingle(),
-            supabase.from('employee_staging').select('first_name, last_name, email_address, complete_address, date_of_birth, place_of_birth, nationality, civil_status').eq('session_id', sessionId).maybeSingle(),
+            supabase.from('employee_staging').select('first_name, last_name, email_address, phone_number, complete_address, date_of_birth, place_of_birth, nationality, civil_status').eq('session_id', sessionId).maybeSingle(),
           ]);
 
           if (applicant) {
@@ -717,8 +717,9 @@ export class OnboardingService {
               username,
               company_id: applicant.company_id,
               employee_id: employeeCode,
-              account_status: 'Pending',
+              account_status: 'Active',
               ...(defaultRole ? { role_id: defaultRole.role_id } : {}),
+              ...(staging?.phone_number ? { phone_number: staging.phone_number } : {}),
               ...(staging?.complete_address ? { complete_address: staging.complete_address } : {}),
               ...(staging?.date_of_birth ? { date_of_birth: staging.date_of_birth } : {}),
               ...(staging?.place_of_birth ? { place_of_birth: staging.place_of_birth } : {}),
@@ -790,6 +791,7 @@ export class OnboardingService {
         if (staging) {
           const profileUpdate: Record<string, any> = {};
           if (staging.email_address != null)   profileUpdate.personal_email   = staging.email_address;
+          if (staging.phone_number != null)     profileUpdate.phone_number     = staging.phone_number;
           if (staging.complete_address != null) profileUpdate.complete_address = staging.complete_address;
           if (staging.date_of_birth != null)   profileUpdate.date_of_birth    = staging.date_of_birth;
           if (staging.place_of_birth != null)  profileUpdate.place_of_birth   = staging.place_of_birth;
@@ -1433,18 +1435,26 @@ export class OnboardingService {
     const userId = crypto.randomUUID();
     const employeeCode = `EMP-${Math.floor(1000000 + Math.random() * 9000000)}`;
 
+    const applicantEmailData = (await supabase.from('applicant_profile').select('email').eq('applicant_id', submission.applicant_id).maybeSingle()).data;
+
     const { error: insertError } = await supabase.from('user_profile').insert({
       user_id: userId,
-      email: (await supabase.from('applicant_profile').select('email').eq('applicant_id', submission.applicant_id).maybeSingle()).data?.email ?? '',
-      first_name: submission.first_name,
-      last_name: submission.last_name,
+      email: applicantEmailData?.email ?? '',
+      first_name: submission.first_name ?? '',
+      last_name: submission.last_name ?? '',
       role_id: roleId,
       company_id: companyId,
       employee_id: employeeCode,
       username: submission.preferred_username,
-      account_status: 'Pending',
-      ...(submission.department_id ? { department_id: submission.department_id } : {}),
-      ...(submission.start_date ? { start_date: submission.start_date } : {}),
+      account_status: 'Active',
+      // Sync all personal details the applicant submitted during new-hire onboarding
+      ...(submission.phone          ? { phone_number:     submission.phone }         : {}),
+      ...(submission.address        ? { complete_address: submission.address }        : {}),
+      ...(submission.date_of_birth  ? { date_of_birth:    submission.date_of_birth } : {}),
+      ...(submission.nationality    ? { nationality:       submission.nationality }   : {}),
+      ...(submission.civil_status   ? { civil_status:      submission.civil_status }  : {}),
+      ...(submission.department_id  ? { department_id:     submission.department_id } : {}),
+      ...(submission.start_date     ? { start_date:        submission.start_date }    : {}),
     });
     if (insertError) throw new InternalServerErrorException(insertError.message);
 

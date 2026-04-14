@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
-import { AlertCircle, Loader2, Clock, Users, Shield } from "lucide-react";
+import { AlertCircle, Loader2, Clock, Users, Shield, UserX } from "lucide-react";
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
@@ -119,10 +119,24 @@ export default function EmployeeLoginPage() {
           </div>
 
           {error && (
-            <div className="bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium p-4 rounded-xl flex items-center gap-3">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <span>{error}</span>
-            </div>
+            error.toLowerCase().includes("deactivated") ? (
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+                <div className="shrink-0 h-9 w-9 rounded-full bg-amber-100 flex items-center justify-center">
+                  <UserX className="h-4 w-4 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-bold text-amber-800">Account Deactivated</p>
+                  <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                    Your account has been deactivated. Please contact your HR administrator to restore access.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium p-4 rounded-xl flex items-center gap-3">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )
           )}
 
           <GoogleSignInButton disabled={isLoading} onClick={() => {}} />

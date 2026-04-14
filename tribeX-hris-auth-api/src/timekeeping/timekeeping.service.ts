@@ -8,6 +8,8 @@ import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { TimePunchDto } from './dto/time-punch.dto';
 import { ReportAbsenceDto } from './dto/report-absence.dto';
+import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
+import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 
 type AttendanceLogType = 'time-in' | 'time-out' | 'break-start' | 'break-end' | 'absence';
 type ClockType = 'ON-TIME' | 'LATE' | 'EARLY' | 'OVERTIME';
@@ -38,7 +40,64 @@ type ScheduleRow = {
   break_start?: string | null;
   break_end?: string | null;
   is_nightshift: boolean | null;
+  schedule_source?: 'bulk' | 'individual' | 'default' | null;
+  updated_by_name?: string | null;
+  updated_at?: string | null;
 };
+
+type EmployeeDepartmentRelation =
+  | { department_name?: string | null }
+  | Array<{ department_name?: string | null }>
+  | null
+  | undefined;
+
+type EmployeeUserRow = {
+  user_id: string;
+  employee_id: string;
+  first_name: string;
+  last_name: string;
+  department_id: string | null;
+  department?: EmployeeDepartmentRelation;
+  department_name?: string | null;
+};
+
+function normalizeScheduleRow(
+  schedule: ScheduleRow | null,
+): ScheduleRow | null {
+  if (!schedule) return null;
+  return {
+    ...schedule,
+    schedule_source: schedule.schedule_source ?? 'default',
+  };
+}
+
+function normalizeDepartmentName(name: unknown): string | null {
+  if (typeof name !== 'string') return null;
+  const normalized = name.trim();
+  return normalized.length ? normalized : null;
+}
+
+function extractDepartmentNameFromRelation(
+  relation: EmployeeDepartmentRelation,
+): string | null {
+  if (!relation) return null;
+  if (Array.isArray(relation)) {
+    return normalizeDepartmentName(relation[0]?.department_name);
+  }
+  return normalizeDepartmentName(relation.department_name);
+}
+
+function normalizeEmployeeUserRow(row: EmployeeUserRow): EmployeeUserRow {
+  const department_name =
+    normalizeDepartmentName(row.department_name) ??
+    extractDepartmentNameFromRelation(row.department);
+
+  return {
+    ...row,
+    department_name,
+    department: department_name ? { department_name } : null,
+  };
+}
 
 function getIp(req?: any): string | null {
   if (!req) return null;
@@ -199,14 +258,14 @@ export class TimekeepingService {
     const { data, error } = await supabase
       .from('schedules')
       .select(
-        'sched_id, employee_id, workdays, start_time, end_time, break_start, break_end, is_nightshift',
+        'sched_id, employee_id, workdays, start_time, end_time, break_start, break_end, is_nightshift, schedule_source, updated_by_name, updated_at',
       )
       .eq('employee_id', employeeId)
       .maybeSingle<ScheduleRow>();
 
     if (error) throw new Error(error.message);
 
-    return data ?? null;
+    return normalizeScheduleRow(data ?? null);
   }
 
   private async getScheduleForToday(employeeId: string): Promise<ScheduleRow | null> {
@@ -495,13 +554,14 @@ export class TimekeepingService {
 
     const { data, error } = await supabase
       .from('user_profile')
-      .select('user_id, employee_id, first_name, last_name')
+      .select('user_id, employee_id, first_name, last_name, department_id, department:department_id(department_name)')
       .eq('company_id', companyId)
+      .eq('account_status', 'Active')
       .not('employee_id', 'is', null)
       .in('role_id', roleIds);
 
     if (error) throw new Error(error.message);
-    return data ?? [];
+    return ((data ?? []) as EmployeeUserRow[]).map(normalizeEmployeeUserRow);
   }
 
   async getAllTimesheets(companyId: string, from?: string, to?: string) {
@@ -654,6 +714,372 @@ export class TimekeepingService {
 
     this.logger.log(`Absence reported — employee: ${employeeId}, reason: ${dto.reason}`);
     return { log_id, date: today, reason: dto.reason, notes: dto.notes ?? null };
+  }
+
+  // ─── Auto-Absent Job ──────────────────────────────────────────────────────
+
+  /**
+   * Auto-marks employees as absent if they have a schedule for today but
+   * have no clock-in and did not self-report an absence.
+   *
+   * Intended to run at 11:30 PM Manila time via @Cron or a manual trigger.
+   * Safe to call multiple times — duplicate absences are skipped.
+   */
+  async autoMarkAbsentEmployees(): Promise<{ date: string; marked: number; skipped: number }> {
+    const supabase = this.supabaseService.getClient();
+
+    // Use Manila timezone for the workday date
+    const manilaDate  = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }); // YYYY-MM-DD
+    const manilaStart = `${manilaDate}T00:00:00.000+08:00`;
+    const manilaEnd   = `${manilaDate}T23:59:59.999+08:00`;
+
+    this.logger.log(`autoMarkAbsent: running for ${manilaDate}`);
+
+    // 1. Fetch all active employees
+    const { data: employees, error: empError } = await supabase
+      .from('user_profile')
+      .select('employee_id')
+      .eq('account_status', 'Active')
+      .not('employee_id', 'is', null);
+
+    if (empError) {
+      this.logger.error('autoMarkAbsent: failed to fetch employees', empError.message);
+      return { date: manilaDate, marked: 0, skipped: 0 };
+    }
+
+    const employeeIds = ((employees ?? []) as { employee_id: string }[])
+      .map(e => e.employee_id)
+      .filter(Boolean);
+
+    if (!employeeIds.length) {
+      this.logger.log('autoMarkAbsent: no active employees found');
+      return { date: manilaDate, marked: 0, skipped: 0 };
+    }
+
+    // 2. Fetch schedules for these employees
+    const { data: schedules } = await supabase
+      .from('schedules')
+      .select('employee_id, workdays')
+      .in('employee_id', employeeIds);
+
+    const scheduleMap = new Map<string, string | string[] | null>();
+    for (const s of (schedules ?? []) as { employee_id: string; workdays: string | string[] | null }[]) {
+      scheduleMap.set(s.employee_id, s.workdays);
+    }
+
+    // 3. Filter to employees scheduled for today's weekday
+    const scheduledToday = employeeIds.filter(eid => {
+      const workdays = scheduleMap.get(eid);
+      return !!workdays && this.isScheduledForToday(workdays);
+    });
+
+    if (!scheduledToday.length) {
+      this.logger.log('autoMarkAbsent: no employees scheduled today');
+      return { date: manilaDate, marked: 0, skipped: 0 };
+    }
+
+    // 4. Fetch any existing attendance log today for scheduled employees
+    const { data: todayLogs } = await supabase
+      .from('attendance_time_logs')
+      .select('employee_id')
+      .in('employee_id', scheduledToday)
+      .gte('timestamp', manilaStart)
+      .lte('timestamp', manilaEnd);
+
+    const hasLogToday = new Set(
+      ((todayLogs ?? []) as { employee_id: string }[]).map(l => l.employee_id),
+    );
+
+    // 5. Mark absent those who have no log at all for today
+    const toMark = scheduledToday.filter(eid => !hasLogToday.has(eid));
+
+    if (!toMark.length) {
+      this.logger.log(`autoMarkAbsent: all ${scheduledToday.length} scheduled employees already have logs`);
+      return { date: manilaDate, marked: 0, skipped: scheduledToday.length };
+    }
+
+    const now = new Date().toISOString();
+    const absenceRows = toMark.map(eid => ({
+      log_id:          crypto.randomUUID(),
+      employee_id:     eid,
+      log_type:        'absence' as const,
+      timestamp:       now,
+      absence_reason:  null,   // no reason — auto-marked
+      absence_notes:   'Automatically marked absent: no clock-in or absence report on scheduled workday.',
+      status:          'ABSENT',
+      log_status:      'ABSENT',
+      is_mock_location: false,
+    }));
+
+    const { error: insertError } = await supabase
+      .from('attendance_time_logs')
+      .insert(absenceRows);
+
+    if (insertError) {
+      this.logger.error('autoMarkAbsent: insert failed', insertError.message);
+      return { date: manilaDate, marked: 0, skipped: scheduledToday.length };
+    }
+
+    this.logger.log(
+      `autoMarkAbsent: marked ${toMark.length} absent, skipped ${scheduledToday.length - toMark.length} (date: ${manilaDate})`,
+    );
+    return { date: manilaDate, marked: toMark.length, skipped: scheduledToday.length - toMark.length };
+  }
+
+  // ─── Schedule CRUD ────────────────────────────────────────────────────────
+
+  async upsertEmployeeSchedule(
+    targetUserId: string,
+    dto: UpsertScheduleDto,
+    companyId: string,
+    updaterUserId: string,
+  ): Promise<ScheduleRow> {
+    const supabase = this.supabaseService.getClient();
+
+    const [{ data: profile, error: profileError }, { data: updater }] = await Promise.all([
+      supabase
+        .from('user_profile')
+        .select('employee_id, company_id')
+        .eq('user_id', targetUserId)
+        .maybeSingle(),
+      supabase
+        .from('user_profile')
+        .select('first_name, last_name')
+        .eq('user_id', updaterUserId)
+        .maybeSingle(),
+    ]);
+
+    if (profileError) throw new Error(profileError.message);
+    if (!profile) throw new NotFoundException('Employee not found.');
+    if (profile.company_id !== companyId)
+      throw new NotFoundException('Employee not found in your company.');
+    if (!profile.employee_id)
+      throw new BadRequestException('Employee does not have an employee_id assigned.');
+
+    const updatedByName = updater
+      ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
+      : null;
+
+    const row = {
+      employee_id: profile.employee_id,
+      start_time: dto.start_time,
+      end_time: dto.end_time,
+      break_start: dto.break_start ?? '00:00',
+      break_end: dto.break_end ?? '00:00',
+      workdays: dto.workdays,
+      is_nightshift: dto.is_nightshift,
+      schedule_source: 'individual' as const,
+      updated_by_name: updatedByName,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('schedules')
+      .upsert(row, { onConflict: 'employee_id' })
+      .select()
+      .single<ScheduleRow>();
+
+    if (error) throw new Error(error.message);
+
+    this.logger.log(`Schedule upserted — employee_id: ${profile.employee_id}, by: ${updatedByName}`);
+    return data;
+  }
+
+  async bulkAssignSchedule(
+    dto: BulkScheduleDto,
+    companyId: string,
+    updaterUserId: string,
+  ): Promise<{ affected: number }> {
+    const supabase = this.supabaseService.getClient();
+
+    if (dto.scope === 'department') {
+      if (!dto.department_id) {
+        throw new BadRequestException('department_id is required when scope is "department".');
+      }
+      const { data: dept } = await supabase
+        .from('department')
+        .select('company_id')
+        .eq('department_id', dto.department_id)
+        .maybeSingle();
+      if (!dept || dept.company_id !== companyId) {
+        throw new BadRequestException('Department not found in your company.');
+      }
+    }
+
+    if (dto.scope === 'employees') {
+      const hasUserIds = Array.isArray(dto.user_ids) && dto.user_ids.length > 0;
+      const hasEmployeeIds =
+        Array.isArray(dto.employee_ids) && dto.employee_ids.length > 0;
+      if (!hasUserIds && !hasEmployeeIds) {
+        throw new BadRequestException(
+          'user_ids or employee_ids is required when scope is "employees".',
+        );
+      }
+    }
+
+    const [employees, { data: updater }] = await Promise.all([
+      this.getEmployeeUsers(companyId),
+      supabase
+        .from('user_profile')
+        .select('first_name, last_name')
+        .eq('user_id', updaterUserId)
+        .maybeSingle(),
+    ]);
+
+    const updatedByName = updater
+      ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
+      : null;
+
+    let filtered = employees;
+    if (dto.scope === 'department' && dto.department_id) {
+      filtered = employees.filter(e => e.department_id === dto.department_id);
+    } else if (dto.scope === 'employees') {
+      const userIdSet = new Set(
+        (dto.user_ids ?? []).map((id) => String(id).trim()).filter(Boolean),
+      );
+      const employeeIdSet = new Set(
+        (dto.employee_ids ?? [])
+          .map((id) => String(id).trim())
+          .filter(Boolean),
+      );
+      filtered = employees.filter(
+        (e) => userIdSet.has(e.user_id) || employeeIdSet.has(e.employee_id),
+      );
+    }
+
+    if (filtered.length === 0) return { affected: 0 };
+
+    const now = new Date().toISOString();
+    const rows = filtered
+      .filter(e => !!e.employee_id)
+      .map(e => ({
+        employee_id: e.employee_id,
+        start_time: dto.schedule.start_time,
+        end_time: dto.schedule.end_time,
+        break_start: dto.schedule.break_start ?? '00:00',
+        break_end: dto.schedule.break_end ?? '00:00',
+        workdays: dto.schedule.workdays,
+        is_nightshift: dto.schedule.is_nightshift,
+        schedule_source: 'bulk' as const,
+        updated_by_name: updatedByName,
+        updated_at: now,
+      }));
+
+    const { error } = await supabase
+      .from('schedules')
+      .upsert(rows, { onConflict: 'employee_id' });
+
+    if (error) throw new Error(error.message);
+
+    this.logger.log(`Bulk schedule assigned — ${rows.length} employees, scope: ${dto.scope}, by: ${updatedByName}`);
+    return { affected: rows.length };
+  }
+
+  async getEmployeeSchedule(
+    targetUserId: string,
+    companyId: string,
+  ): Promise<ScheduleRow | null> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: profile, error } = await supabase
+      .from('user_profile')
+      .select('employee_id, company_id')
+      .eq('user_id', targetUserId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    if (!profile || profile.company_id !== companyId) return null;
+    if (!profile.employee_id) return null;
+
+    return this.getScheduleForEmployee(profile.employee_id);
+  }
+
+  async getAllSchedules(companyId: string): Promise<
+    {
+      user_id: string;
+      employee_id: string;
+      first_name: string;
+      last_name: string;
+      department_name: string | null;
+      schedule: ScheduleRow | null;
+    }[]
+  > {
+    const supabase = this.supabaseService.getClient();
+    const employees = await this.getEmployeeUsers(companyId);
+
+    const employeeIds = employees.map(e => e.employee_id).filter(Boolean);
+    if (employeeIds.length === 0) return [];
+
+    const { data: schedules, error } = await supabase
+      .from('schedules')
+      .select('sched_id, employee_id, workdays, start_time, end_time, break_start, break_end, is_nightshift, schedule_source, updated_by_name, updated_at')
+      .in('employee_id', employeeIds);
+
+    if (error) throw new Error(error.message);
+
+    const scheduleMap = new Map<string, ScheduleRow>(
+      (schedules ?? []).map((s) => [
+        s.employee_id,
+        normalizeScheduleRow(s as ScheduleRow)!,
+      ]),
+    );
+
+    return employees.map(e => ({
+      user_id: e.user_id,
+      employee_id: e.employee_id,
+      first_name: e.first_name,
+      last_name: e.last_name,
+      department_name: normalizeDepartmentName(
+        (e as EmployeeUserRow).department_name,
+      ),
+      schedule: scheduleMap.get(e.employee_id) ?? null,
+    }));
+  }
+
+  async getMySchedule(userId: string): Promise<ScheduleRow | null> {
+    const employeeId = await this.getEmployeeId(userId);
+    if (!employeeId) return null;
+    return this.getScheduleForEmployee(employeeId);
+  }
+
+  async getMyStats(
+    userId: string,
+    from: string,
+    to: string,
+  ): Promise<{
+    attendance_rate: number;
+    days_present: number;
+    days_late: number;
+    days_absent: number;
+    hours_worked: number;
+  }> {
+    const entries = await this.getMyTimesheet(userId, from, to);
+
+    let days_present = 0;
+    let days_late = 0;
+    let days_absent = 0;
+    let hours_ms = 0;
+
+    for (const entry of entries) {
+      if (entry.absence) {
+        days_absent++;
+      } else if (entry.time_in) {
+        days_present++;
+        if (entry.time_in.clock_type === 'LATE') days_late++;
+        if (entry.time_in && entry.time_out) {
+          const diff =
+            new Date(entry.time_out.timestamp).getTime() -
+            new Date(entry.time_in.timestamp).getTime();
+          if (diff > 0) hours_ms += diff;
+        }
+      }
+    }
+
+    const total = days_present + days_absent;
+    const attendance_rate = total > 0 ? Math.round((days_present / total) * 100) : 0;
+    const hours_worked = Math.round((hours_ms / 3_600_000) * 100) / 100;
+
+    return { attendance_rate, days_present, days_late, days_absent, hours_worked };
   }
 
   private groupByDate(logs: any[]) {

@@ -31,12 +31,12 @@ export class CreateUserDto {
   @IsNotEmpty()
   role_id: string; // varchar in DB ("RID010"), not a number
 
-  @IsString()
   @IsOptional()
+  @IsString()
   department_id?: string;
 
-  @IsString()
   @IsOptional()
+  @IsString()
   start_date?: string; // ISO date string, e.g. "2024-07-01"
 
   @IsString() @IsOptional()

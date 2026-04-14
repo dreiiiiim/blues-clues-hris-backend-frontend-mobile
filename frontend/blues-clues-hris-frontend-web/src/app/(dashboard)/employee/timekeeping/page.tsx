@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock, LogIn, LogOut, MapPin,
-  ChevronLeft, ChevronRight, CalendarDays, List,
+  ChevronLeft, ChevronRight, CalendarDays, CalendarRange, List,
   AlertTriangle, X, CheckCircle2, FileX,
   Stethoscope, Zap, Home, User, Palmtree, BadgeCheck, HelpCircle,
   Timer,
@@ -61,6 +61,7 @@ function parseTs(ts: string): Date {
 function formatLiveTime(date: Date): string {
   return date.toLocaleTimeString("en-US", {
     hour: "2-digit", minute: "2-digit", second: "2-digit",
+    hour12: true,
     timeZone: "Asia/Manila",
   });
 }
@@ -81,10 +82,21 @@ function formatEntryDate(iso: string): string {
 function formatCellTime(timestamp: string | null | undefined): string {
   if (!timestamp) return "—";
   return parseTs(timestamp).toLocaleTimeString("en-US", {
-    hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila",
+    hour: "numeric", minute: "2-digit", hour12: true, timeZone: "Asia/Manila",
   });
 }
 
+function formatScheduleClock(value: string | null | undefined): string {
+  if (!value) return "-";
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return value;
+  const hours = Number.parseInt(match[1], 10);
+  if (Number.isNaN(hours)) return value;
+  const mins = match[2];
+  const suffix = hours >= 12 ? "PM" : "AM";
+  const hour12 = hours % 12 === 0 ? 12 : hours % 12;
+  return `${hour12}:${mins} ${suffix}`;
+}
 function formatCoordinates(lat: number | null | undefined, lng: number | null | undefined): string {
   if (lat == null || lng == null) return "No GPS";
   return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
@@ -146,6 +158,28 @@ function toDateStr(year: number, month: number, day: number): string {
 
 const ITEMS_PER_PAGE = 7;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+// Matches the backend's getTodayWorkdayCode() mapping exactly
+const SCHED_DAY_CODE = ["SUN", "MON", "TUES", "WED", "THURS", "FRI", "SAT"] as const;
+
+function formatSchedTime(t: string | null | undefined): string {
+  if (!t) return "—";
+  const [hStr, mStr] = t.split(":");
+  const h = Number.parseInt(hStr, 10);
+  const m = Number.parseInt(mStr ?? "0", 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function buildWeekDates(ref: Date): Date[] {
+  const sunday = new Date(ref);
+  sunday.setDate(ref.getDate() - ref.getDay());
+  return Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(sunday);
+    d.setDate(sunday.getDate() + i);
+    return d;
+  });
+}
 
 async function executePunch(type: "time-in" | "time-out", coords: { latitude: number; longitude: number }) {
   const res = await authFetch(`${API_BASE_URL}/timekeeping/${type}`, {
@@ -453,14 +487,35 @@ export default function EmployeeTimekeepingPage() {
   const [absenceError, setAbsenceError]       = useState<string | null>(null);
   const [absenceSuccess, setAbsenceSuccess]   = useState(false);
 
-  // Calendar
-  const [view, setView]           = useState<"calendar" | "list">("calendar");
+  // Performance stats
+  const [myStats, setMyStats]     = useState<{ attendance_rate: number; days_present: number; days_late: number; days_absent: number; hours_worked: number } | null>(null);
+
+  // My schedule
+  const [mySchedule, setMySchedule] = useState<{
+    workdays: string | string[] | null;
+    start_time: string | null;
+    end_time: string | null;
+    break_start?: string | null;
+    break_end?: string | null;
+    is_nightshift: boolean | null;
+  } | null>(null);
+
+  // Calendar / Schedule views
+  const [view, setView]           = useState<"calendar" | "list" | "schedule">("calendar");
   const [calMonth, setCalMonth]   = useState(() => {
     const n = new Date();
     return { year: n.getFullYear(), month: n.getMonth() };
   });
   const [page, setPage]           = useState(1);
   const [calDayModal, setCalDayModal] = useState<{ dateStr: string; entry: TimesheetEntry | null } | null>(null);
+  const [calPickerOpen, setCalPickerOpen] = useState(false);
+  const [calPickerYear, setCalPickerYear] = useState(() => new Date().getFullYear());
+
+  // Schedule calendar state
+  const [schedMode, setSchedMode]     = useState<"month" | "week">("month");
+  const [schedRefDate, setSchedRefDate] = useState(() => new Date());
+  const [schedPickerOpen, setSchedPickerOpen] = useState(false);
+  const [schedPickerYear, setSchedPickerYear] = useState(() => new Date().getFullYear());
 
   // Live clock
   useEffect(() => {
@@ -493,6 +548,22 @@ export default function EmployeeTimekeepingPage() {
       .then(setTimesheet)
       .catch(() => setFetchError(true))
       .finally(() => setSheetLoading(false));
+
+    // Stats for current month
+    const now = new Date();
+    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    authFetch(`${API_BASE_URL}/timekeeping/my-stats?from=${from}&to=${to}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setMyStats(data); })
+      .catch(() => {});
+
+    // My schedule
+    authFetch(`${API_BASE_URL}/timekeeping/my-schedule`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setMySchedule(data); })
+      .catch(() => {});
   }, []);
 
   async function refreshData() {
@@ -565,6 +636,15 @@ export default function EmployeeTimekeepingPage() {
   const calTitle = new Date(calMonth.year, calMonth.month, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
   const today    = todayPST();
 
+  // Normalized workday codes for the schedule view
+  const workdaySet = useMemo<Set<string>>(() => {
+    const raw = mySchedule?.workdays;
+    if (!raw) return new Set();
+    const arr = Array.isArray(raw) ? raw : String(raw).split(",");
+    return new Set(arr.map(d => d.trim().toUpperCase()));
+  }, [mySchedule]);
+
+
   function prevMonth() {
     setCalMonth(c => c.month === 0 ? { year: c.year - 1, month: 11 } : { year: c.year, month: c.month - 1 });
   }
@@ -585,15 +665,72 @@ export default function EmployeeTimekeepingPage() {
 
   const calendarView = (
     <div className="p-6">
-      <div className="flex items-center justify-between mb-5">
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={prevMonth}>
+      <div className="flex items-center justify-between mb-4">
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => { prevMonth(); setCalPickerOpen(false); }}>
           <ChevronLeft className="h-4 w-4" />
         </Button>
-        <p className="font-bold text-sm">{calTitle}</p>
-        <Button variant="outline" size="icon" className="h-8 w-8" onClick={nextMonth} disabled={isCurrentMonth}>
+        {/* Clickable month/year — opens inline picker */}
+        <button
+          onClick={() => { setCalPickerOpen(v => !v); setCalPickerYear(calMonth.year); }}
+          className={[
+            "font-bold text-sm flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors cursor-pointer",
+            calPickerOpen ? "bg-primary text-primary-foreground" : "hover:bg-primary/10 hover:text-primary",
+          ].join(" ")}
+          title="Click to jump to a month/year"
+        >
+          <CalendarDays className="h-3.5 w-3.5" />
+          {calTitle}
+          <span className={`text-[10px] ${calPickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+            {calPickerOpen ? "▴" : "▾"}
+          </span>
+        </button>
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => { nextMonth(); setCalPickerOpen(false); }} disabled={isCurrentMonth}>
           <ChevronRight className="h-4 w-4" />
         </Button>
       </div>
+
+      {/* Inline month/year picker */}
+      {calPickerOpen && (
+        <div className="rounded-2xl border border-border bg-muted/10 p-4 mb-4 animate-in fade-in slide-in-from-top-1 duration-200">
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => setCalPickerYear(y => y - 1)}
+              className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors cursor-pointer text-muted-foreground"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="font-bold text-sm text-foreground">{calPickerYear}</span>
+            <button
+              onClick={() => setCalPickerYear(y => y + 1)}
+              className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors cursor-pointer text-muted-foreground"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((m, i) => {
+              const isSelected = calPickerYear === calMonth.year && i === calMonth.month;
+              const isFutureMonth = calPickerYear > new Date().getFullYear() ||
+                (calPickerYear === new Date().getFullYear() && i > new Date().getMonth());
+              return (
+                <button
+                  key={m}
+                  disabled={isFutureMonth}
+                  onClick={() => { setCalMonth({ year: calPickerYear, month: i }); setCalPickerOpen(false); }}
+                  className={[
+                    "rounded-xl py-2 text-sm font-semibold transition-all duration-150 cursor-pointer",
+                    isSelected ? "bg-primary text-primary-foreground shadow-sm" :
+                    isFutureMonth ? "text-muted-foreground opacity-40 cursor-not-allowed" :
+                    "text-foreground hover:bg-primary/10 hover:text-primary",
+                  ].join(" ")}
+                >
+                  {m}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-7 mb-2">
         {WEEKDAYS.map(d => (
@@ -695,6 +832,277 @@ export default function EmployeeTimekeepingPage() {
     </div>
   );
 
+  // ── Schedule view ─────────────────────────────────────────────────────────
+
+  const schedTitle = schedRefDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+
+  const schedWeekDates = buildWeekDates(schedRefDate);
+  const schedWeekLabel = (() => {
+    const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    return `${fmt(schedWeekDates[0])} – ${fmt(schedWeekDates[6])}, ${schedWeekDates[6].getFullYear()}`;
+  })();
+
+  const schedMonthGrid = buildCalendarGrid(schedRefDate.getFullYear(), schedRefDate.getMonth());
+
+  const noSchedule = !mySchedule || !mySchedule.workdays;
+
+  const scheduleView = (
+    <div className="p-6">
+      {noSchedule ? (
+        <div className="flex flex-col items-center justify-center py-12 text-center gap-3">
+          <CalendarRange className="h-10 w-10 text-muted-foreground/40" />
+          <p className="text-sm font-semibold text-muted-foreground">No schedule assigned</p>
+          <p className="text-xs text-muted-foreground/70">Contact your HR officer to get a work schedule.</p>
+        </div>
+      ) : (<>
+
+        {/* ── Controls ───────────────────────────────────────────────────── */}
+        <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+          {/* Month/Week mode toggle */}
+          <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg border border-border w-fit">
+            {([
+              { m: "month" as const, icon: CalendarDays,  label: "Month" },
+              { m: "week"  as const, icon: CalendarRange,  label: "Week"  },
+            ]).map(({ m, icon: Icon, label }) => (
+              <button
+                key={m}
+                onClick={() => { setSchedMode(m); setSchedPickerOpen(false); }}
+                className={[
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all cursor-pointer",
+                  schedMode === m ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+                ].join(" ")}
+              >
+                <Icon className="h-3.5 w-3.5" />{label}
+              </button>
+            ))}
+          </div>
+
+          {/* Navigation */}
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => {
+                setSchedPickerOpen(false);
+                setSchedRefDate(d => {
+                  const n = new Date(d);
+                  if (schedMode === "month") n.setMonth(n.getMonth() - 1);
+                  else n.setDate(n.getDate() - 7);
+                  return n;
+                });
+              }}
+              className="h-7 w-7 flex items-center justify-center rounded-lg border border-border hover:bg-muted/60 transition-colors cursor-pointer text-muted-foreground"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </button>
+
+            {schedMode === "month" ? (
+              <button
+                onClick={() => { setSchedPickerOpen(v => !v); setSchedPickerYear(schedRefDate.getFullYear()); }}
+                className={[
+                  "h-7 px-3 flex items-center gap-1 rounded-lg border text-xs font-semibold transition-colors cursor-pointer",
+                  schedPickerOpen ? "bg-primary text-primary-foreground border-primary" : "border-border hover:bg-muted/60 text-foreground",
+                ].join(" ")}
+              >
+                {schedTitle}
+                <span className={`text-[9px] leading-none ${schedPickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                  {schedPickerOpen ? "▴" : "▾"}
+                </span>
+              </button>
+            ) : (
+              <div className="h-7 px-3 flex items-center rounded-lg border border-border text-xs font-semibold text-foreground bg-background min-w-48 justify-center">
+                {schedWeekLabel}
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setSchedPickerOpen(false);
+                setSchedRefDate(d => {
+                  const n = new Date(d);
+                  if (schedMode === "month") n.setMonth(n.getMonth() + 1);
+                  else n.setDate(n.getDate() + 7);
+                  return n;
+                });
+              }}
+              className="h-7 w-7 flex items-center justify-center rounded-lg border border-border hover:bg-muted/60 transition-colors cursor-pointer text-muted-foreground"
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* ── Inline month/year picker ───────────────────────────────────── */}
+        {schedPickerOpen && schedMode === "month" && (
+          <div className="rounded-2xl border border-border bg-muted/10 p-4 mb-4 animate-in fade-in slide-in-from-top-1 duration-200">
+            <div className="flex items-center justify-between mb-3">
+              <button onClick={() => setSchedPickerYear(y => y - 1)} className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors cursor-pointer text-muted-foreground">
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="font-bold text-sm text-foreground">{schedPickerYear}</span>
+              <button onClick={() => setSchedPickerYear(y => y + 1)} className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors cursor-pointer text-muted-foreground">
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid grid-cols-3 gap-2">
+              {["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"].map((m, i) => {
+                const isSelected = schedPickerYear === schedRefDate.getFullYear() && i === schedRefDate.getMonth();
+                return (
+                  <button
+                    key={m}
+                    onClick={() => {
+                      setSchedRefDate(new Date(schedPickerYear, i, 1));
+                      setSchedPickerOpen(false);
+                    }}
+                    className={[
+                      "rounded-xl py-2 text-sm font-semibold transition-all duration-150 cursor-pointer",
+                      isSelected ? "bg-primary text-primary-foreground shadow-sm" : "text-foreground hover:bg-primary/10 hover:text-primary",
+                    ].join(" ")}
+                  >
+                    {m}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* ── Month grid ─────────────────────────────────────────────────── */}
+        {!schedPickerOpen && schedMode === "month" && (
+          <div>
+            {/* Day-of-week headers */}
+            <div className="grid grid-cols-7 mb-1">
+              {WEEKDAYS.map(d => (
+                <div key={d} className="text-center text-[10px] font-bold text-muted-foreground uppercase tracking-widest py-1">{d}</div>
+              ))}
+            </div>
+            <div className="grid grid-cols-7 gap-1">
+              {schedMonthGrid.map((day, idx) => {
+                if (!day) return <div key={`b-${idx}`} className="min-h-[4.5rem]" />;
+                const cellDate = new Date(schedRefDate.getFullYear(), schedRefDate.getMonth(), day);
+                const code     = SCHED_DAY_CODE[cellDate.getDay()];
+                const isWork   = workdaySet.has(code);
+                const dateStr  = toDateStr(schedRefDate.getFullYear(), schedRefDate.getMonth(), day);
+                const isToday  = dateStr === today;
+                return (
+                  <div
+                    key={dateStr}
+                    className={[
+                      "relative rounded-xl border p-1.5 min-h-[4.5rem] flex flex-col transition-all",
+                      isWork
+                        ? "bg-blue-50 border-blue-200 text-blue-900"
+                        : "bg-slate-50 border-slate-200 text-slate-400",
+                      isToday ? "ring-2 ring-primary ring-offset-1" : "",
+                    ].join(" ")}
+                  >
+                    <span className={`text-xs font-bold leading-none ${isToday ? "text-primary" : ""}`}>{day}</span>
+                    {isWork ? (
+                      <>
+                        <span className="mt-1 inline-flex items-center gap-0.5 text-[9px] font-bold text-blue-600">
+                          <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shrink-0" />
+                          On Duty
+                        </span>
+                        <span className="mt-0.5 text-[9px] font-medium text-blue-700 leading-tight">
+                          {formatSchedTime(mySchedule.start_time)}
+                        </span>
+                        <span className="text-[9px] font-medium text-blue-700 leading-tight">
+                          {formatSchedTime(mySchedule.end_time)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="mt-1 text-[9px] font-semibold text-slate-400">Day Off</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Legend */}
+            <div className="flex gap-4 mt-4 pt-3 border-t border-border">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-blue-500" />
+                <span className="text-[10px] text-muted-foreground font-medium">Workday</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 rounded-full bg-slate-300" />
+                <span className="text-[10px] text-muted-foreground font-medium">Day Off</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Week grid ──────────────────────────────────────────────────── */}
+        {schedMode === "week" && (
+          <div className="grid grid-cols-7 gap-2">
+            {schedWeekDates.map((d, i) => {
+              const code    = SCHED_DAY_CODE[d.getDay()];
+              const isWork  = workdaySet.has(code);
+              const dateStr = d.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+              const isToday = dateStr === today;
+              return (
+                <div
+                  key={dateStr}
+                  className={[
+                    "flex flex-col items-center rounded-2xl border p-3 min-h-[9rem] transition-all",
+                    isWork ? "bg-blue-50 border-blue-200" : "bg-slate-50 border-slate-200",
+                    isToday ? "ring-2 ring-primary ring-offset-1" : "",
+                  ].join(" ")}
+                >
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+                    {WEEKDAYS[i]}
+                  </span>
+                  <span className={`text-xl font-bold leading-tight mt-0.5 ${isToday ? "text-primary" : isWork ? "text-blue-900" : "text-slate-400"}`}>
+                    {d.getDate()}
+                  </span>
+
+                  {isWork ? (
+                    <>
+                      <span className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 text-[9px] font-bold border border-blue-200">
+                        On Duty
+                      </span>
+                      <span className="mt-2 text-[10px] font-semibold text-blue-800 leading-snug text-center">
+                        {formatSchedTime(mySchedule.start_time)}
+                      </span>
+                      <span className="text-[10px] text-blue-700 leading-snug">–</span>
+                      <span className="text-[10px] font-semibold text-blue-800 leading-snug text-center">
+                        {formatSchedTime(mySchedule.end_time)}
+                      </span>
+                      {(mySchedule.break_start || mySchedule.break_end) && (
+                        <span className="mt-1.5 text-[9px] text-blue-600 text-center leading-tight">
+                          Break {formatSchedTime(mySchedule.break_start)}–{formatSchedTime(mySchedule.break_end)}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold border border-slate-200">
+                      Day Off
+                    </span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* ── Schedule summary pill ──────────────────────────────────────── */}
+        <div className="mt-4 pt-3 border-t border-border flex flex-wrap gap-3 text-xs text-muted-foreground">
+          <span>
+            <span className="font-semibold text-foreground">Days: </span>
+            {Array.from(workdaySet).join(", ") || "—"}
+          </span>
+          <span>
+            <span className="font-semibold text-foreground">Hours: </span>
+            {formatSchedTime(mySchedule.start_time)} – {formatSchedTime(mySchedule.end_time)}
+          </span>
+          {mySchedule.is_nightshift && (
+            <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold">
+              Night Shift
+            </span>
+          )}
+        </div>
+
+      </>)}
+    </div>
+  );
+
   // ── List view ─────────────────────────────────────────────────────────────
 
   const listView = (
@@ -769,6 +1177,7 @@ export default function EmployeeTimekeepingPage() {
           onClose={() => setCalDayModal(null)}
         />
       )}
+
 
       {/* ── Absence Modal ───────────────────────────────────────────────────── */}
       <AbsenceModal
@@ -1003,6 +1412,100 @@ export default function EmployeeTimekeepingPage() {
         </div>
       )}
 
+      {/* ── My Schedule ────────────────────────────────────────────────────── */}
+      {mySchedule && (
+        <Card className="border-border overflow-hidden">
+          <div className="px-6 py-4 bg-muted/20 border-b border-border flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-primary/10">
+              <CalendarDays className="h-4 w-4 text-primary" />
+            </div>
+            <div>
+              <h2 className="font-bold text-sm">My Work Schedule</h2>
+              <p className="text-xs text-muted-foreground">Your assigned shift</p>
+            </div>
+            {mySchedule.is_nightshift && (
+              <Badge className="ml-auto text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                Night Shift
+              </Badge>
+            )}
+          </div>
+          <div className="p-5 space-y-4">
+            {/* Workday pills */}
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Workdays</p>
+              <div className="flex gap-1.5 flex-wrap">
+                {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map(day => {
+                  const arr = Array.isArray(mySchedule.workdays)
+                    ? (mySchedule.workdays as string[]).map(d => d.trim().toUpperCase())
+                    : (mySchedule.workdays ?? "").split(",").map(d => d.trim().toUpperCase());
+                  const isActive = arr.includes(day);
+                  return (
+                    <span
+                      key={day}
+                      className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${
+                        isActive
+                          ? "bg-primary text-white border-primary"
+                          : "bg-muted/50 text-muted-foreground border-border"
+                      }`}
+                    >
+                      {day}
+                    </span>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Shift times */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="p-3 rounded-lg bg-green-50 border border-green-200">
+                <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider mb-0.5">Start Time</p>
+                <p className="text-lg font-bold text-foreground tabular-nums">{formatScheduleClock(mySchedule.start_time)}</p>
+              </div>
+              <div className="p-3 rounded-lg bg-red-50 border border-red-200">
+                <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-0.5">End Time</p>
+                <p className="text-lg font-bold text-foreground tabular-nums">{formatScheduleClock(mySchedule.end_time)}</p>
+              </div>
+            </div>
+
+            {/* Break window */}
+            {(mySchedule.break_start || mySchedule.break_end) && (
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">Break Window</p>
+                <p className="text-sm font-semibold text-foreground tabular-nums">
+                  {formatScheduleClock(mySchedule.break_start)} - {formatScheduleClock(mySchedule.break_end)}
+                </p>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Performance Stats ────────────────────────────────────────────────── */}
+      {myStats && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          <div className="p-4 rounded-xl border bg-green-50 border-green-200">
+            <p className="text-[10px] font-bold text-green-700 uppercase tracking-widest mb-1">Attendance Rate</p>
+            <p className="text-2xl font-bold text-green-700 tabular-nums">{myStats.attendance_rate.toFixed(1)}%</p>
+            <p className="text-xs text-muted-foreground mt-1">This month</p>
+          </div>
+          <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
+            <p className="text-[10px] font-bold text-blue-700 uppercase tracking-widest mb-1">Days Present</p>
+            <p className="text-2xl font-bold text-blue-700 tabular-nums">{myStats.days_present}</p>
+            <p className="text-xs text-muted-foreground mt-1">{myStats.hours_worked.toFixed(1)}h worked</p>
+          </div>
+          <div className="p-4 rounded-xl border bg-amber-50 border-amber-200">
+            <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest mb-1">Days Late</p>
+            <p className="text-2xl font-bold text-amber-700 tabular-nums">{myStats.days_late}</p>
+            <p className="text-xs text-muted-foreground mt-1">This month</p>
+          </div>
+          <div className="p-4 rounded-xl border bg-red-50 border-red-200">
+            <p className="text-[10px] font-bold text-red-700 uppercase tracking-widest mb-1">Days Absent</p>
+            <p className="text-2xl font-bold text-red-700 tabular-nums">{myStats.days_absent}</p>
+            <p className="text-xs text-muted-foreground mt-1">This month</p>
+          </div>
+        </div>
+      )}
+
       {/* ── Attendance History ──────────────────────────────────────────────── */}
       <Card className="border-border overflow-hidden">
         <div className="p-6 bg-muted/20 border-b border-border flex items-center justify-between">
@@ -1027,6 +1530,14 @@ export default function EmployeeTimekeepingPage() {
             >
               <List className="h-3.5 w-3.5" /> List
             </button>
+            <button
+              onClick={() => setView("schedule")}
+              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                view === "schedule" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <CalendarRange className="h-3.5 w-3.5" /> Schedule
+            </button>
           </div>
         </div>
 
@@ -1041,3 +1552,7 @@ export default function EmployeeTimekeepingPage() {
     </div>
   );
 }
+
+
+
+
