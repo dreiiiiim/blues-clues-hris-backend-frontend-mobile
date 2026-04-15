@@ -11,11 +11,13 @@ import {
   Search, Filter, SortAsc, SortDesc, TrendingUp, CheckCheck, XCircle,
   RotateCcw, DollarSign, AlarmClock, Video, Phone, Building2, Link2,
   User, MessageSquare, AlertCircle, ThumbsUp, ThumbsDown, CalendarClock,
+  PartyPopper, ArrowRight, Award,
 } from "lucide-react";
 import {
-  getMyApplications, getMyApplicationDetail, respondToInterview,
+  getMyApplications, getMyApplicationDetail, respondToInterview, authFetch,
   type MyApplication, type ApplicationDetail, type InterviewSchedule, type InterviewAction,
 } from "@/lib/authApi";
+import { API_BASE_URL } from "@/lib/api";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -33,14 +35,15 @@ const STATUS_CONFIG: Record<string, { label: string; badge: string; dot: string;
   first_interview:     { label: "1st Interview",       badge: "bg-purple-100 text-purple-700 border-purple-200",dot: "bg-purple-500", darkBadge: "bg-purple-500/20 text-purple-200 border-purple-400/30"},
   technical_interview: { label: "Technical Interview", badge: "bg-indigo-100 text-indigo-700 border-indigo-200",dot: "bg-indigo-500", darkBadge: "bg-indigo-500/20 text-indigo-200 border-indigo-400/30"},
   final_interview:     { label: "Final Interview",     badge: "bg-violet-100 text-violet-700 border-violet-200",dot: "bg-violet-500", darkBadge: "bg-violet-500/20 text-violet-200 border-violet-400/30"},
-  hired:               { label: "Hired",               badge: "bg-green-100 text-green-700 border-green-200",   dot: "bg-green-500",  darkBadge: "bg-green-500/20 text-green-200 border-green-400/30"  },
-  rejected:            { label: "Not Selected",        badge: "bg-red-100 text-red-700 border-red-200",         dot: "bg-red-500",    darkBadge: "bg-red-500/20 text-red-200 border-red-400/30"        },
+  hired:               { label: "Hired",               badge: "bg-green-100 text-green-700 border-green-200",      dot: "bg-green-500",    darkBadge: "bg-green-500/20 text-green-200 border-green-400/30"     },
+  offer_accepted:      { label: "Offer Accepted",      badge: "bg-emerald-100 text-emerald-700 border-emerald-200", dot: "bg-emerald-600",  darkBadge: "bg-emerald-500/20 text-emerald-200 border-emerald-400/30" },
+  rejected:            { label: "Not Selected",        badge: "bg-red-100 text-red-700 border-red-200",            dot: "bg-red-500",      darkBadge: "bg-red-500/20 text-red-200 border-red-400/30"           },
 };
 
 type SortKey = "date_desc" | "date_asc" | "status";
 type FilterStatus = "all" | "active" | "hired" | "rejected";
 
-function isTerminal(s: string) { return s === "hired" || s === "rejected"; }
+function isTerminal(s: string) { return s === "hired" || s === "rejected" || s === "offer_accepted"; }
 function isActive(s: string)   { return !isTerminal(s); }
 function fmtDate(iso: string)  {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -185,12 +188,18 @@ function ApplicationCard({ app, onView }: { readonly app: MyApplication; readonl
         {/* Progress or terminal banner */}
         {terminal ? (
           <div className={`flex items-center gap-2 px-3.5 py-2.5 rounded-xl border text-sm font-semibold ${
-            app.status === "hired"
+            app.status === "offer_accepted"
+              ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700/40 dark:text-emerald-300"
+              : app.status === "hired"
               ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-700/40 dark:text-green-300"
               : "bg-red-50/60 border-red-200/70 text-red-600 dark:bg-red-900/10 dark:border-red-700/30 dark:text-red-400"
           }`}>
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            {app.status === "hired" ? "Congratulations! You've been hired." : "This application was not selected."}
+            {app.status === "offer_accepted"
+              ? "Offer Accepted — Onboarding in Progress"
+              : app.status === "hired"
+              ? "Congratulations! You've been hired."
+              : "This application was not selected."}
           </div>
         ) : (
           <StageProgress status={app.status} />
@@ -561,13 +570,129 @@ function InterviewTab({
   );
 }
 
-function DetailModal({ detail, onClose, initialTab }: { readonly detail: DetailWithJob; readonly onClose: () => void; readonly initialTab?: "job" | "answers" | "interview" }) {
+// ─── SFIA Grade Card ──────────────────────────────────────────────────────────
+// Displays the applicant's assessed SFIA skill level.
+//
+// TODO: SFIA hook — when the SFIA engine is live, the backend will return
+//   `sfia_grade` (1–7) and `sfia_match_percentage` (0–100) on the
+//   ApplicationDetail object.  This component already accepts them; just stop
+//   passing `null` and start passing the real values:
+//
+//     <SfiaGradeCard grade={detail.sfia_grade ?? null}
+//                    matchPct={detail.sfia_match_percentage ?? null} />
+//
+// No other changes required in this file.
+
+const SFIA_LEVELS = [
+  { level: 1, name: "Follow",               shortTitle: "Entry",     color: "text-slate-600",  ringColor: "border-slate-300",  bgColor: "bg-slate-50",  barColor: "bg-slate-400",  desc: "Works under close supervision following defined procedures." },
+  { level: 2, name: "Assist",               shortTitle: "Junior",    color: "text-slate-700",  ringColor: "border-slate-400",  bgColor: "bg-slate-50",  barColor: "bg-slate-500",  desc: "Applies acquired knowledge with some guidance required." },
+  { level: 3, name: "Apply",                shortTitle: "Mid-level", color: "text-blue-600",   ringColor: "border-blue-300",   bgColor: "bg-blue-50",   barColor: "bg-blue-500",   desc: "Performs defined tasks with personal responsibility, exercises judgment." },
+  { level: 4, name: "Enable",               shortTitle: "Senior",    color: "text-blue-700",   ringColor: "border-blue-500",   bgColor: "bg-blue-50",   barColor: "bg-blue-600",   desc: "Plans and monitors own work, influences peers and stakeholders." },
+  { level: 5, name: "Ensure & Advise",      shortTitle: "Lead",      color: "text-violet-600", ringColor: "border-violet-400", bgColor: "bg-violet-50", barColor: "bg-violet-500", desc: "Provides authoritative advice, accountable for significant outcomes." },
+  { level: 6, name: "Initiate & Influence", shortTitle: "Principal", color: "text-violet-700", ringColor: "border-violet-600", bgColor: "bg-violet-50", barColor: "bg-violet-700", desc: "Leads major technical or business initiatives across the organization." },
+  { level: 7, name: "Set Strategy",         shortTitle: "Director",  color: "text-amber-600",  ringColor: "border-amber-400",  bgColor: "bg-amber-50",  barColor: "bg-amber-500",  desc: "Sets organizational direction, inspires and mobilises at the highest level." },
+] as const;
+
+function SfiaGradeCard({ grade, matchPct }: { grade: number | null; matchPct: number | null }) {
+  const levelCfg = grade != null ? SFIA_LEVELS.find(l => l.level === grade) ?? null : null;
+
+  // ── Not yet assessed ─────────────────────────────────────────────────────
+  if (!levelCfg) {
+    return (
+      <div className="rounded-xl border border-border bg-muted/20 px-4 py-4 flex flex-col items-center gap-3 text-center">
+        {/* Dashed placeholder circle — mirrors the HR pipeline view */}
+        <div className="h-16 w-16 rounded-full border-[3px] border-dashed border-border flex items-center justify-center bg-background">
+          <span className="text-xl font-bold text-muted-foreground/30">—</span>
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-muted-foreground">Not yet assessed</p>
+          <p className="text-xs text-muted-foreground/70 mt-0.5 max-w-[22rem]">
+            Your skills will be evaluated against the job's SFIA requirements during the review process.
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-muted/40 border border-border">
+          <Award className="h-3 w-3 text-muted-foreground/50" />
+          <span className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider">SFIA Pending</span>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Assessed — show grade ────────────────────────────────────────────────
+  return (
+    <div className={`rounded-xl border bg-card overflow-hidden`}>
+      {/* Top stripe */}
+      <div className={`h-1 w-full ${levelCfg.barColor}`} />
+
+      <div className="px-4 py-4 flex items-start gap-4">
+        {/* Level badge circle */}
+        <div className={`h-16 w-16 rounded-full border-[3px] ${levelCfg.ringColor} ${levelCfg.bgColor} flex flex-col items-center justify-center shrink-0`}>
+          <span className={`text-2xl font-black leading-none tabular-nums ${levelCfg.color}`}>{levelCfg.level}</span>
+          <span className={`text-[8px] font-bold uppercase tracking-widest ${levelCfg.color} opacity-70 leading-none mt-0.5`}>Level</span>
+        </div>
+
+        {/* Text info */}
+        <div className="flex-1 min-w-0 pt-0.5">
+          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+            <span className={`text-base font-bold ${levelCfg.color}`}>{levelCfg.name}</span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${levelCfg.bgColor} ${levelCfg.ringColor} ${levelCfg.color}`}>
+              {levelCfg.shortTitle}
+            </span>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">{levelCfg.desc}</p>
+
+          {/* Match percentage bar — shown when available */}
+          {matchPct != null && (
+            <div className="mt-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Skill Match</span>
+                <span className={`text-xs font-bold tabular-nums ${levelCfg.color}`}>{matchPct}%</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${levelCfg.barColor} transition-all duration-700`}
+                  style={{ width: `${Math.min(100, Math.max(0, matchPct))}%` }}
+                />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer: SFIA levels 1–7 pip track */}
+      <div className="px-4 pb-3">
+        <div className="flex items-center gap-1">
+          {SFIA_LEVELS.map(l => (
+            <div
+              key={l.level}
+              title={`Level ${l.level}: ${l.name}`}
+              className={[
+                "flex-1 h-1.5 rounded-full transition-all",
+                l.level <= grade ? levelCfg.barColor : "bg-muted",
+                l.level === grade ? "ring-1 ring-offset-1 ring-current opacity-100" : l.level < grade ? "opacity-70" : "opacity-30",
+              ].join(" ")}
+            />
+          ))}
+        </div>
+        <div className="flex justify-between mt-1">
+          <span className="text-[9px] text-muted-foreground/50 font-medium">L1 Entry</span>
+          <span className="text-[9px] text-muted-foreground/50 font-medium">L7 Strategic</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonly detail: DetailWithJob; readonly onClose: () => void; readonly initialTab?: "job" | "answers" | "interview"; readonly onOfferAccepted?: (appId: string) => void }) {
   const [tab, setTab] = useState<"job" | "answers" | "interview">(initialTab ?? "job");
   // Prefer the schedule for the current application status (stage), fall back to latest
   const [schedule, setSchedule] = useState<InterviewSchedule | null | undefined>(
     detail.interview_schedules?.[detail.status] ?? detail.interview_schedule
   );
-  const cfg    = STATUS_CONFIG[detail.status] ?? STATUS_CONFIG["submitted"];
+  const [localStatus, setLocalStatus]         = useState(detail.status);
+  const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
+  const [acceptingOffer, setAcceptingOffer]   = useState(false);
+  const cfg    = effectiveCfg;
   const job    = detail.job_postings;
   const sorted = [...detail.answers].sort((a, b) => a.application_questions.sort_order - b.application_questions.sort_order);
 
@@ -592,8 +717,70 @@ function DetailModal({ detail, onClose, initialTab }: { readonly detail: DetailW
     setSchedule((prev) => prev ? { ...prev, ...updated } : prev);
   }
 
+  async function handleAcceptOffer() {
+    setAcceptingOffer(true);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/jobs/applications/${detail.application_id}/accept-offer`, {
+        method: "PATCH",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(err.message || "Failed to accept offer.");
+      }
+      setLocalStatus("offer_accepted");
+      setShowAcceptConfirm(false);
+      toast.success("Offer accepted! Head to Onboarding to get started.");
+      onOfferAccepted?.(detail.application_id);
+    } catch (err: any) {
+      toast.error(err?.message ?? "Could not accept offer. Please try again.");
+    } finally {
+      setAcceptingOffer(false);
+    }
+  }
+
+  const effectiveCfg = STATUS_CONFIG[localStatus] ?? STATUS_CONFIG["submitted"];
+
   return (
     <div role="presentation" className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+      {/* Accept Offer confirmation modal */}
+      {showAcceptConfirm && (
+        <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-sm mx-4 animate-in zoom-in-95 duration-200 overflow-hidden">
+            <div className="px-6 pt-6 pb-4">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-10 w-10 rounded-xl bg-green-100 flex items-center justify-center shrink-0">
+                  <PartyPopper className="h-5 w-5 text-green-600" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">Accept this offer?</h3>
+                  <p className="text-xs text-gray-500 mt-0.5">{job?.title ?? "Job Offer"}</p>
+                </div>
+              </div>
+              <p className="text-sm text-gray-600 leading-relaxed">
+                By accepting, you commit to joining. You will no longer be able to apply for other positions.
+              </p>
+            </div>
+            <div className="px-6 pb-5 flex gap-2">
+              <button
+                onClick={() => setShowAcceptConfirm(false)}
+                disabled={acceptingOffer}
+                className="flex-1 h-10 rounded-lg border border-gray-200 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Not now
+              </button>
+              <button
+                onClick={handleAcceptOffer}
+                disabled={acceptingOffer}
+                className="flex-1 h-10 rounded-lg bg-green-600 hover:bg-green-700 text-sm font-semibold text-white transition-colors cursor-pointer disabled:opacity-60 flex items-center justify-center gap-2"
+              >
+                {acceptingOffer ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                {acceptingOffer ? "Accepting…" : "Confirm & Accept"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div role="dialog" aria-modal="true" className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
 
         {/* Gradient header */}
@@ -615,7 +802,7 @@ function DetailModal({ detail, onClose, initialTab }: { readonly detail: DetailW
                     {cfg.label}
                   </span>
                 </div>
-                <h2 className="text-[15px] font-bold text-white leading-snug">{job?.title ?? "Job Application"}</h2>
+                <h2 className="text-[15px] font-bold text-white leading-snug line-clamp-2">{job?.title ?? "Job Application"}</h2>
                 <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                   {job?.location && (
                     <span className="flex items-center gap-1 text-[11px] text-white/50">
@@ -633,7 +820,7 @@ function DetailModal({ detail, onClose, initialTab }: { readonly detail: DetailW
                 </div>
               </div>
             </div>
-            <button onClick={onClose} className="h-7 w-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors border border-white/10 shrink-0 mt-0.5 cursor-pointer">
+            <button onClick={onClose} className="h-7 w-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors border border-white/10 shrink-0 mt-0.5 cursor-pointer z-10 relative">
               <X className="h-3.5 w-3.5 text-white/60" />
             </button>
           </div>
@@ -755,18 +942,61 @@ function DetailModal({ detail, onClose, initialTab }: { readonly detail: DetailW
                       {cfg.label}
                     </span>
                   </div>
-                  <StageProgress status={detail.status} />
-                  {isTerminal(detail.status) && (
+                  <StageProgress status={localStatus} />
+                  {isTerminal(localStatus) && (
                     <div className={`mt-3 flex items-center gap-2 px-3 py-2.5 rounded-xl border text-sm font-semibold ${
-                      detail.status === "hired"
+                      localStatus === "offer_accepted"
+                        ? "bg-emerald-50 border-emerald-200 text-emerald-700 dark:bg-emerald-900/20 dark:border-emerald-700/40 dark:text-emerald-300"
+                        : localStatus === "hired"
                         ? "bg-green-50 border-green-200 text-green-700 dark:bg-green-900/20 dark:border-green-700/40 dark:text-green-300"
                         : "bg-red-50/60 border-red-200/70 text-red-600 dark:bg-red-900/10 dark:border-red-700/30 dark:text-red-400"
                     }`}>
                       <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      {detail.status === "hired" ? "Congratulations! You've been hired." : "This application was not selected."}
+                      {localStatus === "offer_accepted"
+                        ? "Offer accepted — Onboarding is now active."
+                        : localStatus === "hired"
+                        ? "Congratulations! You've been hired."
+                        : "This application was not selected."}
                     </div>
                   )}
+
+                  {/* Accept Offer CTA — shown when hired but not yet accepted */}
+                  {localStatus === "hired" && (
+                    <button
+                      onClick={() => setShowAcceptConfirm(true)}
+                      className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl bg-green-600 hover:bg-green-700 active:bg-green-800 text-white text-sm font-semibold px-4 py-2.5 transition-colors cursor-pointer shadow-sm"
+                    >
+                      <PartyPopper className="h-4 w-4" />
+                      Accept Offer
+                    </button>
+                  )}
+
+                  {/* Go to Onboarding CTA — shown after offer accepted */}
+                  {localStatus === "offer_accepted" && (
+                    <a
+                      href="/applicant/onboarding"
+                      className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 transition-colors shadow-sm"
+                    >
+                      Go to Onboarding
+                      <ArrowRight className="h-4 w-4" />
+                    </a>
+                  )}
                 </div>
+              </div>
+
+              {/* SFIA Grade ─────────────────────────────────────────────── */}
+              {/* TODO: SFIA hook — replace the two `null` literals below with
+                    `detail.sfia_grade ?? null` and `detail.sfia_match_percentage ?? null`
+                    once the backend populates those fields.  No other changes needed. */}
+              <div>
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">SFIA Grade</p>
+                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/60 border border-border">Skills Framework for the Information Age</span>
+                </div>
+                <SfiaGradeCard
+                  grade={null /* TODO: detail.sfia_grade ?? null */}
+                  matchPct={null /* TODO: detail.sfia_match_percentage ?? null */}
+                />
               </div>
             </>
           )}
@@ -1115,7 +1345,16 @@ export default function ApplicantApplicationsPage() {
 
       {/* Detail modal */}
       {detail && !detailLoading && (
-        <DetailModal detail={detail} onClose={() => { setDetail(null); setOpenInitialTab(undefined); }} initialTab={openInitialTab} />
+        <DetailModal
+          detail={detail}
+          onClose={() => { setDetail(null); setOpenInitialTab(undefined); }}
+          initialTab={openInitialTab}
+          onOfferAccepted={(appId) => {
+            setApplications((prev) =>
+              prev.map((a) => a.application_id === appId ? { ...a, status: "offer_accepted" } : a)
+            );
+          }}
+        />
       )}
     </div>
   );

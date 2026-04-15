@@ -83,6 +83,7 @@ export function ScheduleManagementModal({
   const [scope, setScope]                     = useState<ApplyScope>("company");
   const [selectedDept, setSelectedDept]       = useState(departments[0]?.name ?? "");
   const [selectedDeptId, setSelectedDeptId]   = useState(departments[0]?.id ?? "");
+  const [skipIndividual, setSkipIndividual]   = useState(true); // default: skip individually-set schedules
   const [templateId, setTemplateId]           = useState("standard");
   const [effectiveDate, setEffectiveDate]     = useState(() => {
     const d = new Date(); return d.toISOString().split("T")[0];
@@ -185,9 +186,10 @@ export function ScheduleManagementModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           scope,
-          department_id:  scope === "department" ? selectedDeptId : undefined,
-          user_ids:       scope === "employees" ? selectedUserIds : undefined,
-          employee_ids:   scope === "employees" ? selectedEmployeeIdsPayload : undefined,
+          department_id:   scope === "department" ? selectedDeptId : undefined,
+          user_ids:        scope === "employees" ? selectedUserIds : undefined,
+          employee_ids:    scope === "employees" ? selectedEmployeeIdsPayload : undefined,
+          skip_individual: scope !== "employees" ? skipIndividual : undefined,
           schedule: {
             start_time:    previewStart,
             end_time:      previewEnd,
@@ -415,6 +417,24 @@ export function ScheduleManagementModal({
                 </div>
               </div>
             </div>
+          )}
+
+          {/* ── Skip individual schedules option (company / dept scope only) ── */}
+          {scope !== "employees" && (
+            <label className="flex items-start gap-3 p-3 rounded-xl border border-border bg-muted/20 cursor-pointer hover:bg-muted/30 transition-colors">
+              <input
+                type="checkbox"
+                checked={skipIndividual}
+                onChange={e => setSkipIndividual(e.target.checked)}
+                className="h-4 w-4 rounded border-border cursor-pointer accent-primary mt-0.5 shrink-0"
+              />
+              <div>
+                <p className="text-xs font-semibold text-foreground">Skip individually-assigned schedules</p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Employees whose schedules were manually set by HR will not be overridden. Uncheck to apply to everyone.
+                </p>
+              </div>
+            </label>
           )}
 
           {/* ── Template picker ───────────────────────────────────────────── */}

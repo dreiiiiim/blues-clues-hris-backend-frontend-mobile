@@ -412,6 +412,16 @@ export type ApplicationDetail = {
   interview_schedule?: InterviewSchedule | null;
   // Per-stage schedules map: stage → schedule
   interview_schedules?: Record<string, InterviewSchedule>;
+
+  // ── SFIA fields ────────────────────────────────────────────────────────────
+  // TODO: SFIA hook — backend will populate these once the SFIA engine is live.
+  // Both fields are intentionally optional/null so the UI degrades gracefully
+  // while the engine is pending.  When ready, the ranked-candidates endpoint
+  // (jobs/:id/candidates/ranked) already returns sfia_match_percentage and
+  // sfia_rank per applicant; expose them through the application detail endpoint
+  // and remove the `?? null` fallbacks in the SfiaGradeCard usages below.
+  sfia_grade?: number | null;            // SFIA skill level 1–7; null = not yet assessed
+  sfia_match_percentage?: number | null; // 0–100 match score against job requirements
 };
 
 // ---------------------------------------------------------------------------

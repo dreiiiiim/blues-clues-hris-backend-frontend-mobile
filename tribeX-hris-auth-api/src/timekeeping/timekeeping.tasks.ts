@@ -1,5 +1,4 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron } from '@nestjs/schedule';
 import { TimekeepingService } from './timekeeping.service';
 
 /**
@@ -17,13 +16,9 @@ export class TimekeepingTasksService {
   constructor(private readonly timekeepingService: TimekeepingService) {}
 
   /**
-   * Runs at 11:30 PM Manila time every day.
-   * Auto-marks employees who were scheduled but never clocked in and
-   * never self-reported an absence as ABSENT with no reason.
-   *
-   * Cron: "0 30 23 * * *" = every day at 23:30 (Manila, UTC+8)
+   * Manual helper retained for troubleshooting.
+   * Scheduled auto-absent execution is owned by JobsService cron handlers.
    */
-  @Cron('0 30 23 * * *', { timeZone: 'Asia/Manila' })
   async handleAutoMarkAbsent() {
     this.logger.log('CRON: auto-mark-absent job triggered');
     try {

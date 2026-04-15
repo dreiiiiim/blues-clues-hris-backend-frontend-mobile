@@ -78,6 +78,23 @@ export class JobsController {
     return this.jobsService.getMyInterviewSchedules(req.user.sub_userid);
   }
 
+  @Patch('applicant/my-applications/:applicationId/accept-offer')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Applicant: Accept a hiring offer (status must be "hired")' })
+  acceptOffer(@Param('applicationId') applicationId: string, @Req() req: any) {
+    return this.jobsService.acceptOffer(applicationId, req.user.applicant_id ?? req.user.sub_userid);
+  }
+
+  // Backward-compatible alias used by existing frontend calls
+  @Patch('applications/:id/accept-offer')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Applicant: Accept a hiring offer (alias route)' })
+  acceptOfferAlias(@Param('id') id: string, @Req() req: any) {
+    return this.jobsService.acceptOffer(id, req.user.applicant_id ?? req.user.sub_userid);
+  }
+
   @Post('applicant/my-applications/:applicationId/interview-response')
   @UseGuards(ApplicantJwtAuthGuard)
   @HttpCode(HttpStatus.OK)

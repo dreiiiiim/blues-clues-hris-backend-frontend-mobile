@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -320,6 +321,12 @@ export class TimekeepingService {
       this.getLatestLogForToday(employeeId),
     ]);
 
+    if (!schedule) {
+      throw new ForbiddenException(
+        'No schedule has been assigned to you. Contact HR to set up your work schedule.',
+      );
+    }
+
     if (existing?.log_type === 'absence') {
       throw new BadRequestException(
         'You have reported an absence for today. Clock-in is not allowed.',
@@ -400,6 +407,12 @@ export class TimekeepingService {
       this.getScheduleForToday(employeeId),
       this.getLatestLogForToday(employeeId),
     ]);
+
+    if (!schedule) {
+      throw new ForbiddenException(
+        'No schedule has been assigned to you. Contact HR to set up your work schedule.',
+      );
+    }
 
     if (!lastPunch) {
       throw new BadRequestException(
@@ -945,6 +958,22 @@ export class TimekeepingService {
       filtered = employees.filter(
         (e) => userIdSet.has(e.user_id) || employeeIdSet.has(e.employee_id),
       );
+    }
+
+    if (filtered.length === 0) return { affected: 0 };
+
+    // Skip employees with individually-assigned schedules if requested
+    if (dto.skip_individual) {
+      const candidateEmpIds = filtered.map(e => e.employee_id).filter(Boolean) as string[];
+      if (candidateEmpIds.length > 0) {
+        const { data: individualSchedules } = await supabase
+          .from('schedules')
+          .select('employee_id')
+          .eq('schedule_source', 'individual')
+          .in('employee_id', candidateEmpIds);
+        const individualSet = new Set((individualSchedules ?? []).map((s: any) => s.employee_id as string));
+        filtered = filtered.filter(e => !individualSet.has(e.employee_id));
+      }
     }
 
     if (filtered.length === 0) return { affected: 0 };

@@ -339,7 +339,7 @@ export class OnboardingService {
         `DOCUMENT_UPLOAD: item ${onboardingItemId}`,
         ctx.accountId,
         ctx.companyId,
-      ).catch(() => {});
+      ).catch(err => this.logger.error('Failed to write audit log in uploadDocument', err));
     }
 
     this.logger.log(`File uploaded for item: ${onboardingItemId}`);
@@ -440,7 +440,7 @@ export class OnboardingService {
         `PROFILE_SAVE: session ${sessionId}`,
         ctx.accountId,
         ctx.companyId,
-      ).catch(() => {});
+      ).catch(err => this.logger.error('Failed to write audit log in saveProfile', err));
     }
 
     return result;
@@ -461,14 +461,14 @@ export class OnboardingService {
         `ONBOARDING_SUBMITTED_FOR_REVIEW: session ${sessionId}`,
         ctx.accountId,
         ctx.companyId,
-      ).catch(() => {});
+      ).catch(err => this.logger.error('Failed to write audit log in submitForReview', err));
 
       this.notificationsService.notifyAllHRInCompany(ctx.companyId, {
         type: 'ONBOARDING_SUBMITTED',
         title: 'New Onboarding Submission',
         message: `${ctx.employeeName} has submitted their onboarding for review.`,
         metadata: { session_id: sessionId, employee_id: ctx.accountId },
-      }).catch(() => {});
+      }).catch(err => this.logger.error('Failed to notify HR in submitForReview', err));
     }
 
     this.logger.log(`Session ${sessionId} submitted for review`);
@@ -507,7 +507,7 @@ export class OnboardingService {
         .from('user_profile')
         .select('first_name, last_name')
         .eq('user_id', s.account_id)
-        .single();
+        .maybeSingle();
 
       let employeeName: string | null = null;
       if (user) {
@@ -518,7 +518,7 @@ export class OnboardingService {
           .from('applicant_profile')
           .select('first_name, last_name')
           .eq('applicant_id', s.account_id)
-          .single();
+          .maybeSingle();
         if (applicant) employeeName = `${applicant.first_name} ${applicant.last_name}`;
       }
 
@@ -526,7 +526,7 @@ export class OnboardingService {
         .from('onboarding_templates')
         .select('name')
         .eq('template_id', s.template_id)
-        .single();
+        .maybeSingle();
 
       enriched.push({
         ...s,
@@ -564,23 +564,25 @@ export class OnboardingService {
 
     if (error || !item) throw new NotFoundException('Onboarding item not found.');
 
-    await supabase
+    const { error: itemUpdateError } = await supabase
       .from('onboarding_items')
       .update({ status: dto.status })
       .eq('onboarding_item_id', onboardingItemId);
+    if (itemUpdateError) throw new InternalServerErrorException(itemUpdateError.message);
 
     // If a profile item is rejected, reset employee_staging so applicant can fix and resubmit
     const tabCategory = (item.template_items as any)?.tab_category;
     if (tabCategory === 'profile' && dto.status === 'rejected') {
-      await supabase
+      const { error: stagingResetError } = await supabase
         .from('employee_staging')
         .update({ status: 'pending' })
         .eq('session_id', item.session_id);
+      if (stagingResetError) throw new InternalServerErrorException(stagingResetError.message);
     }
 
     // If there are remarks, save them
     if (dto.remarks) {
-      await supabase.from('onboarding_remarks').insert({
+      const { error: remarkInsertError } = await supabase.from('onboarding_remarks').insert({
         remark_id: crypto.randomUUID(),
         session_id: item.session_id,
         author_id: authorId ?? crypto.randomUUID(),
@@ -588,6 +590,7 @@ export class OnboardingService {
         remark_text: dto.remarks,
         created_at: new Date().toISOString(),
       });
+      if (remarkInsertError) throw new InternalServerErrorException(remarkInsertError.message);
     }
 
     await this.recalculateProgress(item.session_id);
@@ -602,7 +605,7 @@ export class OnboardingService {
           authorId ?? ctx.accountId,
           ctx.companyId,
           ctx.accountId,
-        ).catch(() => {});
+        ).catch(err => this.logger.error('Failed to write audit log in updateItemStatus', err));
 
         this.notificationsService.createNotification({
           userId: ctx.accountId,
@@ -615,7 +618,7 @@ export class OnboardingService {
             status: dto.status,
             remarks: dto.remarks ?? null,
           },
-        }).catch(() => {});
+        }).catch(err => this.logger.error('Failed to create notification in updateItemStatus', err));
 
         if (ctx.employeeEmail) {
           this.mailService.sendOnboardingItemReviewedEmail({
@@ -625,7 +628,7 @@ export class OnboardingService {
             tabCategory: tabCategory ?? 'Onboarding',
             status: dto.status as 'approved' | 'rejected',
             remarks: dto.remarks ?? null,
-          }).catch(() => {});
+          }).catch(err => this.logger.error('Failed to send item review email in updateItemStatus', err));
         }
       }
     }
@@ -685,7 +688,7 @@ export class OnboardingService {
         try {
           const [{ data: applicant }, { data: staging }] = await Promise.all([
             supabase.from('applicant_profile').select('email, company_id').eq('applicant_id', accountId).maybeSingle(),
-            supabase.from('employee_staging').select('first_name, last_name, email_address, phone_number, complete_address, date_of_birth, place_of_birth, nationality, civil_status').eq('session_id', sessionId).maybeSingle(),
+            supabase.from('employee_staging').select('*').eq('session_id', sessionId).maybeSingle(),
           ]);
 
           if (applicant) {
@@ -707,38 +710,105 @@ export class OnboardingService {
 
             const loginEmail = applicant.email;
             const personalEmail = staging?.email_address ?? applicant.email;
+            const stagingDepartmentId =
+              typeof (staging as any)?.department_id === 'string'
+                ? ((staging as any).department_id as string)
+                : null;
 
-            await supabase.from('user_profile').insert({
-              user_id: newUserId,
-              email: loginEmail,
-              personal_email: personalEmail,
-              first_name: staging?.first_name ?? '',
-              last_name: staging?.last_name ?? '',
-              username,
-              company_id: applicant.company_id,
-              employee_id: employeeCode,
-              account_status: 'Active',
-              ...(defaultRole ? { role_id: defaultRole.role_id } : {}),
-              ...(staging?.phone_number ? { phone_number: staging.phone_number } : {}),
-              ...(staging?.complete_address ? { complete_address: staging.complete_address } : {}),
-              ...(staging?.date_of_birth ? { date_of_birth: staging.date_of_birth } : {}),
-              ...(staging?.place_of_birth ? { place_of_birth: staging.place_of_birth } : {}),
-              ...(staging?.nationality ? { nationality: staging.nationality } : {}),
-              ...(staging?.civil_status ? { civil_status: staging.civil_status } : {}),
-            });
+            const { data: createdProfile, error: userInsertError } = await supabase
+              .from('user_profile')
+              .insert({
+                user_id: newUserId,
+                email: loginEmail,
+                personal_email: personalEmail,
+                first_name: staging?.first_name ?? '',
+                last_name: staging?.last_name ?? '',
+                username,
+                company_id: applicant.company_id,
+                employee_id: employeeCode,
+                account_status: 'Active',
+                ...(defaultRole ? { role_id: defaultRole.role_id } : {}),
+                ...(staging?.phone_number ? { phone_number: staging.phone_number } : {}),
+                ...(staging?.complete_address ? { complete_address: staging.complete_address } : {}),
+                ...(staging?.date_of_birth ? { date_of_birth: staging.date_of_birth } : {}),
+                ...(staging?.place_of_birth ? { place_of_birth: staging.place_of_birth } : {}),
+                ...(staging?.nationality ? { nationality: staging.nationality } : {}),
+                ...(staging?.civil_status ? { civil_status: staging.civil_status } : {}),
+                ...(stagingDepartmentId ? { department_id: stagingDepartmentId } : {}),
+              })
+              .select('department_id')
+              .single();
+            if (userInsertError) throw new InternalServerErrorException(userInsertError.message);
+
+            const inheritedDepartmentId =
+              stagingDepartmentId ??
+              ((createdProfile as any)?.department_id as string | null | undefined) ??
+              null;
+
+            // Inherit department schedule if the department already has employees with a bulk/department schedule
+            if (inheritedDepartmentId) {
+              try {
+                const { data: deptMembers } = await supabase
+                  .from('user_profile')
+                  .select('employee_id')
+                  .eq('department_id', inheritedDepartmentId)
+                  .not('employee_id', 'is', null)
+                  .limit(50);
+
+                const memberEmpIds = (deptMembers ?? []).map((e: any) => e.employee_id as string).filter(Boolean);
+                if (memberEmpIds.length > 0) {
+                  const { data: deptSchedule } = await supabase
+                    .from('schedules')
+                    .select('start_time, end_time, break_start, break_end, workdays, is_nightshift')
+                    .in('employee_id', memberEmpIds)
+                    .in('schedule_source', ['bulk', 'department'])
+                    .order('updated_at', { ascending: false })
+                    .limit(1)
+                    .maybeSingle();
+
+                  if (deptSchedule) {
+                    await supabase.from('schedules').upsert({
+                      employee_id: employeeCode,
+                      start_time: deptSchedule.start_time,
+                      end_time: deptSchedule.end_time,
+                      break_start: deptSchedule.break_start ?? '00:00',
+                      break_end: deptSchedule.break_end ?? '00:00',
+                      workdays: deptSchedule.workdays,
+                      is_nightshift: deptSchedule.is_nightshift ?? false,
+                      schedule_source: 'department',
+                      updated_at: new Date().toISOString(),
+                    }, { onConflict: 'employee_id' });
+                    this.logger.log(`[approveSession] Inherited department schedule for new employee ${employeeCode}`);
+                  }
+                }
+              } catch (schedErr) {
+                this.logger.warn(`[approveSession] Could not inherit department schedule: ${(schedErr as any)?.message}`);
+              }
+            }
 
             // Re-link session to the new user_id so getSessionContext works going forward
-            await supabase.from('onboarding_sessions').update({ account_id: newUserId }).eq('session_id', sessionId);
+            const { error: relinkSessionError } = await supabase
+              .from('onboarding_sessions')
+              .update({ account_id: newUserId })
+              .eq('session_id', sessionId);
+            if (relinkSessionError) throw new InternalServerErrorException(relinkSessionError.message);
             resolvedUserId = newUserId;
 
             // Block applicant portal
-            await supabase.from('applicant_profile').update({ status: 'converted_employee' }).eq('applicant_id', accountId);
+            const { error: applicantStatusError } = await supabase
+              .from('applicant_profile')
+              .update({ status: 'converted_employee' })
+              .eq('applicant_id', accountId);
+            if (applicantStatusError) throw new InternalServerErrorException(applicantStatusError.message);
 
             // Send set-password invite to personal email
             const rawToken = crypto.randomBytes(32).toString('hex');
             const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
             const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-            await supabase.from('user_invites').insert({ invite_id: crypto.randomUUID(), user_id: newUserId, token_hash: tokenHash, expires_at: expiresAt });
+            const { error: userInviteError } = await supabase
+              .from('user_invites')
+              .insert({ invite_id: crypto.randomUUID(), user_id: newUserId, token_hash: tokenHash, expires_at: expiresAt });
+            if (userInviteError) throw new InternalServerErrorException(userInviteError.message);
 
             const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
             const inviteLink = `${appUrl}/set-password?token=${rawToken}`;
@@ -762,7 +832,7 @@ export class OnboardingService {
         hrUserId ?? ctx.accountId,
         ctx.companyId,
         ctx.accountId,
-      ).catch(() => {});
+      ).catch(err => this.logger.error('Failed to write audit log in approveSession', err));
 
       this.notificationsService.createNotification({
         userId: ctx.accountId,
@@ -771,12 +841,12 @@ export class OnboardingService {
         title: 'Onboarding Complete',
         message: 'Your onboarding has been approved. Welcome to the team!',
         metadata: { session_id: sessionId },
-      }).catch(() => {});
+      }).catch(err => this.logger.error('Failed to create notification in approveSession', err));
 
       this.mailService.sendOnboardingApprovedEmail({
         to: ctx.employeeEmail,
         employeeName: ctx.employeeName,
-      }).catch(() => {});
+      }).catch(err => this.logger.error('Failed to send onboarding approved email in approveSession', err));
     }
 
     // Sync remaining profile data + seed employee_documents (non-fatal)
@@ -798,7 +868,11 @@ export class OnboardingService {
           if (staging.nationality != null)      profileUpdate.nationality      = staging.nationality;
           if (staging.civil_status != null)     profileUpdate.civil_status     = staging.civil_status;
           if (Object.keys(profileUpdate).length > 0) {
-            await supabase.from('user_profile').update(profileUpdate).eq('user_id', resolvedUserId);
+            const { error: profileSyncError } = await supabase
+              .from('user_profile')
+              .update(profileUpdate)
+              .eq('user_id', resolvedUserId);
+            if (profileSyncError) throw new InternalServerErrorException(profileSyncError.message);
           }
         }
 
@@ -1459,10 +1533,11 @@ export class OnboardingService {
     if (insertError) throw new InternalServerErrorException(insertError.message);
 
     // Block applicant portal login — account is now an employee
-    await supabase
+    const { error: applicantStatusError } = await supabase
       .from('applicant_profile')
       .update({ status: 'converted_employee' })
       .eq('applicant_id', submission.applicant_id);
+    if (applicantStatusError) throw new InternalServerErrorException(applicantStatusError.message);
 
     // Seed employee_documents from the applicant's onboarding wizard session (pipeline employees only)
     try {
@@ -1505,7 +1580,8 @@ export class OnboardingService {
                 uploaded_at: doc.uploaded_at || new Date().toISOString(),
               };
             });
-            await supabase.from('employee_documents').insert(docRows);
+            const { error: employeeDocsError } = await supabase.from('employee_documents').insert(docRows);
+            if (employeeDocsError) throw new InternalServerErrorException(employeeDocsError.message);
           }
         }
       }
@@ -1517,9 +1593,16 @@ export class OnboardingService {
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-    await supabase.from('user_invites').insert({ invite_id: crypto.randomUUID(), user_id: userId, token_hash: tokenHash, expires_at: expiresAt });
+    const { error: userInviteError } = await supabase
+      .from('user_invites')
+      .insert({ invite_id: crypto.randomUUID(), user_id: userId, token_hash: tokenHash, expires_at: expiresAt });
+    if (userInviteError) throw new InternalServerErrorException(userInviteError.message);
 
-    await supabase.from('onboarding_submissions').update({ status: 'approved' }).eq('submission_id', submissionId);
+    const { error: submissionApproveError } = await supabase
+      .from('onboarding_submissions')
+      .update({ status: 'approved' })
+      .eq('submission_id', submissionId);
+    if (submissionApproveError) throw new InternalServerErrorException(submissionApproveError.message);
 
     const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
     const inviteLink = `${appUrl}/set-password?token=${rawToken}`;

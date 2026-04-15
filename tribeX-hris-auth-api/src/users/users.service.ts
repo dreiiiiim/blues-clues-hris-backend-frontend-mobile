@@ -1283,6 +1283,45 @@ export class UsersService {
     return data;
   }
 
+  // ─── B2: Onboarding staging import ─────────────────────────────────────────
+
+  async getOnboardingStaging(userId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    // The onboarding session was originally created with account_id = applicant_id,
+    // then re-linked to the new user_id after approval. Look up by current user_id.
+    const { data: session } = await supabase
+      .from('onboarding_sessions')
+      .select('session_id')
+      .eq('account_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!session) throw new NotFoundException('No onboarding session found for this account.');
+
+    const { data: staging } = await supabase
+      .from('employee_staging')
+      .select('first_name, last_name, middle_name, phone_number, complete_address, date_of_birth, place_of_birth, nationality, civil_status, email_address')
+      .eq('session_id', session.session_id)
+      .maybeSingle();
+
+    if (!staging) throw new NotFoundException('No onboarding staging data found.');
+
+    return {
+      first_name:       staging.first_name       ?? null,
+      last_name:        staging.last_name        ?? null,
+      middle_name:      staging.middle_name      ?? null,
+      phone_number:     staging.phone_number     ?? null,
+      complete_address: staging.complete_address ?? null,
+      date_of_birth:    staging.date_of_birth    ?? null,
+      place_of_birth:   staging.place_of_birth   ?? null,
+      nationality:      staging.nationality      ?? null,
+      civil_status:     staging.civil_status     ?? null,
+      personal_email:   staging.email_address    ?? null,
+    };
+  }
+
   // =========================================================
   // EMPLOYEE DOCUMENTS
   // =========================================================
@@ -1473,12 +1512,102 @@ export class UsersService {
     return withUrls;
   }
 
+  // ─── B3: Document replacement request ──────────────────────────────────────
+
+  async submitDocumentReplacement(
+    userId: string,
+    docId: string,
+    reason: string,
+    file: Express.Multer.File,
+    proofFile?: Express.Multer.File,
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    // Verify ownership and approved status
+    const { data: doc, error: docErr } = await supabase
+      .from('employee_documents')
+      .select('id, user_id, status, document_type')
+      .eq('id', docId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (docErr) throw new InternalServerErrorException(docErr.message);
+    if (!doc) throw new NotFoundException('Document not found.');
+    if (doc.status !== 'approved')
+      throw new BadRequestException('Only approved documents can be replaced.');
+
+    // Reject if a pending replacement already exists
+    const { data: existing } = await supabase
+      .from('document_replacement_requests')
+      .select('id')
+      .eq('document_id', docId)
+      .eq('status', 'pending')
+      .maybeSingle();
+
+    if (existing) throw new ConflictException('A replacement request is already pending for this document.');
+
+    // Upload new file to employee-documents/replacements/
+    const filePath = `${userId}/replacements/${Date.now()}_${file.originalname}`;
+    const { error: uploadErr } = await supabase.storage
+      .from('employee-documents')
+      .upload(filePath, file.buffer, { contentType: file.mimetype, upsert: false });
+    if (uploadErr) throw new InternalServerErrorException(`File upload failed: ${uploadErr.message}`);
+
+    const { data: urlData } = supabase.storage.from('employee-documents').getPublicUrl(filePath);
+    const newFileUrl = urlData.publicUrl;
+
+    // Upload optional proof file
+    let proofUrl: string | null = null;
+    if (proofFile) {
+      const proofPath = `${userId}/replacements/proof_${Date.now()}_${proofFile.originalname}`;
+      const { error: proofUploadErr } = await supabase.storage
+        .from('employee-documents')
+        .upload(proofPath, proofFile.buffer, { contentType: proofFile.mimetype, upsert: false });
+      if (!proofUploadErr) {
+        proofUrl = supabase.storage.from('employee-documents').getPublicUrl(proofPath).data.publicUrl;
+      }
+    }
+
+    const { data: request, error: insertErr } = await supabase
+      .from('document_replacement_requests')
+      .insert({
+        id: crypto.randomUUID(),
+        document_id: docId,
+        employee_id: userId,
+        new_file_url: newFileUrl,
+        new_file_path: filePath,
+        reason,
+        proof_url: proofUrl,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+      })
+      .select('id, status')
+      .single();
+
+    if (insertErr) throw new InternalServerErrorException(insertErr.message);
+
+    return { replacement_request_id: request.id, status: 'pending' };
+  }
+
   // =========================================================
   // PROFILE CHANGE REQUESTS
   // =========================================================
 
   async submitChangeRequest(employeeId: string, companyId: string, dto: CreateChangeRequestDto) {
     const supabase = this.supabaseService.getClient();
+
+    const { data: existingPending, error: existingPendingError } = await supabase
+      .from('profile_change_requests')
+      .select('request_id')
+      .eq('employee_id', employeeId)
+      .eq('field_type', dto.field_type)
+      .eq('status', 'pending')
+      .maybeSingle();
+    if (existingPendingError) throw new BadRequestException(existingPendingError.message);
+    if (existingPending) {
+      const fieldLabel = dto.field_type === 'legal_name' ? 'legal name' : 'bank account';
+      throw new ConflictException(`You already have a pending ${fieldLabel} change request.`);
+    }
 
     const { data, error } = await supabase
       .from('profile_change_requests')

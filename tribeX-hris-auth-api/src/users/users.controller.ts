@@ -14,8 +14,9 @@ import {
   BadRequestException,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FileFieldsInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-users.dto';
@@ -170,6 +171,24 @@ export class UsersController {
     return this.usersService.reviewChangeRequest(requestId, req.user.sub_userid, req.user.company_id, dto);
   }
 
+  @Get('me')
+  @HttpCode(200)
+  getMe(@Req() req: any) {
+    return this.usersService.getMe(req.user.sub_userid);
+  }
+
+  @Patch('me')
+  @HttpCode(200)
+  updateMe(@Req() req: any, @Body() body: any) {
+    return this.usersService.updateMe(req.user.sub_userid, body);
+  }
+
+  // B2 — Onboarding staging import (must be before :id to avoid route collision)
+  @Get('me/onboarding-staging')
+  getOnboardingStaging(@Req() req: any) {
+    return this.usersService.getOnboardingStaging(req.user.sub_userid);
+  }
+
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles(...HR_AND_ABOVE)
@@ -252,18 +271,6 @@ export class UsersController {
     );
   }
 
-  @Get('me')
-  @HttpCode(200)
-  getMe(@Req() req: any) {
-    return this.usersService.getMe(req.user.sub_userid);
-  }
-
-  @Patch('me')
-  @HttpCode(200)
-  updateMe(@Req() req: any, @Body() body: any) {
-    return this.usersService.updateMe(req.user.sub_userid, body);
-  }
-
   // ---- Employee Documents ----
 
   @Get('me/documents')
@@ -311,5 +318,28 @@ export class UsersController {
   ) {
     if (!hrNotes) throw new BadRequestException('hr_notes is required when rejecting.');
     return this.usersService.rejectEmployeeDocument(id, req.user.sub_userid, hrNotes);
+  }
+
+  // B3 — Document replacement request (employee replaces an approved doc)
+  @Patch('documents/:id/replace-request')
+  @UseInterceptors(FileFieldsInterceptor(
+    [{ name: 'file', maxCount: 1 }, { name: 'proof_file', maxCount: 1 }],
+    { storage: memoryStorage() },
+  ))
+  submitDocumentReplacement(
+    @Req() req: any,
+    @Param('id') id: string,
+    @UploadedFiles() files: { file?: Express.Multer.File[]; proof_file?: Express.Multer.File[] },
+    @Body('reason') reason: string,
+  ) {
+    if (!files?.file?.[0]) throw new BadRequestException('file is required.');
+    if (!reason?.trim()) throw new BadRequestException('reason is required.');
+    return this.usersService.submitDocumentReplacement(
+      req.user.sub_userid,
+      id,
+      reason.trim(),
+      files.file[0],
+      files.proof_file?.[0],
+    );
   }
 }

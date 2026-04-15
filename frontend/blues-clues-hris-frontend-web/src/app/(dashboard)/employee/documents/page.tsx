@@ -19,6 +19,7 @@ import {
   ExternalLink,
   Loader2,
   RefreshCw,
+  RotateCcw,
 } from "lucide-react";
 import {
   getMyEmployeeDocuments,
@@ -26,7 +27,150 @@ import {
   deleteMyDocument,
   type EmployeeDocument,
 } from "@/lib/authApi";
+import { authFetch } from "@/lib/authApi";
+import { API_BASE_URL } from "@/lib/api";
 import { toast } from "sonner";
+
+// ─── Replace-Approved Modal ───────────────────────────────────────────────────
+
+function ReplaceApprovedModal({
+  docTitle,
+  docAccepted,
+  docId,
+  onClose,
+  onSubmitted,
+}: Readonly<{
+  docTitle: string;
+  docAccepted: string;
+  docId: string;
+  onClose: () => void;
+  onSubmitted: () => void;
+}>) {
+  const [file, setFile]               = useState<File | null>(null);
+  const [proofFile, setProofFile]     = useState<File | null>(null);
+  const [reason, setReason]           = useState("");
+  const [submitting, setSubmitting]   = useState(false);
+  const fileRef                        = useRef<HTMLInputElement>(null);
+  const proofRef                       = useRef<HTMLInputElement>(null);
+
+  async function handleSubmit() {
+    if (!file) { toast.error("Please select a replacement file."); return; }
+    if (reason.trim().length < 10) { toast.error("Reason must be at least 10 characters."); return; }
+
+    setSubmitting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("reason", reason.trim());
+      if (proofFile) form.append("proof_file", proofFile);
+
+      const res = await authFetch(`${API_BASE_URL}/users/documents/${docId}/replace-request`, {
+        method: "PATCH",
+        body: form,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(err.message || "Failed to submit replacement request.");
+      }
+      toast.success("Replacement request submitted — awaiting HR review.");
+      onSubmitted();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Submission failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-150" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl border border-gray-200 w-full max-w-md mx-4 animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-base font-bold text-gray-900">Replace Document</h2>
+              <p className="text-xs text-gray-500 mt-0.5">{docTitle}</p>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors cursor-pointer">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        <div className="px-6 py-5 space-y-4">
+          {/* New file upload */}
+          <div>
+            <p className="text-xs font-semibold text-gray-700 mb-1.5">New Document <span className="text-red-500">*</span></p>
+            <input ref={fileRef} type="file" accept={docAccepted} className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f); }} />
+            {file ? (
+              <div className="flex items-center gap-2 p-3 rounded-xl border border-gray-200 bg-gray-50">
+                <FileText className="h-4 w-4 text-gray-500 shrink-0" />
+                <p className="text-xs font-medium text-gray-800 flex-1 truncate">{file.name}</p>
+                <button onClick={() => setFile(null)} className="p-0.5 rounded hover:bg-gray-200 transition-colors cursor-pointer">
+                  <X className="h-3.5 w-3.5 text-gray-400" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-center hover:border-primary/40 hover:bg-primary/5 transition-all cursor-pointer"
+              >
+                <Upload className="h-5 w-5 text-gray-400 mx-auto mb-1" />
+                <p className="text-xs text-gray-500">Click to upload ({docAccepted})</p>
+              </button>
+            )}
+          </div>
+
+          {/* Reason */}
+          <div>
+            <p className="text-xs font-semibold text-gray-700 mb-1.5">
+              Reason for replacement <span className="text-red-500">*</span>
+              <span className="text-gray-400 font-normal ml-1">(min 10 characters)</span>
+            </p>
+            <Textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              placeholder="Explain why you are replacing this document…"
+              rows={3}
+              className="text-sm resize-none"
+            />
+            <p className="text-[10px] text-gray-400 text-right mt-1">{reason.length} / 500</p>
+          </div>
+
+          {/* Optional proof */}
+          <div>
+            <p className="text-xs font-semibold text-gray-700 mb-1.5">Supporting Proof <span className="text-gray-400 font-normal">(optional)</span></p>
+            <input ref={proofRef} type="file" accept=".pdf,.jpg,.jpeg,.png" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) setProofFile(f); }} />
+            {proofFile ? (
+              <div className="flex items-center gap-2 p-2.5 rounded-xl border border-gray-200 bg-gray-50">
+                <FileText className="h-4 w-4 text-gray-500 shrink-0" />
+                <p className="text-xs font-medium text-gray-800 flex-1 truncate">{proofFile.name}</p>
+                <button onClick={() => setProofFile(null)} className="p-0.5 rounded hover:bg-gray-200 transition-colors cursor-pointer">
+                  <X className="h-3.5 w-3.5 text-gray-400" />
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => proofRef.current?.click()}
+                className="w-full border border-dashed border-gray-200 rounded-xl p-3 text-center hover:border-primary/30 hover:bg-primary/5 transition-all cursor-pointer"
+              >
+                <p className="text-xs text-gray-400">Click to attach a proof document</p>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 pb-5 flex gap-2">
+          <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose} disabled={submitting}>Cancel</Button>
+          <Button className="flex-1 cursor-pointer" onClick={handleSubmit} disabled={submitting || !file || reason.trim().length < 10}>
+            {submitting ? <><Loader2 className="h-4 w-4 animate-spin mr-2" />Submitting…</> : "Submit for HR Review"}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const REQUIRED_DOCUMENTS = [
   {
@@ -97,6 +241,11 @@ export default function EmployeeDocumentsPage() {
   const [deleting, setDeleting] = useState<Record<string, boolean>>({});
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // Replace-approved modal state
+  const [replaceModal, setReplaceModal] = useState<{ docId: string; docTitle: string; docAccepted: string; docDbId: string } | null>(null);
+  // Track which doc types have a pending replacement request
+  const [pendingReplacements, setPendingReplacements] = useState<Set<string>>(new Set());
+
   const load = () => {
     setLoading(true);
     getMyEmployeeDocuments()
@@ -142,14 +291,28 @@ export default function EmployeeDocumentsPage() {
   };
 
   const approvedCount = docs.filter((d) => d.status === "approved").length;
-  const pendingCount = docs.filter((d) => d.status === "pending").length;
+  const pendingCount = docs.filter((d) => d.status === "pending").length + pendingReplacements.size;
   const rejectedCount = docs.filter((d) => d.status === "rejected").length;
 
   const getDocForType = (docId: string) =>
     docs.find((d) => d.document_type === docId) ?? null;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <>
+      {/* Replace-approved modal (rendered outside document flow) */}
+      {replaceModal && (
+        <ReplaceApprovedModal
+          docTitle={replaceModal.docTitle}
+          docAccepted={replaceModal.docAccepted}
+          docId={replaceModal.docDbId}
+          onClose={() => setReplaceModal(null)}
+          onSubmitted={() => {
+            setPendingReplacements(prev => new Set([...prev, replaceModal.docId]));
+            setReplaceModal(null);
+          }}
+        />
+      )}
+      <div className="max-w-6xl mx-auto space-y-6">
       {/* Header */}
       <div className="relative overflow-hidden rounded-2xl bg-[#1e3a8a] text-white p-8 shadow-sm">
         <div className="absolute top-0 right-0 h-40 w-40 rounded-full bg-white/10 -translate-y-1/3 translate-x-1/3" />
@@ -319,6 +482,23 @@ export default function EmployeeDocumentsPage() {
                       </Button>
                     )}
 
+                    {/* Replace approved doc */}
+                    {uploaded?.status === "approved" && (
+                      <Button
+                        variant="outline"
+                        onClick={() => setReplaceModal({ docId: docDef.id, docTitle: docDef.title, docAccepted: docDef.accepted, docDbId: uploaded.id })}
+                        disabled={pendingReplacements.has(docDef.id)}
+                        title={pendingReplacements.has(docDef.id) ? "Replacement already pending review" : undefined}
+                        className="h-10 px-4 text-amber-600 border-amber-200 hover:bg-amber-50 disabled:opacity-60"
+                      >
+                        {pendingReplacements.has(docDef.id) ? (
+                          <><Clock3 className="h-4 w-4 mr-2" />Replacement Pending</>
+                        ) : (
+                          <><RotateCcw className="h-4 w-4 mr-2" />Replace</>
+                        )}
+                      </Button>
+                    )}
+
                     {uploaded && uploaded.status !== "approved" && (
                       <Button
                         variant="outline"
@@ -342,5 +522,6 @@ export default function EmployeeDocumentsPage() {
         </CardContent>
       </Card>
     </div>
+    </>
   );
 }

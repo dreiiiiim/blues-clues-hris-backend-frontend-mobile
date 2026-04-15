@@ -7,6 +7,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
@@ -161,14 +162,17 @@ export class JobsService {
 
     const { data, error } = await supabase
       .from('job_postings')
-      .select('*, job_applications(count)')
+      .select('*, job_applications(application_id, applicant_profile(status))')
       .eq('company_id', companyId)
       .order('posted_at', { ascending: false });
 
     if (error) throw new InternalServerErrorException(error.message);
     return (data ?? []).map((row: any) => ({
       ...row,
-      applicant_count: (row.job_applications as { count: number }[])?.[0]?.count ?? 0,
+      // Only count applicants who have not been converted to employees (matches pipeline filter)
+      applicant_count: (row.job_applications as any[] ?? []).filter(
+        (a: any) => a.applicant_profile?.status !== 'converted_employee',
+      ).length,
       job_applications: undefined,
     }));
   }
@@ -1672,5 +1676,195 @@ export class JobsService {
         `SFIA ranking requires the ${tableName} table, but it is not available in the configured Supabase project.`,
       );
     }
+  }
+
+  // ─── B1: Accept Hiring Offer ───────────────────────────────────────────────
+
+  async acceptOffer(applicationId: string, applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: app, error: fetchErr } = await supabase
+      .from('job_applications')
+      .select('application_id, applicant_id, status')
+      .eq('application_id', applicationId)
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (fetchErr) throw new InternalServerErrorException(fetchErr.message);
+    if (!app) throw new NotFoundException('Application not found.');
+    if (app.status !== 'hired')
+      throw new BadRequestException('Offer can only be accepted when status is "hired".');
+
+    const { error } = await supabase
+      .from('job_applications')
+      .update({ status: 'offer_accepted', offer_accepted_at: new Date().toISOString() })
+      .eq('application_id', applicationId);
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    this.logger.log(`[acceptOffer] Application ${applicationId} accepted by applicant ${applicantId}`);
+    return { status: 'offer_accepted' };
+  }
+
+  private getManilaDayCode(date = new Date()): string {
+    const shortWeekday = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      timeZone: 'Asia/Manila',
+    })
+      .format(date)
+      .toUpperCase();
+
+    const dayCodeMap: Record<string, string> = {
+      SUN: 'SUN',
+      MON: 'MON',
+      TUE: 'TUES',
+      WED: 'WED',
+      THU: 'THURS',
+      FRI: 'FRI',
+      SAT: 'SAT',
+    };
+
+    return dayCodeMap[shortWeekday] ?? 'MON';
+  }
+
+  private parseScheduleWorkdays(rawWorkdays: unknown): string[] {
+    if (!rawWorkdays) return [];
+
+    if (Array.isArray(rawWorkdays)) {
+      return rawWorkdays.map((d) => String(d).trim().toUpperCase()).filter(Boolean);
+    }
+
+    if (typeof rawWorkdays === 'string') {
+      const trimmed = rawWorkdays.trim();
+      if (!trimmed) return [];
+
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed.map((d) => String(d).trim().toUpperCase()).filter(Boolean);
+          }
+        } catch {
+          // fall through to CSV parsing
+        }
+      }
+
+      return trimmed
+        .split(',')
+        .map((d) => d.trim().toUpperCase())
+        .filter(Boolean);
+    }
+
+    return [];
+  }
+
+  // ─── B7: Cron — Auto-mark absent at end of day (11:59 PM Manila) ──────────
+
+  @Cron('59 23 * * *', { timeZone: 'Asia/Manila', name: 'autoMarkAbsent' })
+  async autoMarkAbsent() {
+    const supabase = this.supabaseService.getClient();
+    const cronLogger = new Logger('autoMarkAbsent');
+
+    const manilaDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const manilaStart = `${manilaDate}T00:00:00.000+08:00`;
+    const manilaEnd = `${manilaDate}T23:59:59.999+08:00`;
+    const dayCode = this.getManilaDayCode();
+
+    const { data: schedules, error: schedErr } = await supabase
+      .from('schedules')
+      .select('employee_id, workdays');
+
+    if (schedErr) { cronLogger.error(`Failed to fetch schedules: ${schedErr.message}`); return; }
+
+    const scheduledToday = (schedules ?? []).filter((s: any) => {
+      const workdays = this.parseScheduleWorkdays(s.workdays);
+      return workdays.includes(dayCode);
+    });
+
+    if (scheduledToday.length === 0) { cronLogger.log(`No employees scheduled for ${manilaDate}`); return; }
+
+    const employeeIds = scheduledToday.map((s: any) => s.employee_id as string).filter(Boolean);
+
+    const { data: existingLogs } = await supabase
+      .from('attendance_time_logs')
+      .select('employee_id')
+      .in('employee_id', employeeIds)
+      .gte('timestamp', manilaStart)
+      .lte('timestamp', manilaEnd);
+
+    const loggedSet = new Set((existingLogs ?? []).map((l: any) => l.employee_id as string));
+
+    const absentRows = scheduledToday
+      .filter((s: any) => !loggedSet.has(s.employee_id as string))
+      .map((s: any) => ({
+        log_id: crypto.randomUUID(),
+        employee_id: s.employee_id,
+        log_type: 'absence',
+        status: 'ABSENT',
+        clock_type: 'ABSENT_NO_CLOCKIN',
+        timestamp: `${manilaDate}T23:59:00.000+08:00`,
+        log_status: 'APPROVED',
+        notes: 'Auto-marked by system — no clock-in recorded',
+      }));
+
+    if (absentRows.length === 0) { cronLogger.log(`All scheduled employees clocked in on ${manilaDate}`); return; }
+
+    const { error: insertErr } = await supabase.from('attendance_time_logs').insert(absentRows);
+    if (insertErr) cronLogger.error(`Failed to insert absent records: ${insertErr.message}`);
+    else cronLogger.log(`Auto-marked ${absentRows.length} employee(s) absent for ${manilaDate}`);
+  }
+
+  // ─── B7 continued: Cron — Auto close open clock-ins (00:01 AM Manila) ─────
+
+  @Cron('1 0 * * *', { timeZone: 'Asia/Manila', name: 'autoCloseOpenClockIns' })
+  async autoCloseOpenClockIns() {
+    const supabase = this.supabaseService.getClient();
+    const cronLogger = new Logger('autoCloseOpenClockIns');
+
+    const yesterday = new Date(Date.now() - 86400000)
+      .toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const yesterdayStart = `${yesterday}T00:00:00.000+08:00`;
+    const yesterdayEnd = `${yesterday}T23:59:59.999+08:00`;
+
+    const { data: openIns, error: fetchErr } = await supabase
+      .from('attendance_time_logs')
+      .select('log_id, employee_id, schedule_id')
+      .eq('log_type', 'time-in')
+      .gte('timestamp', yesterdayStart)
+      .lte('timestamp', yesterdayEnd);
+
+    if (fetchErr) { cronLogger.error(`Failed to fetch open clock-ins: ${fetchErr.message}`); return; }
+    if (!openIns || openIns.length === 0) return;
+
+    const empIds = openIns.map((l: any) => l.employee_id as string);
+    const { data: timeOuts } = await supabase
+      .from('attendance_time_logs')
+      .select('employee_id')
+      .eq('log_type', 'time-out')
+      .in('employee_id', empIds)
+      .gte('timestamp', yesterdayStart)
+      .lte('timestamp', yesterdayEnd);
+
+    const timedOutSet = new Set((timeOuts ?? []).map((l: any) => l.employee_id as string));
+
+    const closeRows = (openIns as any[])
+      .filter((l) => !timedOutSet.has(l.employee_id as string))
+      .map((l) => ({
+        log_id: crypto.randomUUID(),
+        employee_id: l.employee_id,
+        schedule_id: l.schedule_id ?? null,
+        log_type: 'time-out',
+        clock_type: 'NO_CLOCKOUT',
+        status: 'PRESENT',
+        log_status: 'APPROVED',
+        timestamp: `${yesterday}T23:59:00.000+08:00`,
+        notes: 'Auto clock-out — employee did not clock out',
+      }));
+
+    if (closeRows.length === 0) return;
+
+    const { error: insertErr } = await supabase.from('attendance_time_logs').insert(closeRows);
+    if (insertErr) cronLogger.error(`Failed to insert auto clock-outs: ${insertErr.message}`);
+    else cronLogger.log(`Auto clock-out recorded for ${closeRows.length} employee(s) from ${yesterday}`);
   }
 }

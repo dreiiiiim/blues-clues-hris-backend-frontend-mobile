@@ -1,4 +1,4 @@
-import { IsArray, IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UpsertScheduleDto } from './upsert-schedule.dto';
@@ -49,4 +49,12 @@ export class BulkScheduleDto {
   @IsOptional()
   @IsString()
   effective_date?: string;
+
+  @ApiPropertyOptional({
+    description: 'When true, employees who already have an individually-assigned schedule will be skipped',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  skip_individual?: boolean;
 }

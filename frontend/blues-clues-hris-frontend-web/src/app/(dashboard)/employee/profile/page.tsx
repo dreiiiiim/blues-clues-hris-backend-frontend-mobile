@@ -7,7 +7,8 @@ import {
   parseJwt,
   type StoredUser,
 } from "@/lib/authStorage";
-import { getEmployeeProfile, updateEmployeeProfile } from "@/lib/authApi";
+import { getEmployeeProfile, updateEmployeeProfile, authFetch } from "@/lib/authApi";
+import { API_BASE_URL } from "@/lib/api";
 import { submitChangeRequest, getMyChangeRequests } from "@/lib/changeRequestApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,6 +38,8 @@ import {
   CreditCard,
   MapPin,
   CheckCircle2,
+  Download,
+  X as XIcon,
 } from "lucide-react";
 import { DateOfBirthPicker } from "@/components/ui/date-of-birth-picker";
 import { toast } from "sonner";
@@ -142,6 +145,10 @@ function ApprovalModal({
   const handleSubmit = () => {
     if (!reason.trim()) {
       toast.error("Please provide a reason for the change request.");
+      return;
+    }
+    if (reason.trim().length < 5) {
+      toast.error("Reason must be at least 5 characters.");
       return;
     }
     onSubmit(reason.trim(), file);
@@ -265,6 +272,16 @@ export default function EmployeeProfilePage() {
   // Approval modal
   const [approvalModal, setApprovalModal] = useState<ApprovalModalState>({ open: false, section: "legal-name", fieldLabel: "", newValue: "" });
 
+  // Onboarding import banner — only shown for converted employees
+  const [showImportBanner, setShowImportBanner]       = useState(false);
+  const [importDismissed, setImportDismissed]         = useState(false);
+  const [importing, setImporting]                     = useState(false);
+  const [cachedStagingData, setCachedStagingData]     = useState<{
+    first_name?: string; last_name?: string; middle_name?: string;
+    phone_number?: string; complete_address?: string; date_of_birth?: string;
+    place_of_birth?: string; nationality?: string; civil_status?: string; personal_email?: string;
+  } | null>(null);
+
   // ── Load from API on mount ────────────────────────────────────────────────
   useEffect(() => {
     const storedUser = getUserInfo();
@@ -300,6 +317,21 @@ export default function EmployeeProfilePage() {
         const pendingBank  = changeReqs.find(r => r.field_type === 'bank'       && r.status === 'pending');
         if (pendingLegal)      setPendingSection('legal-name');
         else if (pendingBank)  setPendingSection('bank');
+
+        // Show onboarding import banner ONLY for converted employees (those with
+        // an onboarding session). Non-converted employees get a 404 here.
+        const isEmpty = !p.date_of_birth && !p.complete_address && !p.nationality && !p.civil_status;
+        if (isEmpty) {
+          authFetch(`${API_BASE_URL}/users/me/onboarding-staging`)
+            .then(r => r.ok ? r.json() : null)
+            .then((staging) => {
+              if (staging) {
+                setCachedStagingData(staging);
+                setShowImportBanner(true);
+              }
+            })
+            .catch(() => {}); // silently ignore — non-converted employees get 404
+        }
       })
       .catch(() => toast.error("Failed to load profile."))
       .finally(() => setLoading(false));
@@ -392,6 +424,54 @@ export default function EmployeeProfilePage() {
     }
   };
 
+  // ── Onboarding import ────────────────────────────────────────────────────
+  const handleOnboardingImport = async () => {
+    setImporting(true);
+    try {
+      // Use the data we already fetched on mount; fall back to a fresh fetch
+      // only if somehow the cache is missing.
+      let data = cachedStagingData;
+      if (!data) {
+        const res = await authFetch(`${API_BASE_URL}/users/me/onboarding-staging`);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({})) as { message?: string };
+          throw new Error(err.message || "Onboarding data not found.");
+        }
+        data = await res.json();
+      }
+      if (!data) throw new Error("No onboarding data available.");
+
+      const imported: ExtendedProfile = {
+        phone:         data.phone_number     || extended.phone,
+        personalEmail: data.personal_email   || extended.personalEmail,
+        address:       data.complete_address || extended.address,
+        dob:           data.date_of_birth    || extended.dob,
+        placeOfBirth:  data.place_of_birth   || extended.placeOfBirth,
+        nationality:   data.nationality      || extended.nationality,
+        civilStatus:   data.civil_status     || extended.civilStatus,
+      };
+
+      // Auto-save the imported data
+      await updateEmployeeProfile({
+        personal_email:   imported.personalEmail.trim() || null as any,
+        date_of_birth:    imported.dob || null as any,
+        place_of_birth:   imported.placeOfBirth.trim() || null as any,
+        nationality:      imported.nationality.trim() || null as any,
+        civil_status:     imported.civilStatus || null as any,
+        complete_address: imported.address.trim() || null as any,
+      });
+
+      setExtended(imported);
+      setExtendedDraft(imported);
+      setShowImportBanner(false);
+      toast.success("Onboarding details imported and saved to your profile.");
+    } catch (err: any) {
+      toast.error(err?.message ?? "Could not import onboarding data.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const employeeId = jwtPayload?.employee_id ?? "EMP-XXXX";
   const displayName =
     [legalName.first, legalName.middle, legalName.last].filter(Boolean).join(" ") ||
@@ -420,6 +500,40 @@ export default function EmployeeProfilePage() {
           Manage your personal information, contact details, and account settings.
         </p>
       </div>
+
+      {/* Onboarding import banner */}
+      {showImportBanner && !importDismissed && (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-start gap-4">
+          <div className="h-9 w-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0">
+            <Download className="h-4 w-4 text-amber-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-800">
+              Some of your onboarding details are available to import into your profile.
+            </p>
+            <p className="text-xs text-amber-700 mt-0.5">
+              Your contact information, address, and civil details from onboarding can be copied here in one click.
+            </p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              onClick={handleOnboardingImport}
+              disabled={importing}
+              className="h-8 px-3 text-xs bg-amber-600 hover:bg-amber-700 text-white"
+            >
+              {importing ? <><Loader2 className="h-3 w-3 animate-spin mr-1.5" />Importing…</> : "Import Details"}
+            </Button>
+            <button
+              onClick={() => setImportDismissed(true)}
+              className="h-7 w-7 rounded-md flex items-center justify-center text-amber-500 hover:bg-amber-100 transition-colors cursor-pointer"
+              title="Dismiss"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col md:flex-row gap-6 items-start">
         {/* ── Left Sidebar ──────────────────────────────────────────────────── */}

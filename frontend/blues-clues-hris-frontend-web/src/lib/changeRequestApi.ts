@@ -1,12 +1,5 @@
 import { API_BASE_URL } from './api';
-import { getAccessToken } from './authStorage';
-
-function headers() {
-  return {
-    Authorization: `Bearer ${getAccessToken()}`,
-    'Content-Type': 'application/json',
-  };
-}
+import { authFetch } from './authApi';
 
 export type ChangeRequest = {
   request_id: string;
@@ -29,17 +22,20 @@ export async function submitChangeRequest(dto: {
   reason: string;
   supporting_doc_url?: string;
 }): Promise<ChangeRequest> {
-  const res = await fetch(`${API_BASE_URL}/users/me/change-requests`, {
+  const res = await authFetch(`${API_BASE_URL}/users/me/change-requests`, {
     method: 'POST',
-    headers: headers(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(dto),
   });
-  if (!res.ok) throw new Error('Failed to submit change request');
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { message?: string })?.message || 'Failed to submit change request');
+  }
+  return data as ChangeRequest;
 }
 
 export async function getMyChangeRequests(): Promise<ChangeRequest[]> {
-  const res = await fetch(`${API_BASE_URL}/users/me/change-requests`, { headers: headers() });
+  const res = await authFetch(`${API_BASE_URL}/users/me/change-requests`);
   if (!res.ok) return [];
   return res.json();
 }
@@ -48,7 +44,7 @@ export async function getHRChangeRequests(status?: string): Promise<ChangeReques
   const url = status
     ? `${API_BASE_URL}/users/change-requests?status=${status}`
     : `${API_BASE_URL}/users/change-requests`;
-  const res = await fetch(url, { headers: headers() });
+  const res = await authFetch(url);
   if (!res.ok) return [];
   return res.json();
 }
@@ -57,11 +53,14 @@ export async function reviewChangeRequest(
   requestId: string,
   body: { status: 'approved' | 'rejected'; review_reason: string },
 ): Promise<ChangeRequest> {
-  const res = await fetch(`${API_BASE_URL}/users/change-requests/${requestId}`, {
+  const res = await authFetch(`${API_BASE_URL}/users/change-requests/${requestId}`, {
     method: 'PATCH',
-    headers: headers(),
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error('Failed to review change request');
-  return res.json();
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { message?: string })?.message || 'Failed to review change request');
+  }
+  return data as ChangeRequest;
 }

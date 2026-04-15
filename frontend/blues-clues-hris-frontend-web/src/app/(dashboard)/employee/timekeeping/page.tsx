@@ -4,10 +4,10 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock, LogIn, LogOut, MapPin,
-  ChevronLeft, ChevronRight, CalendarDays, CalendarRange, List,
+  ChevronLeft, ChevronRight, CalendarDays, CalendarRange, CalendarClock, List,
   AlertTriangle, X, CheckCircle2, FileX,
   Stethoscope, Zap, Home, User, Palmtree, BadgeCheck, HelpCircle,
-  Timer,
+  Timer, Sun,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -210,33 +210,61 @@ function ConfirmModal({ children, onClose }: Readonly<{ children: React.ReactNod
 
 // ─── Calendar Day Detail Modal ────────────────────────────────────────────────
 
+type ScheduleInfo = {
+  workdays: string | string[] | null;
+  start_time: string | null;
+  end_time: string | null;
+  break_start?: string | null;
+  break_end?: string | null;
+  is_nightshift: boolean | null;
+} | null;
+
 function CalendarDayModal({
-  dateStr, entry, onClose,
-}: Readonly<{ dateStr: string; entry: TimesheetEntry | null; onClose: () => void }>) {
+  dateStr, entry, onClose, schedule,
+}: Readonly<{ dateStr: string; entry: TimesheetEntry | null; onClose: () => void; schedule: ScheduleInfo }>) {
   const status = entry ? getEntryStatus(entry) : null;
   const cfg    = status ? ENTRY_STATUS_CONFIG[status] : null;
   const isFuture = dateStr > todayPST();
+
+  // Determine if this day is a scheduled workday
+  const isWorkday = (() => {
+    if (!schedule?.workdays) return false;
+    const arr = Array.isArray(schedule.workdays)
+      ? schedule.workdays
+      : String(schedule.workdays).split(",");
+    const workdaySet = new Set(arr.map(d => d.trim().toUpperCase()));
+    const dayOfWeek = new Date(dateStr + "T00:00:00").getDay();
+    return workdaySet.has(SCHED_DAY_CODE[dayOfWeek]);
+  })();
 
   const absenceReasonCfg = entry?.absence?.absence_reason
     ? ABSENCE_REASONS.find(r => r.value === entry.absence!.absence_reason)
     : null;
 
+  // Detect auto-absent (no clock-in, no absence report)
+  const isAutoAbsent = !isFuture && isWorkday && entry && !entry.time_in && !entry.absence;
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="relative bg-white rounded-2xl shadow-2xl border border-border w-full max-w-sm mx-4 animate-in zoom-in-95 duration-200 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-150" onClick={onClose}>
+      <div className="relative bg-white rounded-2xl shadow-2xl border border-border w-full max-w-sm mx-4 animate-in zoom-in-95 duration-200 overflow-hidden" onClick={e => e.stopPropagation()}>
         {/* Header */}
         <div className={`px-6 pt-6 pb-4 ${cfg ? `${cfg.cell} border-b` : "border-b border-border"}`}>
           <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Attendance Record</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">
+                {isWorkday ? "Workday" : "Day Off"}
+              </p>
               <h2 className="text-base font-bold text-foreground leading-tight">{formatLongDate(dateStr)}</h2>
             </div>
             <div className="flex items-center gap-2">
               {cfg && (
                 <Badge className={`text-[10px] font-bold border ${cfg.badge}`}>{cfg.label}</Badge>
               )}
-              {isFuture && (
-                <Badge className="text-[10px] font-bold bg-slate-100 text-slate-500 border-slate-200">Upcoming</Badge>
+              {isFuture && isWorkday && (
+                <Badge className="text-[10px] font-bold bg-blue-100 text-blue-700 border-blue-200">Upcoming</Badge>
+              )}
+              {isFuture && !isWorkday && (
+                <Badge className="text-[10px] font-bold bg-slate-100 text-slate-500 border-slate-200">Day Off</Badge>
               )}
               <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-black/5 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer">
                 <X className="h-4 w-4" />
@@ -246,87 +274,149 @@ function CalendarDayModal({
         </div>
 
         {/* Body */}
-        <div className="p-6 space-y-4">
-          {isFuture ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No records yet — this is a future date.</p>
-          ) : !entry || (!entry.time_in && !entry.absence) ? (
-            <div className="flex flex-col items-center py-4 gap-2">
-              <div className="h-10 w-10 rounded-full bg-red-50 flex items-center justify-center">
-                <AlertTriangle className="h-5 w-5 text-red-400" />
-              </div>
-              <p className="text-sm font-semibold text-foreground">No Attendance Recorded</p>
-              <p className="text-xs text-muted-foreground text-center">No clock-in or absence report was found for this day.</p>
-            </div>
-          ) : (status === "excused" || status === "absent") && entry.absence ? (
-            /* ── Absence / Excused ───────────────────────────────────────── */
-            <div className="space-y-3">
-              <div className={`flex items-center gap-3 p-3 rounded-xl border ${absenceReasonCfg ? `${absenceReasonCfg.bg} ${absenceReasonCfg.border}` : "bg-purple-50 border-purple-200"}`}>
-                {absenceReasonCfg && (
-                  <div className={`p-2 rounded-lg bg-white/60`}>
-                    <absenceReasonCfg.icon className={`h-4 w-4 ${absenceReasonCfg.color}`} />
-                  </div>
-                )}
-                <div>
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Absence Reason</p>
-                  <p className="text-sm font-bold text-foreground">{entry.absence.absence_reason}</p>
-                </div>
-              </div>
-              {entry.absence.absence_notes && (
-                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Notes</p>
-                  <p className="text-sm text-foreground leading-relaxed">{entry.absence.absence_notes}</p>
-                </div>
-              )}
-              <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
-                <Timer className="h-3.5 w-3.5" />
-                <span>Reported at {formatCellTime(entry.absence.timestamp)}</span>
-              </div>
-            </div>
-          ) : (
-            /* ── Punched In ──────────────────────────────────────────────── */
-            <div className="space-y-3">
-              {/* Time In */}
-              {entry.time_in && (
-                <div className="p-3 rounded-xl bg-green-50 border border-green-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <LogIn className="h-4 w-4 text-green-600" />
-                    <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Clock In</p>
-                  </div>
-                  <p className="text-xl font-bold text-foreground tabular-nums">{formatCellTime(entry.time_in.timestamp)}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />
-                    {formatCoordinates(entry.time_in.latitude, entry.time_in.longitude)}
-                  </p>
-                </div>
-              )}
+        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
 
-              {/* Time Out */}
-              {entry.time_out ? (
-                <div className="p-3 rounded-xl bg-red-50 border border-red-200">
-                  <div className="flex items-center gap-2 mb-2">
-                    <LogOut className="h-4 w-4 text-red-500" />
-                    <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Clock Out</p>
+          {/* ── Schedule section (if schedule assigned) ─────────────────── */}
+          {schedule && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Your Schedule</p>
+              {isWorkday ? (
+                <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Clock className="h-4 w-4 text-blue-600 shrink-0" />
+                    <span className="text-sm font-semibold text-blue-900">
+                      {formatSchedTime(schedule.start_time)} – {formatSchedTime(schedule.end_time)}
+                    </span>
+                    {schedule.is_nightshift && (
+                      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">Night</span>
+                    )}
                   </div>
-                  <p className="text-xl font-bold text-foreground tabular-nums">{formatCellTime(entry.time_out.timestamp)}</p>
-                  <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
-                    <MapPin className="h-3 w-3" />
-                    {formatCoordinates(entry.time_out.latitude, entry.time_out.longitude)}
-                  </p>
+                  {(schedule.break_start || schedule.break_end) && (
+                    <div className="flex items-center gap-2">
+                      <Timer className="h-4 w-4 text-amber-500 shrink-0" />
+                      <span className="text-xs text-blue-700">
+                        Break: {formatSchedTime(schedule.break_start)} – {formatSchedTime(schedule.break_end)}
+                      </span>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
-                  <p className="text-sm font-semibold text-blue-700">Shift still in progress</p>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center gap-2">
+                  <span className="text-sm text-slate-500 font-medium">Rest day — not scheduled to work.</span>
                 </div>
               )}
+            </div>
+          )}
 
-              {/* Hours worked */}
-              {entry.time_in && entry.time_out && (
-                <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
-                  <p className="text-xs font-semibold text-muted-foreground">Total Hours Worked</p>
-                  <p className="text-sm font-bold">{formatHoursFromTimestamps(entry.time_in.timestamp, entry.time_out.timestamp)}</p>
+          {/* ── Attendance record section ────────────────────────────────── */}
+          {!isFuture && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Your Record</p>
+              {isAutoAbsent ? (
+                <div className="flex flex-col items-center py-4 gap-2">
+                  <div className="h-10 w-10 rounded-full bg-red-50 flex items-center justify-center">
+                    <AlertTriangle className="h-5 w-5 text-red-400" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">You did not clock in this day.</p>
+                  <p className="text-xs text-muted-foreground text-center">No clock-in or absence report was recorded.</p>
+                </div>
+              ) : !entry || (!entry.time_in && !entry.absence) ? (
+                <div className="flex flex-col items-center py-4 gap-2">
+                  <div className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center">
+                    <CalendarDays className="h-5 w-5 text-slate-300" />
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">No record</p>
+                  <p className="text-xs text-muted-foreground text-center">No attendance recorded for this day.</p>
+                </div>
+              ) : (status === "excused" || status === "absent") && entry.absence ? (
+                /* ── Absence / Excused ──────────────────────────────────── */
+                <div className="space-y-3">
+                  <div className={`flex items-center gap-3 p-3 rounded-xl border ${absenceReasonCfg ? `${absenceReasonCfg.bg} ${absenceReasonCfg.border}` : "bg-purple-50 border-purple-200"}`}>
+                    {absenceReasonCfg && (
+                      <div className="p-2 rounded-lg bg-white/60">
+                        <absenceReasonCfg.icon className={`h-4 w-4 ${absenceReasonCfg.color}`} />
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Absence Reason</p>
+                      <p className="text-sm font-bold text-foreground">{entry.absence.absence_reason}</p>
+                    </div>
+                  </div>
+                  {entry.absence.absence_notes && (
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-1">Notes</p>
+                      <p className="text-sm text-foreground leading-relaxed">{entry.absence.absence_notes}</p>
+                    </div>
+                  )}
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
+                    <Timer className="h-3.5 w-3.5" />
+                    <span>Reported at {formatCellTime(entry.absence.timestamp)}</span>
+                  </div>
+                </div>
+              ) : (
+                /* ── Punched In ─────────────────────────────────────────── */
+                <div className="space-y-3">
+                  {/* Time In */}
+                  {entry.time_in && (
+                    <div className="p-3 rounded-xl bg-green-50 border border-green-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <LogIn className="h-4 w-4 text-green-600" />
+                        <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Clock In</p>
+                        {cfg && <Badge className={`text-[9px] font-bold border ml-auto ${cfg.badge}`}>{cfg.label}</Badge>}
+                      </div>
+                      <p className="text-xl font-bold text-foreground tabular-nums">{formatCellTime(entry.time_in.timestamp)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        {formatCoordinates(entry.time_in.latitude, entry.time_in.longitude)}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Time Out */}
+                  {entry.time_out ? (
+                    <div className="p-3 rounded-xl bg-red-50 border border-red-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        <LogOut className="h-4 w-4 text-red-500" />
+                        <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">Clock Out</p>
+                      </div>
+                      <p className="text-xl font-bold text-foreground tabular-nums">{formatCellTime(entry.time_out.timestamp)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
+                        <MapPin className="h-3 w-3" />
+                        {formatCoordinates(entry.time_out.latitude, entry.time_out.longitude)}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-xl bg-blue-50 border border-blue-200 flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-blue-500 animate-pulse" />
+                      <p className="text-sm font-semibold text-blue-700">Shift still in progress</p>
+                    </div>
+                  )}
+
+                  {/* Hours worked */}
+                  {entry.time_in && entry.time_out && (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200">
+                      <p className="text-xs font-semibold text-muted-foreground">Total Hours Worked</p>
+                      <p className="text-sm font-bold">{formatHoursFromTimestamps(entry.time_in.timestamp, entry.time_out.timestamp)}</p>
+                    </div>
+                  )}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ── Future workday placeholder ───────────────────────────────── */}
+          {isFuture && isWorkday && (
+            <div className="flex flex-col items-center py-4 gap-2 text-center">
+              <CalendarDays className="h-8 w-8 text-blue-300" />
+              <p className="text-sm text-muted-foreground">Upcoming workday — no record yet.</p>
+            </div>
+          )}
+
+          {/* ── Future day off placeholder ───────────────────────────────── */}
+          {isFuture && !isWorkday && (
+            <div className="flex flex-col items-center py-4 gap-2 text-center">
+              <span className="text-2xl">🌙</span>
+              <p className="text-sm text-muted-foreground">Rest day — enjoy your time off.</p>
             </div>
           )}
         </div>
@@ -512,7 +602,7 @@ export default function EmployeeTimekeepingPage() {
   const [calPickerYear, setCalPickerYear] = useState(() => new Date().getFullYear());
 
   // Schedule calendar state
-  const [schedMode, setSchedMode]     = useState<"month" | "week">("month");
+  const [schedMode, setSchedMode]     = useState<"month" | "week" | "day">("week");
   const [schedRefDate, setSchedRefDate] = useState(() => new Date());
   const [schedPickerOpen, setSchedPickerOpen] = useState(false);
   const [schedPickerYear, setSchedPickerYear] = useState(() => new Date().getFullYear());
@@ -624,10 +714,12 @@ export default function EmployeeTimekeepingPage() {
     }
   }
 
-  // Derived — absence blocks time-in/out at both UI and API level
+  // Derived — absence + no-schedule both block time-in/out
   const hasReportedAbsence = status?.current_status === "absence";
-  const canTimeIn  = !status?.time_in && !hasReportedAbsence;
-  const canTimeOut = status?.current_status === "time-in";
+  const scheduleLoaded     = mySchedule !== null;           // null means "no schedule assigned"
+  const hasSchedule        = scheduleLoaded && !!mySchedule?.workdays;
+  const canTimeIn  = !status?.time_in && !hasReportedAbsence && hasSchedule;
+  const canTimeOut = status?.current_status === "time-in" && hasSchedule;
   const shiftDone  = !!(status?.time_in && status?.time_out);
   const todayAbsence = timesheet.find(e => e.date === todayPST())?.absence ?? null;
 
@@ -749,22 +841,35 @@ export default function EmployeeTimekeepingPage() {
           const entryStatus = entry ? getEntryStatus(entry) : null;
           const cfg         = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
           const isAbsent    = entryStatus === "absent" || entryStatus === "excused";
-          const isClickable = !isFuture;
+          const isClickable = true; // all days are clickable to show schedule/status
+
+          // Is this day a scheduled workday?
+          const dayCode    = SCHED_DAY_CODE[new Date(dateStr + "T00:00:00").getDay()];
+          const isDayWork  = workdaySet.has(dayCode);
 
           let cellClass = "bg-background border-border hover:border-primary/30";
-          if (isToday)       cellClass = "bg-primary/10 border-primary shadow-md";
-          else if (isFuture) cellClass = "bg-background border-border opacity-40 cursor-default";
-          else if (cfg)      cellClass = `${cfg.cell} border hover:opacity-90`;
+          if (isToday)                   cellClass = "bg-primary/10 border-primary shadow-md";
+          else if (cfg)                  cellClass = `${cfg.cell} border hover:opacity-90`;
+          else if (isFuture && isDayWork) cellClass = "bg-blue-50/60 border-blue-200/70 opacity-70 hover:opacity-100";
+          else if (isFuture)             cellClass = "bg-background border-border opacity-35 hover:opacity-60";
+          else if (isDayWork)            cellClass = "bg-blue-50/40 border-blue-100 hover:border-blue-300";
 
           return (
             <button
               key={dateStr}
               type="button"
-              disabled={isFuture}
-              onClick={() => isClickable && setCalDayModal({ dateStr, entry: entry ?? null })}
-              className={`relative rounded-xl border p-2 min-h-[5.5rem] flex flex-col transition-all text-left w-full ${cellClass} ${isClickable ? "cursor-pointer" : ""}`}
+              onClick={() => setCalDayModal({ dateStr, entry: entry ?? null })}
+              className={`relative rounded-xl border p-2 min-h-[5.5rem] flex flex-col transition-all text-left w-full cursor-pointer ${cellClass}`}
             >
               <div className={`text-sm font-bold mb-1 ${isToday ? "text-primary" : "text-foreground"}`}>{day}</div>
+
+              {/* Workday indicator (for days without attendance record) */}
+              {isDayWork && !cfg && !isToday && (
+                <div className="flex items-center gap-0.5 mt-0.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
+                  <span className="text-[8px] font-semibold text-blue-600 leading-tight">Work</span>
+                </div>
+              )}
 
               {/* Absence indicator */}
               {!isFuture && isAbsent && entry?.absence && (
@@ -802,16 +907,9 @@ export default function EmployeeTimekeepingPage() {
               )}
 
               {/* Status dot */}
-              {!isToday && !isFuture && cfg && (
+              {!isToday && cfg && (
                 <div className="mt-auto pt-1">
                   <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-                </div>
-              )}
-
-              {/* Click hint */}
-              {isClickable && (
-                <div className="absolute bottom-1.5 right-1.5 opacity-0 group-hover:opacity-100">
-                  <div className="h-1 w-1 rounded-full bg-current opacity-30" />
                 </div>
               )}
             </button>
@@ -821,6 +919,12 @@ export default function EmployeeTimekeepingPage() {
 
       {/* Legend */}
       <div className="flex items-center gap-4 mt-5 flex-wrap">
+        {workdaySet.size > 0 && (
+          <div className="flex items-center gap-1.5">
+            <span className="h-2 w-2 rounded-full bg-blue-400" />
+            <span className="text-[10px] text-muted-foreground font-medium">Workday</span>
+          </div>
+        )}
         {Object.entries(ENTRY_STATUS_CONFIG).map(([key, cfg]) => (
           <div key={key} className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
@@ -828,7 +932,7 @@ export default function EmployeeTimekeepingPage() {
           </div>
         ))}
       </div>
-      <p className="text-[10px] text-muted-foreground mt-2">Tap any past date to see details</p>
+      <p className="text-[10px] text-muted-foreground mt-2">Tap any date to see schedule &amp; attendance details</p>
     </div>
   );
 
@@ -846,6 +950,14 @@ export default function EmployeeTimekeepingPage() {
 
   const noSchedule = !mySchedule || !mySchedule.workdays;
 
+  // Day-mode helpers
+  const schedDayCode   = SCHED_DAY_CODE[schedRefDate.getDay()];
+  const isDayWorkday   = workdaySet.has(schedDayCode);
+  const isDayToday     = schedRefDate.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" }) === today;
+  const schedDayLabel  = schedRefDate.toLocaleDateString("en-US", {
+    weekday: "short", month: "short", day: "numeric", year: "numeric",
+  });
+
   const scheduleView = (
     <div className="p-6">
       {noSchedule ? (
@@ -858,11 +970,12 @@ export default function EmployeeTimekeepingPage() {
 
         {/* ── Controls ───────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
-          {/* Month/Week mode toggle */}
+          {/* Day / Week / Month mode toggle */}
           <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg border border-border w-fit">
             {([
-              { m: "month" as const, icon: CalendarDays,  label: "Month" },
+              { m: "day"   as const, icon: Sun,            label: "Day"   },
               { m: "week"  as const, icon: CalendarRange,  label: "Week"  },
+              { m: "month" as const, icon: CalendarDays,   label: "Month" },
             ]).map(({ m, icon: Icon, label }) => (
               <button
                 key={m}
@@ -885,7 +998,8 @@ export default function EmployeeTimekeepingPage() {
                 setSchedRefDate(d => {
                   const n = new Date(d);
                   if (schedMode === "month") n.setMonth(n.getMonth() - 1);
-                  else n.setDate(n.getDate() - 7);
+                  else if (schedMode === "week") n.setDate(n.getDate() - 7);
+                  else n.setDate(n.getDate() - 1);
                   return n;
                 });
               }}
@@ -907,9 +1021,14 @@ export default function EmployeeTimekeepingPage() {
                   {schedPickerOpen ? "▴" : "▾"}
                 </span>
               </button>
-            ) : (
+            ) : schedMode === "week" ? (
               <div className="h-7 px-3 flex items-center rounded-lg border border-border text-xs font-semibold text-foreground bg-background min-w-48 justify-center">
                 {schedWeekLabel}
+              </div>
+            ) : (
+              <div className="h-7 px-3 flex items-center gap-1.5 rounded-lg border border-border text-xs font-semibold text-foreground bg-background min-w-40 justify-center">
+                {isDayToday && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
+                {schedDayLabel}
               </div>
             )}
 
@@ -919,7 +1038,8 @@ export default function EmployeeTimekeepingPage() {
                 setSchedRefDate(d => {
                   const n = new Date(d);
                   if (schedMode === "month") n.setMonth(n.getMonth() + 1);
-                  else n.setDate(n.getDate() + 7);
+                  else if (schedMode === "week") n.setDate(n.getDate() + 7);
+                  else n.setDate(n.getDate() + 1);
                   return n;
                 });
               }}
@@ -1082,6 +1202,104 @@ export default function EmployeeTimekeepingPage() {
           </div>
         )}
 
+        {/* ── Day view ───────────────────────────────────────────────────── */}
+        {schedMode === "day" && (
+          <div className="space-y-3">
+            {/* Big day card */}
+            <div className={[
+              "relative rounded-2xl border p-6 flex flex-col items-center justify-center gap-2 min-h-[14rem] transition-all",
+              isDayWorkday ? "bg-blue-50 border-blue-200" : "bg-slate-50 border-slate-200",
+              isDayToday ? "ring-2 ring-primary ring-offset-2" : "",
+            ].join(" ")}>
+              {isDayToday && (
+                <span className="absolute top-3 right-3 px-2 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold tracking-wider uppercase">
+                  Today
+                </span>
+              )}
+
+              {/* Weekday label */}
+              <span className={`text-[11px] font-bold uppercase tracking-[0.2em] ${isDayWorkday ? "text-blue-500" : "text-slate-400"}`}>
+                {schedRefDate.toLocaleDateString("en-US", { weekday: "long" })}
+              </span>
+
+              {/* Large date */}
+              <span className={`text-7xl font-black tabular-nums leading-none ${isDayToday ? "text-primary" : isDayWorkday ? "text-blue-900" : "text-slate-300"}`}>
+                {schedRefDate.getDate()}
+              </span>
+
+              {/* Month + Year */}
+              <span className="text-sm font-semibold text-muted-foreground -mt-1">
+                {schedRefDate.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+              </span>
+
+              {/* Status pill */}
+              <div className="mt-1">
+                {isDayWorkday ? (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-100 text-blue-700 text-xs font-bold border border-blue-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-blue-500 animate-pulse" /> On Duty
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-500 text-xs font-bold border border-slate-200">
+                    Rest Day
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Shift detail cards — only for workdays */}
+            {isDayWorkday && mySchedule && (
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-1">Shift Details</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="p-4 rounded-xl bg-green-50 border border-green-200">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <LogIn className="h-3.5 w-3.5 text-green-600" />
+                      <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Start Time</p>
+                    </div>
+                    <p className="text-2xl font-black text-foreground tabular-nums leading-none">{formatSchedTime(mySchedule.start_time)}</p>
+                  </div>
+                  <div className="p-4 rounded-xl bg-red-50 border border-red-200">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <LogOut className="h-3.5 w-3.5 text-red-500" />
+                      <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider">End Time</p>
+                    </div>
+                    <p className="text-2xl font-black text-foreground tabular-nums leading-none">{formatSchedTime(mySchedule.end_time)}</p>
+                  </div>
+                </div>
+                {(mySchedule.break_start || mySchedule.break_end) && (
+                  <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-200 flex items-center gap-3">
+                    <Timer className="h-4 w-4 text-amber-600 shrink-0" />
+                    <div>
+                      <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Break Window</p>
+                      <p className="text-sm font-semibold text-foreground tabular-nums">
+                        {formatSchedTime(mySchedule.break_start)} – {formatSchedTime(mySchedule.break_end)}
+                      </p>
+                    </div>
+                  </div>
+                )}
+                {mySchedule.is_nightshift && (
+                  <div className="p-3 rounded-xl bg-indigo-50 border border-indigo-200 flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-indigo-700 uppercase tracking-wider">Night Shift</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Jump-to-today link */}
+            {!isDayToday && (
+              <div className="flex justify-center pt-1">
+                <button
+                  onClick={() => setSchedRefDate(new Date())}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline cursor-pointer transition-colors"
+                >
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  Jump to today
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Schedule summary pill ──────────────────────────────────────── */}
         <div className="mt-4 pt-3 border-t border-border flex flex-wrap gap-3 text-xs text-muted-foreground">
           <span>
@@ -1175,6 +1393,7 @@ export default function EmployeeTimekeepingPage() {
           dateStr={calDayModal.dateStr}
           entry={calDayModal.entry}
           onClose={() => setCalDayModal(null)}
+          schedule={mySchedule}
         />
       )}
 
@@ -1310,7 +1529,12 @@ export default function EmployeeTimekeepingPage() {
                 )}
               </div>
 
-              {hasReportedAbsence ? (
+              {!hasSchedule && !statusLoading ? (
+                <div className="flex items-start gap-2 rounded-lg bg-amber-500/20 border border-amber-400/30 px-4 py-3 text-sm font-semibold text-amber-100">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                  <span>No schedule assigned. Contact HR to set up your work schedule.</span>
+                </div>
+              ) : hasReportedAbsence ? (
                 <div className="flex items-center gap-2 rounded-lg bg-purple-500/20 border border-purple-400/30 px-4 py-3 text-sm font-semibold text-purple-100">
                   <FileX className="h-4 w-4 shrink-0" />
                   Absence reported — clock-in disabled for today.
@@ -1325,14 +1549,14 @@ export default function EmployeeTimekeepingPage() {
                   <Button
                     onClick={() => { setActionError(null); setModal("time-in"); }}
                     disabled={!canTimeIn || actionLoading}
-                    className="bg-white text-slate-900 hover:bg-white/90 font-bold gap-2 flex-1 cursor-pointer"
+                    className="bg-white text-slate-900 hover:bg-white/90 font-bold gap-2 flex-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <LogIn className="h-4 w-4" /> Time In
                   </Button>
                   <Button
                     onClick={() => { setActionError(null); setModal("time-out"); }}
                     disabled={!canTimeOut || actionLoading}
-                    className="bg-white/10 border border-white/40 text-white hover:bg-white/20 font-bold gap-2 flex-1 cursor-pointer"
+                    className="bg-white/10 border border-white/40 text-white hover:bg-white/20 font-bold gap-2 flex-1 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     <LogOut className="h-4 w-4" /> Time Out
                   </Button>
@@ -1546,7 +1770,7 @@ export default function EmployeeTimekeepingPage() {
         ) : fetchError ? (
           <p className="px-6 py-10 text-center text-destructive text-sm">Failed to load records. Please refresh or contact support.</p>
         ) : (
-          view === "calendar" ? calendarView : listView
+          view === "calendar" ? calendarView : view === "schedule" ? scheduleView : listView
         )}
       </Card>
     </div>
