@@ -13,8 +13,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Camera, CheckCircle2, FileText, Loader2, MapPin, Pencil, Trash2, Upload, User } from "lucide-react";
+import { Award, Camera, CheckCircle2, FileText, Loader2, MapPin, Pencil, Trash2, Upload, User } from "lucide-react";
 import { DateOfBirthPicker } from "@/components/ui/date-of-birth-picker";
+import { SfiaGradeCard } from "@/components/applicant/SfiaGradeCard";
 import { toast } from "sonner";
 
 // ─── Permission Badge ─────────────────────────────────────────────────────────
@@ -251,7 +252,7 @@ export default function ApplicantProfilePage() {
             <div className="border-t border-border" />
             <nav className="space-y-1">
               <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground px-2 mb-2">Sections</p>
-              {[{ id: "personal-info", label: "Personal Info", icon: User }, { id: "contact-address", label: "Contact & Address", icon: MapPin }, { id: "resume", label: "Resume", icon: FileText }].map(({ id, label, icon: Icon }) => (
+              {[{ id: "personal-info", label: "Personal Info", icon: User }, { id: "contact-address", label: "Contact & Address", icon: MapPin }, { id: "resume", label: "Resume", icon: FileText }, { id: "sfia-grade", label: "SFIA Grade", icon: Award }].map(({ id, label, icon: Icon }) => (
                 <a key={id} href={`#${id}`} className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-all duration-200 cursor-pointer">
                   <Icon className="h-4 w-4" />{label}
                 </a>
@@ -404,6 +405,28 @@ export default function ApplicantProfilePage() {
                 </div>
               </button>
             )}
+          </section>
+
+          {/* SFIA Grade */}
+          <section id="sfia-grade" className="bg-card border rounded-xl shadow-sm p-6 space-y-4 scroll-mt-6">
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-lg font-bold tracking-tight">SFIA Grade</h2>
+                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-muted text-muted-foreground/70 border border-border">
+                  Skills Framework for the Information Age
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                Your assessed skill level across active job applications.
+              </p>
+            </div>
+            {/* TODO: SFIA hook — replace the two null literals with
+                  `profile.sfia_grade ?? null` and `profile.sfia_match_percentage ?? null`
+                  once the backend populates those fields on ApplicantProfile. */}
+            <SfiaGradeCard
+              grade={profile?.sfia_grade ?? null /* TODO: profile.sfia_grade ?? null */}
+              matchPct={profile?.sfia_match_percentage ?? null /* TODO: profile.sfia_match_percentage ?? null */}
+            />
           </section>
 
         </div>

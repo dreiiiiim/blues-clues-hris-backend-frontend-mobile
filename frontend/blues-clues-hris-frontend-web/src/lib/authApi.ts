@@ -501,6 +501,9 @@ export type ApplicantProfile = {
   resume_url: string | null;
   resume_name: string | null;
   resume_uploaded_at: string | null;
+  // TODO: SFIA hook — backend will populate once the SFIA engine is live.
+  sfia_grade?: number | null;            // SFIA skill level 1–7; null = not yet assessed
+  sfia_match_percentage?: number | null; // Highest match % across all active applications
 };
 
 export type EmployeeProfile = {
