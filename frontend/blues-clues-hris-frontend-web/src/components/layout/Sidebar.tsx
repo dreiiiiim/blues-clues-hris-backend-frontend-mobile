@@ -12,6 +12,7 @@ import {
   LogOut,
   Users,
   UserPlus,
+  UserMinus,
   DollarSign,
   BarChart,
   FileCheck,
@@ -47,10 +48,11 @@ type PersonaType = "applicant" | "employee" | "hr" | "manager" | "admin" | "syst
 
 const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }[]> = {
   manager: [
-    { name: "Dashboard", href: "/manager", icon: LayoutDashboard },
-    { name: "Team", href: "/manager/team", icon: Users },
-    { name: "Timekeeping", href: "/manager/timekeeping", icon: Clock },
-    { name: "Approvals", href: "/manager/approvals", icon: ClipboardCheck },
+    { name: "Dashboard",   href: "/manager",              icon: LayoutDashboard },
+    { name: "Team",        href: "/manager/team",         icon: Users },
+    { name: "Timekeeping", href: "/manager/timekeeping",  icon: Clock },
+    { name: "Approvals",   href: "/manager/approvals",    icon: ClipboardCheck },
+    { name: "Offboarding", href: "/manager/offboarding",  icon: UserMinus },
   ],
   applicant: [
     { name: "Dashboard", href: "/applicant/dashboard", icon: LayoutDashboard },
@@ -58,10 +60,12 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "My Applications", href: "/applicant/applications", icon: FileText },
   ],
   employee: [
-    { name: "Dashboard",   href: "/employee",              icon: LayoutDashboard },
-    { name: "Timekeeping", href: "/employee/timekeeping",  icon: Clock },
-    { name: "My Profile",  href: "/employee/profile",      icon: Users },
-    { name: "Documents",   href: "/employee/documents",    icon: FileCheck },
+    { name: "Dashboard",    href: "/employee",               icon: LayoutDashboard },
+    { name: "Onboarding",   href: "/employee/onboarding",    icon: UserPlus },
+    { name: "Timekeeping",  href: "/employee/timekeeping",   icon: Clock },
+    { name: "My Profile",   href: "/employee/profile",       icon: Users },
+    { name: "Documents",    href: "/employee/documents",     icon: FileCheck },
+    { name: "Offboarding",  href: "/employee/offboarding",   icon: UserMinus },
   ],
   hr: [
     { name: "Dashboard",    href: "/hr",              icon: LayoutDashboard },
@@ -70,6 +74,7 @@ const MENU_CONFIG: Record<PersonaType, { name: string; href: string; icon: any }
     { name: "Onboarding",   href: "/hr/onboarding",   icon: UserPlus },
     { name: "Compensation", href: "/hr/payroll",      icon: DollarSign },
     { name: "Performance",  href: "/hr/performance",  icon: BarChart },
+    { name: "Offboarding",  href: "/hr/offboarding",  icon: UserMinus },
   ],
   admin: [
     { name: "Dashboard", href: "/admin", icon: LayoutDashboard },
