@@ -12,10 +12,12 @@ import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateJobPostingDto } from './dto/create-job-posting.dto';
 import { UpdateJobPostingDto } from './dto/update-job-posting.dto';
 import { CreateApplicationDto } from './dto/create-application.dto';
 import { ApplicationQuestionDto } from './dto/create-questions.dto';
+import { ApplicationResumeUploadDto } from './dto/application-resume-upload.dto';
 import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { ManualRankingItemDto } from './dto/save-manual-ranking.dto';
 import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
@@ -108,6 +110,7 @@ export class JobsService {
     private readonly auditService: AuditService,
     private readonly mailService: MailService,
     private readonly onboardingService: OnboardingService,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -386,7 +389,6 @@ export class JobsService {
       (a, b) => new Date(b.applied_at).getTime() - new Date(a.applied_at).getTime(),
     );
 
-    // Exclude applicants already converted to employees so they don't show in the pipeline
     return all.filter((a: any) => {
       const profile = a.applicant_profile as { status?: string } | null;
       return profile?.status !== 'converted_employee';
@@ -532,7 +534,7 @@ export class JobsService {
     const { data: app, error } = await supabase
       .from('job_applications')
       .select(`
-        application_id, status, applied_at, job_posting_id,
+        application_id, applicant_id, status, applied_at, job_posting_id,
         applicant_profile (first_name, last_name, email, phone_number, applicant_code, resume_url, resume_name, resume_uploaded_at)
       `)
       .eq('application_id', applicationId)
@@ -561,7 +563,6 @@ export class JobsService {
       .eq('application_id', applicationId)
       .order('created_at', { ascending: false });
 
-    // Build a map: stage → schedule. Also expose the latest as interview_schedule for backwards compat.
     const interview_schedules: Record<string, any> = {};
     for (const s of (schedules ?? [])) {
       const key = s.stage ?? 'first_interview';
@@ -585,10 +586,16 @@ export class JobsService {
       answers: answers ?? [],
       interview_schedule: latestSchedule,
       interview_schedules,
+      resume_upload: await this.getLatestResumeUpload((app as any).applicant_id, (app as any).job_posting_id),
     };
   }
 
-  async updateApplicationStatus(applicationId: string, status: string, companyId: string) {
+  async updateApplicationStatus(
+    applicationId: string,
+    status: string,
+    companyId: string,
+    rejectionReason?: string,
+  ) {
     const supabase = this.supabaseService.getClient();
 
     const { data: app, error: appError } = await supabase
@@ -643,9 +650,14 @@ export class JobsService {
         }
       }
 
+      const updatePayload: any = { status };
+      if (status.toLowerCase() === 'rejected' && rejectionReason) {
+        updatePayload.rejection_reason = rejectionReason;
+      }
+
       const { error } = await supabase
         .from('job_applications')
-        .update({ status })
+        .update(updatePayload)
         .eq('application_id', applicationId);
 
       if (error) throw new InternalServerErrorException(error.message);
@@ -658,17 +670,39 @@ export class JobsService {
           jobPostingId:  app.job_posting_id,
           companyId,
         });
-        // Also create the 4-stage wizard session for the applicant portal
         await this.onboardingService.createApplicantSession({
           applicantId:  app.applicant_id,
           jobPostingId: app.job_posting_id,
           companyId,
         });
-        // Mark applicant as in onboarding — blocks further job applications
         await supabase
           .from('applicant_profile')
           .update({ status: 'onboarding' })
           .eq('applicant_id', app.applicant_id);
+      }
+
+      // Send applicant notification for key status changes
+      const statusMessages: Record<string, string> = {
+        shortlisted:          'Great news! Your application has been shortlisted.',
+        rejected:             "Thank you for applying. Unfortunately, we won't be moving forward at this time.",
+        hold:                 "Your application is currently on hold. We'll be in touch soon.",
+        first_interview:      'You have been scheduled for a first interview!',
+        technical_interview:  'You have been scheduled for a technical interview!',
+        final_interview:      'You have been scheduled for a final interview!',
+        hired:                "Congratulations! We're excited to welcome you to the team!",
+      };
+      const notifMessage = statusMessages[status.toLowerCase()];
+      if (notifMessage) {
+        try {
+          await this.notificationsService.createApplicantNotification({
+            applicant_id: app.applicant_id,
+            message: notifMessage,
+            notification_type: 'status_update',
+            job_posting_id: app.job_posting_id,
+          });
+        } catch (notifError) {
+          this.logger.error(`Failed to create applicant notification: ${notifError}`);
+        }
       }
 
       return { message: 'Application status updated' };
@@ -710,14 +744,8 @@ export class JobsService {
 
     await this.findOnePosting(app.job_posting_id, companyId);
 
-    // Upsert per stage — one schedule row per (application, stage)
-    // NOTE: Supabase requires a unique constraint on (application_id, stage) for this to work.
-    // Run this migration if not already done:
-    //   ALTER TABLE interview_schedules ADD COLUMN IF NOT EXISTS stage text NOT NULL DEFAULT 'first_interview';
-    //   CREATE UNIQUE INDEX IF NOT EXISTS interview_schedules_app_stage_key ON interview_schedules (application_id, stage);
     const stage = dto.stage ?? 'first_interview';
 
-    // Detect reschedule: check if a schedule already exists for this stage
     const { data: existingSchedule } = await supabase
       .from('interview_schedules')
       .select('schedule_id')
@@ -744,7 +772,6 @@ export class JobsService {
         interviewer_title:  dto.interviewer_title ?? null,
         notes:              dto.notes ?? null,
         scheduled_by_email: dto.scheduled_by_email ?? null,
-        // Reset applicant response on reschedule
         applicant_response:      null,
         applicant_response_note: null,
         applicant_responded_at:  null,
@@ -753,8 +780,6 @@ export class JobsService {
 
     if (insertError) throw new InternalServerErrorException(insertError.message);
 
-    // Update application status to match the scheduled stage so the
-    // applicant's notification bell reflects the current interview stage.
     await supabase
       .from('job_applications')
       .update({ status: stage })
@@ -1153,6 +1178,135 @@ export class JobsService {
     });
   }
 
+  async getSurveyScore(applicationId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: application, error: appError } = await supabase
+      .from('job_applications')
+      .select('application_id, applicant_id, survey_score')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (appError) throw new InternalServerErrorException(appError.message);
+    if (!application) throw new NotFoundException('Application not found');
+
+    return { 
+      applicationId: application.application_id,
+      applicantId: application.applicant_id,
+      surveyScore: application.survey_score ?? 0,
+    };
+  }
+
+  // Calculate survey score from applicant answers with weighted scoring
+  private async calculateSurveyScore(applicationId: string): Promise<number> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: answers, error } = await supabase
+      .from('applicant_answers')
+      .select(`answer_value, application_questions (question_type, options, sort_order, is_required)`)
+      .eq('application_id', applicationId);
+
+    if (error) {
+      console.error('Error fetching answers:', error.message);
+      return 0;
+    }
+
+    if (!answers || answers.length === 0) return 0;
+
+    let totalWeightedScore = 0;
+    let totalWeight = 0;
+
+    answers.forEach((record: any) => {
+      const val = record.answer_value;
+      const question = record.application_questions;
+      
+      if (!val || !question) return;
+
+      let score = 0;
+      // Required questions have higher weight
+      let weight = question.is_required ? 1.5 : 1.0;
+
+      // Normalize different answer types to 0-100 scale
+      if (question.question_type === 'text') {
+        // Enhanced text scoring: consider both length and word count
+        const trimmedText = val.trim();
+        const wordCount = trimmedText.split(/\s+/).length;
+        const charCount = trimmedText.length;
+        
+        // Score based on both word count and character count
+        // Ideal: 50-150 words or 250-750 characters
+        const wordScore = Math.min(100, (wordCount / 75) * 100); // 75 words = 100 points
+        const charScore = Math.min(100, (charCount / 500) * 100); // 500 chars = 100 points
+        
+        // Take the average of both scores
+        score = (wordScore + charScore) / 2;
+        
+        // Bonus points for punctuation (indicates structured response)
+        const punctuationCount = (trimmedText.match(/[.!?]/g) || []).length;
+        if (punctuationCount > 0) {
+          score = Math.min(100, score + punctuationCount * 2);
+        }
+      } else if (question.question_type === 'multiple_choice') {
+        // Multiple choice: options are stored as strings in the options array
+        if (question.options && Array.isArray(question.options)) {
+          const idx = question.options.indexOf(val);
+          if (idx !== -1) {
+            // Assume options are ordered from least to most desirable
+            // Give full points for last option, scaled down for earlier options
+            const optionCount = question.options.length;
+            score = ((idx + 1) / optionCount) * 100;
+          } else {
+            // If value not in options, try parsing as number
+            const numVal = parseFloat(val);
+            score = isNaN(numVal) ? 50 : Math.min(100, numVal); // Default 50 if unparseable
+          }
+        } else {
+          const numVal = parseFloat(val);
+          score = isNaN(numVal) ? 50 : Math.min(100, numVal);
+        }
+      } else if (question.question_type === 'checkbox') {
+        // Checkbox: parse as JSON array and count selected items
+        try {
+          const selected = JSON.parse(val);
+          if (Array.isArray(selected) && selected.length > 0) {
+            const optionCount = question.options?.length || selected.length;
+            // Score based on percentage of options selected
+            // But penalize selecting too many or too few
+            const selectionRatio = selected.length / optionCount;
+            
+            // Optimal selection is 40-60% of options
+            if (selectionRatio >= 0.4 && selectionRatio <= 0.6) {
+              score = 100;
+            } else if (selectionRatio < 0.4) {
+              // Too few selected
+              score = (selectionRatio / 0.4) * 100;
+            } else {
+              // Too many selected
+              score = 100 - ((selectionRatio - 0.6) / 0.4) * 30; // Max 30 point penalty
+            }
+          } else {
+            score = 0;
+          }
+        } catch {
+          // If parsing fails, try numeric value
+          const numVal = parseFloat(val);
+          score = isNaN(numVal) ? 0 : Math.min(100, numVal);
+        }
+      } else {
+        // Default: try to parse as number
+        const numVal = parseFloat(val);
+        score = isNaN(numVal) ? 50 : Math.min(100, numVal);
+      }
+
+      totalWeightedScore += score * weight;
+      totalWeight += weight;
+    });
+
+    // Normalize to 0-100 range
+    const normalizedScore = totalWeight > 0 ? (totalWeightedScore / totalWeight) : 0;
+    return Math.round(normalizedScore * 100) / 100;
+  }
+
   // ---------------------------------------------------------------------------
   // Public methods — no auth required
   // ---------------------------------------------------------------------------
@@ -1244,7 +1398,7 @@ export class JobsService {
       .eq('applicant_id', applicantId)
       .maybeSingle();
 
-    if (existing) throw new ConflictException('You have already applied to this job');
+    if (existing) throw new ConflictException('You have already submitted an application for this role.');
 
     const application_id = crypto.randomUUID();
     const { data, error } = await supabase
@@ -1261,6 +1415,14 @@ export class JobsService {
 
     if (error) throw new InternalServerErrorException(error.message);
 
+    await this.ensureSfiaApplicationRow({
+      applicationId: application_id,
+      applicantId,
+      jobPostingId,
+      status: 'submitted',
+      appliedAt: data.applied_at,
+    });
+
     // Save answers if provided
     if (dto.answers && dto.answers.length > 0) {
       const answerRows = dto.answers.map((a) => ({
@@ -1274,9 +1436,29 @@ export class JobsService {
       if (answerError) {
         console.error('Failed to save applicant answers:', answerError.message);
       }
+
+      // Calculate survey score after answers are saved
+      const surveyScore = await this.calculateSurveyScore(application_id);
+      const { error: scoreError } = await supabase
+        .from('job_applications')
+        .update({ survey_score: surveyScore })
+        .eq('application_id', application_id);
+
+      if (scoreError) {
+        console.error('Failed to save survey score:', scoreError.message);
+      }
     }
 
-    return data;
+    return {
+      ...data,
+      resume_upload: dto.resume_storage_path && dto.resume_file_name
+        ? {
+            file_name: dto.resume_file_name,
+            storage_path: dto.resume_storage_path,
+            signed_url: '',
+          }
+        : await this.getLatestResumeUpload(applicantId, jobPostingId),
+    };
   }
 
   async getMyApplicationDetail(applicationId: string, applicantId: string) {
@@ -1285,7 +1467,7 @@ export class JobsService {
     const { data: app, error } = await supabase
       .from('job_applications')
       .select(`
-        application_id, status, applied_at, job_posting_id,
+        application_id, applicant_id, status, applied_at, job_posting_id,
         applicant_profile (first_name, last_name, email, phone_number, applicant_code),
         job_postings (title, description, location, employment_type, salary_range, status, posted_at, closes_at)
       `)
@@ -1311,7 +1493,6 @@ export class JobsService {
       .eq('application_id', applicationId)
       .order('created_at', { ascending: false });
 
-    // Build a per-stage map so the frontend can pick the right schedule
     const interview_schedules: Record<string, any> = {};
     for (const s of (schedules ?? [])) {
       const key = s.stage ?? 'first_interview';
@@ -1319,7 +1500,13 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
-    return { ...app, answers: answers ?? [], interview_schedule: latestSchedule, interview_schedules };
+    return {
+      ...app,
+      answers: answers ?? [],
+      interview_schedule: latestSchedule,
+      interview_schedules,
+      resume_upload: await this.getLatestResumeUpload(app.applicant_id, app.job_posting_id),
+    };
   }
 
   async getMyApplications(applicantId: string) {
@@ -1557,6 +1744,85 @@ export class JobsService {
         `Unable to cache sfia_match_percentage for application ${applicationId}: ${error.message}`,
       );
     }
+  }
+
+  private async ensureSfiaApplicationRow(params: {
+    applicationId: string;
+    applicantId: string;
+    jobPostingId: string;
+    status: string;
+    appliedAt: string;
+  }) {
+    const supabase = this.supabaseService.getClient();
+
+    const { error } = await supabase.from('job_application_sfia').upsert(
+      {
+        application_id: params.applicationId,
+        job_posting_id: params.jobPostingId,
+        applicant_id: params.applicantId,
+        status: params.status,
+        application_timestamp: params.appliedAt,
+        ranking_mode: 'SFIA',
+      },
+      {
+        onConflict: 'application_id',
+      },
+    );
+
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'job_application_sfia');
+      this.logger.warn(
+        `Unable to mirror application ${params.applicationId} to job_application_sfia: ${error.message}`,
+      );
+    }
+  }
+
+  private async getLatestResumeUpload(
+    applicantId: string,
+    jobPostingId: string,
+  ): Promise<ApplicationResumeUploadDto | null> {
+    const supabase = this.supabaseService.getClient();
+    const folder = `${applicantId}/${jobPostingId}`;
+
+    const { data: files, error } = await supabase.storage
+      .from('sfia-resumes')
+      .list(folder, {
+        limit: 20,
+        sortBy: { column: 'name', order: 'desc' },
+      });
+
+    if (error) {
+      if (error.message.toLowerCase().includes('bucket')) return null;
+      this.logger.warn(
+        `Unable to inspect SFIA resume storage for ${folder}: ${error.message}`,
+      );
+      return null;
+    }
+
+    const latest = files?.find((file) => file.name);
+    if (!latest) return null;
+
+    const storagePath = `${folder}/${latest.name}`;
+    const { data: signedData, error: signedError } = await supabase.storage
+      .from('sfia-resumes')
+      .createSignedUrl(storagePath, 60 * 60);
+
+    if (signedError) {
+      this.logger.warn(
+        `Unable to sign SFIA resume ${storagePath}: ${signedError.message}`,
+      );
+      return {
+        file_name: latest.name,
+        storage_path: storagePath,
+        signed_url: '',
+      };
+    }
+
+    return {
+      file_name: latest.name,
+      storage_path: storagePath,
+      signed_url: signedData.signedUrl,
+    };
   }
 
   private readFirstValue(

@@ -87,3 +87,43 @@ export async function saveManualRanking(
   }
   return data as { message: string; job_posting_id: string; updated_count: number };
 }
+
+export async function getSurveyScore(applicationId: string): Promise<{ surveyScore: number }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/jobs/applications/${applicationId}/survey-score`);
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      // If column doesn't exist or endpoint fails, return 0 instead of throwing
+      console.warn(`Survey score unavailable for ${applicationId}`);
+      return { surveyScore: 0 };
+    }
+    return { surveyScore: data?.surveyScore ?? 0 };
+  } catch (err) {
+    // Network error or parse error - return 0
+    console.warn(`Could not fetch survey score for ${applicationId}:`, err);
+    return { surveyScore: 0 };
+  }
+}
+
+export async function updateApplicationStatus(
+  applicationId: string,
+  status: string,
+  rejectionReason?: string,
+): Promise<{ message: string }> {
+  const body: { status: string; rejection_reason?: string } = { status };
+  if (rejectionReason) {
+    body.rejection_reason = rejectionReason;
+  }
+
+  const res = await authFetch(`${API_BASE_URL}/jobs/applications/${applicationId}/status`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { message?: string })?.message || "Failed to update application status");
+  }
+  return data as { message: string };
+}
+

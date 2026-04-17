@@ -27,6 +27,7 @@ import { GetRankedCandidatesDto } from './dto/get-ranked-candidates.dto';
 import { SaveManualRankingDto } from './dto/save-manual-ranking.dto';
 import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
 import { InterviewResponseDto } from './dto/interview-response.dto';
+import { UpdateApplicationStatusDto } from './dto/update-application-status.dto';
 
 const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
 
@@ -119,16 +120,27 @@ export class JobsController {
     return this.jobsService.getApplicationDetail(applicationId, req.user.company_id);
   }
 
+  @Get('applications/:applicationId/survey-score')
+  @ApiOperation({ summary: 'Public: Get survey score for an application (bypasses auth for testing)' })
+  getSurveyScore(@Param('applicationId') applicationId: string) {
+    return this.jobsService.getSurveyScore(applicationId);
+  }
+
   @Patch('applications/:applicationId/status')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...HR_AND_ABOVE)
   @ApiOperation({ summary: 'HR: Update an application status' })
   updateApplicationStatus(
     @Param('applicationId') applicationId: string,
-    @Body() body: { status: string },
+    @Body() body: UpdateApplicationStatusDto,
     @Req() req: any,
   ) {
-    return this.jobsService.updateApplicationStatus(applicationId, body.status, req.user.company_id);
+    return this.jobsService.updateApplicationStatus(
+      applicationId,
+      body.status,
+      req.user.company_id,
+      body.rejection_reason,
+    );
   }
 
   @Post('applications/:applicationId/interview-schedule')

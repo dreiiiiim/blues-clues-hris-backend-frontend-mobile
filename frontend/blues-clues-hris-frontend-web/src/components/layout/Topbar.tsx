@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
-import { Search, Bell, ChevronDown, Loader2 } from "lucide-react";
+import { Search, ChevronDown, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getUserInfo, type StoredUser } from "@/lib/authStorage";
 import { NotificationBell } from "@/components/layout/NotificationBell";

@@ -169,7 +169,11 @@ export async function getJobQuestions(jobPostingId: string): Promise<Application
 
 export async function applyToJob(
   jobPostingId: string,
-  dto?: { answers?: { question_id: string; answer_value?: string }[] },
+  dto?: {
+    answers?: { question_id: string; answer_value?: string }[];
+    resume_storage_path?: string;
+    resume_file_name?: string;
+  },
 ) {
   const res = await authFetch(`${API_BASE_URL}/jobs/${jobPostingId}/apply`, {
     method: "POST",
@@ -198,10 +202,6 @@ export interface InterviewSchedulePayload {
   scheduled_by_email?: string | null;
 }
 
-/**
- * Sends the interview schedule to the applicant via email and stores
- * the schedule on the backend. Called by HR after confirming a schedule.
- */
 export async function sendInterviewSchedule(
   payload: InterviewSchedulePayload,
 ): Promise<void> {
@@ -213,8 +213,6 @@ export async function sendInterviewSchedule(
       body:    JSON.stringify(payload),
     },
   );
-  // If the endpoint doesn't exist yet, we swallow the error gracefully
-  // so the UI flow isn't blocked.
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
     throw new Error((data as { message?: string })?.message || "Failed to send interview schedule");
@@ -269,6 +267,36 @@ export async function resendInterviewEmail(applicationId: string): Promise<void>
     const data = await res.json().catch(() => ({}));
     throw new Error((data as { message?: string })?.message || "Failed to resend interview email");
   }
+}
+
+// ─── SFIA Resume Upload ───────────────────────────────────────────────────────
+
+export async function uploadApplicantSfiaResume(jobPostingId: string, file: File) {
+  const content_base64 = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Failed to read file"));
+    reader.readAsDataURL(file);
+  });
+
+  const res = await authFetch(`${API_BASE_URL}/applicants/sfia-upload`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      job_posting_id: jobPostingId,
+      file_name: file.name,
+      mime_type: file.type || "application/octet-stream",
+      content_base64,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.message || "Failed to upload resume");
+  return data as {
+    file_name: string;
+    storage_path: string;
+    signed_url: string;
+  };
 }
 
 export async function getApplicationDetail(applicationId: string): Promise<ApplicationDetail> {
@@ -413,15 +441,13 @@ export type ApplicationDetail = {
   // Per-stage schedules map: stage → schedule
   interview_schedules?: Record<string, InterviewSchedule>;
 
-  // ── SFIA fields ────────────────────────────────────────────────────────────
-  // TODO: SFIA hook — backend will populate these once the SFIA engine is live.
-  // Both fields are intentionally optional/null so the UI degrades gracefully
-  // while the engine is pending.  When ready, the ranked-candidates endpoint
-  // (jobs/:id/candidates/ranked) already returns sfia_match_percentage and
-  // sfia_rank per applicant; expose them through the application detail endpoint
-  // and remove the `?? null` fallbacks in the SfiaGradeCard usages below.
-  sfia_grade?: number | null;            // SFIA skill level 1–7; null = not yet assessed
-  sfia_match_percentage?: number | null; // 0–100 match score against job requirements
+  sfia_grade?: number | null;
+  sfia_match_percentage?: number | null;
+  resume_upload?: {
+    file_name: string;
+    storage_path: string;
+    signed_url: string;
+  } | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -803,3 +829,46 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
     return first;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Notification API helpers
+// ---------------------------------------------------------------------------
+
+export type Notification = {
+  notification_id: string;
+  applicant_id: string;
+  message: string;
+  notification_type: string;
+  related_application_id: string | null;
+  is_read: boolean;
+  created_at: string;
+};
+
+export async function getUnreadNotifications(applicantId: string): Promise<Notification[]> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/applicant/${applicantId}/unread`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error('Failed to fetch notifications');
+  return data;
+}
+
+export async function getAllNotifications(applicantId: string): Promise<Notification[]> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/applicant/${applicantId}`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error('Failed to fetch notifications');
+  return data;
+}
+
+export async function markNotificationAsRead(notificationId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/${notificationId}/mark-read`, {
+    method: 'PATCH',
+  });
+  if (!res.ok) throw new Error('Failed to mark notification as read');
+}
+
+export async function markAllNotificationsAsRead(applicantId: string): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/notifications/applicant/${applicantId}/mark-all-read`, {
+    method: 'PATCH',
+  });
+  if (!res.ok) throw new Error('Failed to mark all notifications as read');
+}
+

@@ -17,6 +17,7 @@ import {
   Res,
   Headers,
   UnauthorizedException,
+  Param,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
@@ -27,7 +28,9 @@ import { ThrottlerGuard } from '@nestjs/throttler';
 import { ApplicantsService } from './applicants.service';
 import { CreateApplicantDto } from './dto/create-applicant.dto';
 import { ApplicantLoginDto } from './dto/applicant-login.dto';
+import { UploadSfiaResumeDto } from './dto/upload-sfia-resume.dto';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
+import { ApplicantJwtAuthGuard } from '../auth/applicant-jwt-auth.guard';
 
 
 const APPLICANT_COOKIE = 'applicant_refresh_token';
@@ -151,5 +154,18 @@ export class ApplicantsController {
   @ApiOperation({ summary: 'Delete applicant resume' })
   deleteResume(@Req() req: any) {
     return this.applicantsService.deleteResume(req.user.sub_userid);
+  }
+
+  @Post('sfia-upload')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.CREATED)
+  @ApiOperation({ summary: 'Applicant: Upload SFIA resume for a specific job posting (applicant_id optional for testing)' })
+  uploadSfiaResume(
+    @Body() dto: UploadSfiaResumeDto,
+    @Query('applicant_id') applicantIdParam?: string,
+    @Req() req?: any,
+  ) {
+    const applicantId = applicantIdParam || req.user.sub_userid;
+    return this.applicantsService.uploadSfiaResume(applicantId, dto);
   }
 }

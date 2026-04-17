@@ -14,4 +14,10 @@ export class CreateApplicationDto {
   @ValidateNested({ each: true })
   @Type(() => ApplicationAnswerDto)
   answers?: ApplicationAnswerDto[];
+
+  @IsString() @IsOptional()
+  resume_storage_path?: string;
+
+  @IsString() @IsOptional()
+  resume_file_name?: string;
 }
