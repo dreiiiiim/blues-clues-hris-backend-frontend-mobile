@@ -21,7 +21,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { memoryStorage } from 'multer';
-import { ApiConsumes } from '@nestjs/swagger';
+import { ApiConsumes, ApiTags, ApiOperation } from '@nestjs/swagger';
 import { ApplicantJwtAuthGuard } from '../auth/applicant-jwt-auth.guard';
 import type { Request, Response } from 'express';
 import { ThrottlerGuard } from '@nestjs/throttler';
@@ -29,8 +29,6 @@ import { ApplicantsService } from './applicants.service';
 import { CreateApplicantDto } from './dto/create-applicant.dto';
 import { ApplicantLoginDto } from './dto/applicant-login.dto';
 import { UploadSfiaResumeDto } from './dto/upload-sfia-resume.dto';
-import { ApiTags, ApiOperation } from '@nestjs/swagger';
-import { ApplicantJwtAuthGuard } from '../auth/applicant-jwt-auth.guard';
 
 
 const APPLICANT_COOKIE = 'applicant_refresh_token';

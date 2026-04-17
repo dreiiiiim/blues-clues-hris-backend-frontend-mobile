@@ -20,7 +20,15 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { formatDistanceToNow } from "date-fns";
+function timeAgo(dateStr: string): string {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
+}
 
 export function NotificationDropdown() {
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -34,7 +42,7 @@ export function NotificationDropdown() {
       const userInfo = getUserInfo();
       if (!userInfo || userInfo.role !== "applicant") return;
 
-      const data = await getAllNotifications(userInfo.user_id);
+      const data = await getAllNotifications(userInfo.user_id ?? "");
       setNotifications(data);
       setUnreadCount(data.filter((n) => !n.is_read).length);
     } catch (error) {
@@ -83,7 +91,7 @@ export function NotificationDropdown() {
       const userInfo = getUserInfo();
       if (!userInfo) return;
 
-      await markAllNotificationsAsRead(userInfo.user_id);
+      await markAllNotificationsAsRead(userInfo.user_id ?? "");
       
       // Update local state
       setNotifications((prev) =>
@@ -152,9 +160,7 @@ export function NotificationDropdown() {
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  {formatDistanceToNow(new Date(notification.created_at), {
-                    addSuffix: true,
-                  })}
+                  {timeAgo(notification.created_at)}
                 </span>
               </DropdownMenuItem>
             ))}
