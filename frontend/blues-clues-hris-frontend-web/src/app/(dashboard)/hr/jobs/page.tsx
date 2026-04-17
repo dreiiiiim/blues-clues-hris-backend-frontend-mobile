@@ -2312,14 +2312,36 @@ function ApplicationDetailModal({
             {/* SFIA Score */}
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Score</p>
-              <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
-                <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-border flex items-center justify-center">
-                  <span className="text-lg font-bold text-muted-foreground/30">—</span>
+              {detail?.sfia_assessment_status === "not_configured" ? (
+                <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
+                  <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-amber-300 flex items-center justify-center bg-amber-50">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase">N/A</span>
+                  </div>
+                  <p className="text-[10px] text-center text-muted-foreground leading-snug">
+                    Not configured yet<br />for this job
+                  </p>
                 </div>
-                <p className="text-[10px] text-center text-muted-foreground leading-snug">
-                  Not yet<br />assessed
-                </p>
-              </div>
+              ) : detail?.sfia_match_percentage == null ? (
+                <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
+                  <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-border flex items-center justify-center">
+                    <span className="text-lg font-bold text-muted-foreground/30">—</span>
+                  </div>
+                  <p className="text-[10px] text-center text-muted-foreground leading-snug">
+                    Not yet<br />assessed
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
+                  <div className="h-14 w-14 rounded-full border-[3px] border-blue-200 flex items-center justify-center bg-blue-50">
+                    <span className="text-sm font-extrabold text-blue-700">
+                      {Math.round(detail.sfia_match_percentage)}%
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-center text-muted-foreground leading-snug">
+                    Grade {detail.sfia_grade ?? "—"}<br />match score
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Quick info */}

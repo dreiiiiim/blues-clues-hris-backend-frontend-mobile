@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -78,6 +79,25 @@ export class JobsController {
     return this.jobsService.getMyInterviewSchedules(req.user.sub_userid);
   }
 
+  @Get('applicant/notifications/unread')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @ApiOperation({ summary: 'Applicant: Get unread notifications (bypass auth - use applicant_id query param)' })
+  getUnreadNotifications(@Query('applicant_id') applicantId: string) {
+    if (!applicantId) throw new BadRequestException('applicant_id query param is required');
+    return this.jobsService.getUnreadNotifications(applicantId);
+  }
+
+  @Patch('applicant/notifications/:notificationId/read')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @ApiOperation({ summary: 'Applicant: Mark a notification as read' })
+  markNotificationRead(
+    @Param('notificationId') notificationId: string,
+    @Query('applicant_id') applicantId: string,
+  ) {
+    if (!applicantId) throw new BadRequestException('applicant_id query param is required');
+    return this.jobsService.markNotificationRead(notificationId, applicantId);
+  }
+
   @Patch('applicant/my-applications/:applicationId/accept-offer')
   @UseGuards(ApplicantJwtAuthGuard)
   @HttpCode(HttpStatus.OK)
@@ -105,6 +125,14 @@ export class JobsController {
     @Req() req: any,
   ) {
     return this.jobsService.respondToInterview(applicationId, req.user.sub_userid, dto);
+  }
+
+  @Post('applicant/my-applications/:applicationId/sfia-scan')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Applicant: Trigger SFIA resume scan and compute score for this application' })
+  scanMyApplicationSfia(@Param('applicationId') applicationId: string, @Req() req: any) {
+    return this.jobsService.scanResumeForApplicationSfia(applicationId, req.user.sub_userid);
   }
 
   // ---------------------------------------------------------------------------
@@ -247,6 +275,14 @@ export class JobsController {
     @Req() req: any,
   ) {
     return this.jobsService.getRankedCandidates(id, req.user.company_id, query);
+  }
+
+  @Get(':jobPostingId/survey-scores')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Get survey scores for all applicants of a job, sorted by score' })
+  getSurveyScores(@Param('jobPostingId') jobPostingId: string, @Req() req: any) {
+    return this.jobsService.getSurveyScores(jobPostingId, req.user.company_id);
   }
 
   @Put(':id/candidates/manual-rank')

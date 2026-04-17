@@ -422,6 +422,7 @@ export type ApplicationDetail = {
   // and remove the `?? null` fallbacks in the SfiaGradeCard usages below.
   sfia_grade?: number | null;            // SFIA skill level 1–7; null = not yet assessed
   sfia_match_percentage?: number | null; // 0–100 match score against job requirements
+  sfia_assessment_status?: 'assessed' | 'not_assessed' | 'not_configured';
 };
 
 // ---------------------------------------------------------------------------

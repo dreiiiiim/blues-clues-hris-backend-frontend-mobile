@@ -86,6 +86,14 @@ type ApplicantProfileRow = {
   applicant_code: string | null;
 };
 
+type SfiaRequirementWithDescriptors = {
+  skill_id: string;
+  skill_name: string;
+  required_level: number;
+  weight: number;
+  level_descriptions: string[];
+};
+
 function normalizeNumber(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (typeof value === 'string' && value.trim() !== '') {
@@ -98,6 +106,21 @@ function normalizeNumber(value: unknown): number {
 function roundToTwo(value: number) {
   return Math.round(value * 100) / 100;
 }
+
+const NOTIFIABLE_STATUSES: Record<string, { type: string; message: string }> = {
+  shortlisted: {
+    type: 'SHORTLISTED',
+    message: 'Congratulations! Your application has been shortlisted.',
+  },
+  rejected: {
+    type: 'REJECTED',
+    message: 'Thank you for applying. Unfortunately, your application was not selected at this time.',
+  },
+  hold: {
+    type: 'HOLD',
+    message: 'Your application is currently on hold. We will update you soon.',
+  },
+};
 
 @Injectable()
 export class JobsService {
@@ -580,16 +603,21 @@ export class JobsService {
       }
     }
 
+    const sfiaScore = await this.getSfiaScoreForApplication(applicationId);
+
     return {
       ...app,
       answers: answers ?? [],
       interview_schedule: latestSchedule,
       interview_schedules,
+      sfia_match_percentage: sfiaScore.sfia_match_percentage,
+      sfia_grade: sfiaScore.sfia_grade,
     };
   }
 
   async updateApplicationStatus(applicationId: string, status: string, companyId: string) {
     const supabase = this.supabaseService.getClient();
+    const normalizedStatus = status.toLowerCase();
 
     const { data: app, error: appError } = await supabase
       .from('job_applications')
@@ -602,46 +630,12 @@ export class JobsService {
     if (app) {
       await this.findOnePosting(app.job_posting_id, companyId);
 
-      // Block re-hiring an applicant already converted to an employee
-      if (status === 'hired') {
-        const { data: applicantProfile } = await supabase
-          .from('applicant_profile')
-          .select('status')
-          .eq('applicant_id', app.applicant_id)
-          .maybeSingle();
-
-        if (applicantProfile?.status === 'converted_employee') {
-          throw new ConflictException(
-            'This applicant has already been converted to an employee and cannot be re-hired.',
-          );
-        }
-      }
-
-      // Enforce one-hire-per-company constraint
-      if (status === 'hired') {
-        const { data: hiredApps } = await supabase
-          .from('job_applications')
-          .select('application_id, job_posting_id')
-          .eq('applicant_id', app.applicant_id)
-          .eq('status', 'hired')
-          .neq('application_id', applicationId);
-
-        if (hiredApps && hiredApps.length > 0) {
-          const hiredPostingIds = hiredApps.map((a: any) => a.job_posting_id);
-          const { data: inSameCompany } = await supabase
-            .from('job_postings')
-            .select('job_posting_id')
-            .in('job_posting_id', hiredPostingIds)
-            .eq('company_id', companyId)
-            .limit(1);
-
-          if (inSameCompany && inSameCompany.length > 0) {
-            throw new ConflictException(
-              'This applicant has already been hired for a position at this company. An applicant can only be hired once per company.',
-            );
-          }
-        }
-      }
+      await this.assertCanSetHiredStatus(
+        normalizedStatus,
+        applicationId,
+        app.applicant_id,
+        companyId,
+      );
 
       const { error } = await supabase
         .from('job_applications')
@@ -649,9 +643,10 @@ export class JobsService {
         .eq('application_id', applicationId);
 
       if (error) throw new InternalServerErrorException(error.message);
+      await this.insertApplicantStatusNotification(app.applicant_id, app.job_posting_id, normalizedStatus);
 
       // When an applicant is hired, auto-create their onboarding record
-      if (status === 'hired') {
+      if (normalizedStatus === 'hired') {
         await this.onboardingService.createOnboardingRecord({
           applicationId: app.application_id,
           applicantId:   app.applicant_id,
@@ -677,7 +672,7 @@ export class JobsService {
     // Fall back to SFIA applications table
     const { data: sfiaApp, error: sfiaAppError } = await supabase
       .from('job_application_sfia')
-      .select('application_id, job_posting_id')
+      .select('application_id, job_posting_id, applicant_id')
       .eq('application_id', applicationId)
       .maybeSingle();
 
@@ -692,6 +687,8 @@ export class JobsService {
       .eq('application_id', applicationId);
 
     if (sfiaUpdateError) throw new InternalServerErrorException(sfiaUpdateError.message);
+    await this.insertApplicantStatusNotification(sfiaApp.applicant_id, sfiaApp.job_posting_id, normalizedStatus);
+
     return { message: 'Application status updated' };
   }
 
@@ -1276,7 +1273,45 @@ export class JobsService {
       }
     }
 
-    return data;
+    let sfiaAutoscan: { graded: boolean; reason?: string; sfia_matching_percentage?: number };
+    try {
+      sfiaAutoscan = await this.autoGenerateSfiaScoresForApplication({
+        applicationId: application_id,
+        jobPostingId,
+        applicantId,
+      });
+    } catch (scanError: any) {
+      this.logger.warn(`[applyToJob] Auto SFIA scan failed for application ${application_id}: ${scanError?.message ?? scanError}`);
+      sfiaAutoscan = {
+        graded: false,
+        reason: 'Auto SFIA scan failed. Applicant can trigger a manual scan later.',
+      };
+    }
+
+    return {
+      ...data,
+      sfia_autoscan: sfiaAutoscan,
+    };
+  }
+
+  async scanResumeForApplicationSfia(applicationId: string, applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: app, error } = await supabase
+      .from('job_applications')
+      .select('application_id, job_posting_id, applicant_id')
+      .eq('application_id', applicationId)
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(error.message);
+    if (!app) throw new NotFoundException('Application not found');
+
+    return this.autoGenerateSfiaScoresForApplication({
+      applicationId: app.application_id,
+      jobPostingId: app.job_posting_id,
+      applicantId: app.applicant_id,
+    });
   }
 
   async getMyApplicationDetail(applicationId: string, applicantId: string) {
@@ -1319,7 +1354,86 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
-    return { ...app, answers: answers ?? [], interview_schedule: latestSchedule, interview_schedules };
+    const sfiaScore = await this.getSfiaScoreForApplication(applicationId);
+
+    return {
+      ...app,
+      answers: answers ?? [],
+      interview_schedule: latestSchedule,
+      interview_schedules,
+      sfia_match_percentage: sfiaScore.sfia_match_percentage,
+      sfia_grade: sfiaScore.sfia_grade,
+    };
+  }
+
+  private async getSfiaScoreForApplication(applicationId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('job_application_sfia')
+      .select('sfia_matching_percentage')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    const percentage = data?.sfia_matching_percentage == null
+      ? null
+      : normalizeNumber(data.sfia_matching_percentage);
+
+    if (percentage == null || !Number.isFinite(percentage)) {
+      const { data: application, error: applicationError } = await supabase
+        .from('job_applications')
+        .select('job_posting_id, applicant_id')
+        .eq('application_id', applicationId)
+        .maybeSingle();
+
+      if (applicationError) throw new InternalServerErrorException(applicationError.message);
+      if (!application) {
+        return { sfia_match_percentage: null, sfia_grade: null, sfia_assessment_status: 'not_assessed' as const };
+      }
+
+      const demandSkills = await this.getJobDemandSkills(application.job_posting_id);
+      if (demandSkills.length === 0) {
+        return { sfia_match_percentage: null, sfia_grade: null, sfia_assessment_status: 'not_configured' as const };
+      }
+
+      const supplySkills = await this.getCandidateSupplySkills([
+        {
+          application_id: applicationId,
+          job_posting_id: application.job_posting_id,
+          applicant_id: application.applicant_id,
+          status: 'submitted',
+          application_timestamp: new Date().toISOString(),
+          pre_screening_score: null,
+          sfia_matching_percentage: null,
+          manual_rank_position: null,
+          ranking_mode: 'sfia',
+        },
+      ]);
+
+      const computed = this.computeSfiaScore(demandSkills, supplySkills);
+      const computedPercentage = computed.relevancePercentage;
+
+      if (computed.maxPossiblePoints <= 0) {
+        return { sfia_match_percentage: null, sfia_grade: null, sfia_assessment_status: 'not_configured' as const };
+      }
+
+      const fallbackGrade = computedPercentage <= 0 ? 1 : Math.max(1, Math.min(7, Math.ceil((computedPercentage / 100) * 7)));
+      return {
+        sfia_match_percentage: roundToTwo(computedPercentage),
+        sfia_grade: fallbackGrade,
+        sfia_assessment_status: 'assessed' as const,
+      };
+    }
+
+    const bounded = Math.max(0, Math.min(100, percentage));
+    const grade = bounded <= 0 ? 1 : Math.max(1, Math.min(7, Math.ceil((bounded / 100) * 7)));
+
+    return {
+      sfia_match_percentage: roundToTwo(bounded),
+      sfia_grade: grade,
+      sfia_assessment_status: 'assessed' as const,
+    };
   }
 
   async getMyApplications(applicantId: string) {
@@ -1344,6 +1458,235 @@ export class JobsService {
 
     if (error) throw new InternalServerErrorException(error.message);
     return data ?? [];
+  }
+
+  async getUnreadNotifications(applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('notifications')
+      .select('notification_id, applicant_id, job_posting_id, message, type, is_read, created_at')
+      .eq('applicant_id', applicantId)
+      .eq('is_read', false)
+      .order('created_at', { ascending: false });
+
+    if (error) throw new InternalServerErrorException(error.message);
+    return data ?? [];
+  }
+
+  async markNotificationRead(notificationId: string, applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { error } = await supabase
+      .from('notifications')
+      .update({ is_read: true })
+      .eq('notification_id', notificationId)
+      .eq('applicant_id', applicantId);
+
+    if (error) throw new InternalServerErrorException(error.message);
+    return { message: 'Notification marked as read' };
+  }
+
+  async getSurveyScores(jobPostingId: string, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    await this.findOnePosting(jobPostingId, companyId);
+
+    const { data: questions, error: qErr } = await supabase
+      .from('survey_questions')
+      .select('question_id, is_required')
+      .eq('job_posting_id', jobPostingId);
+
+    if (qErr) throw new InternalServerErrorException(qErr.message);
+
+    const questionIds = (questions ?? []).map((q: any) => q.question_id).filter(Boolean);
+    if (questionIds.length === 0) {
+      return {
+        job_posting_id: jobPostingId,
+        total_respondents: 0,
+        scores: [],
+      };
+    }
+
+    const requiredMap = new Map<string, boolean>(
+      (questions ?? []).map((q: any) => [q.question_id, Boolean(q.is_required)]),
+    );
+
+    const { data: allResponses, error: rErr } = await supabase
+      .from('survey_responses')
+      .select('response_id, application_id, applicant_id, response, survey_question_id, submitted_at')
+      .in('survey_question_id', questionIds);
+
+    if (rErr) throw new InternalServerErrorException(rErr.message);
+
+    const scoreMap = new Map<
+      string,
+      {
+        applicant_id: string;
+        application_id: string;
+        total_score: number;
+        response_count: number;
+        last_submitted: string;
+      }
+    >();
+
+    for (const row of allResponses ?? []) {
+      const existing = scoreMap.get(row.applicant_id)
+        ?? this.createInitialSurveyScoreEntry(row.applicant_id, row.application_id, row.submitted_at);
+
+      this.applySurveyScoreRow(existing, row, requiredMap);
+
+      scoreMap.set(row.applicant_id, existing);
+    }
+
+    const applicantIds = [...scoreMap.keys()];
+    const { data: profiles, error: pErr } = applicantIds.length
+      ? await supabase
+          .from('applicant_profile')
+          .select('applicant_id, first_name, last_name, email')
+          .in('applicant_id', applicantIds)
+      : { data: [], error: null };
+
+    if (pErr) throw new InternalServerErrorException(pErr.message);
+
+    const profileMap = new Map<
+      string,
+      { first_name: string | null; last_name: string | null; email: string | null }
+    >((profiles ?? []).map((p: any) => [
+      p.applicant_id,
+      {
+        first_name: p.first_name ?? null,
+        last_name: p.last_name ?? null,
+        email: p.email ?? null,
+      },
+    ] as const));
+
+    const result = [...scoreMap.values()]
+      .map((entry) => {
+        const profile = profileMap.get(entry.applicant_id);
+        return {
+          ...entry,
+          first_name: profile?.first_name ?? null,
+          last_name: profile?.last_name ?? null,
+          email: profile?.email ?? null,
+        };
+      })
+      .sort((a, b) => b.total_score - a.total_score);
+
+    return {
+      job_posting_id: jobPostingId,
+      total_respondents: result.length,
+      scores: result,
+    };
+  }
+
+  private async assertCanSetHiredStatus(
+    normalizedStatus: string,
+    applicationId: string,
+    applicantId: string,
+    companyId: string,
+  ) {
+    if (normalizedStatus !== 'hired') return;
+
+    const supabase = this.supabaseService.getClient();
+    const { data: applicantProfile } = await supabase
+      .from('applicant_profile')
+      .select('status')
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (applicantProfile?.status === 'converted_employee') {
+      throw new ConflictException(
+        'This applicant has already been converted to an employee and cannot be re-hired.',
+      );
+    }
+
+    const { data: hiredApps } = await supabase
+      .from('job_applications')
+      .select('application_id, job_posting_id')
+      .eq('applicant_id', applicantId)
+      .eq('status', 'hired')
+      .neq('application_id', applicationId);
+
+    if (!hiredApps || hiredApps.length === 0) return;
+
+    const hiredPostingIds = hiredApps.map((a: any) => a.job_posting_id);
+    const { data: inSameCompany } = await supabase
+      .from('job_postings')
+      .select('job_posting_id')
+      .in('job_posting_id', hiredPostingIds)
+      .eq('company_id', companyId)
+      .limit(1);
+
+    if (inSameCompany && inSameCompany.length > 0) {
+      throw new ConflictException(
+        'This applicant has already been hired for a position at this company. An applicant can only be hired once per company.',
+      );
+    }
+  }
+
+  private async insertApplicantStatusNotification(
+    applicantId: string,
+    jobPostingId: string,
+    normalizedStatus: string,
+  ) {
+    const notifPayload = NOTIFIABLE_STATUSES[normalizedStatus];
+    if (!notifPayload) return;
+
+    const supabase = this.supabaseService.getClient();
+    const { error } = await supabase.from('notifications').insert({
+      applicant_id: applicantId,
+      job_posting_id: jobPostingId,
+      message: notifPayload.message,
+      type: notifPayload.type,
+      is_read: false,
+      created_at: new Date().toISOString(),
+    });
+
+    if (error) throw new InternalServerErrorException(error.message);
+  }
+
+  private createInitialSurveyScoreEntry(
+    applicantId: string,
+    applicationId: string,
+    submittedAt: string,
+  ) {
+    return {
+      applicant_id: applicantId,
+      application_id: applicationId,
+      total_score: 0,
+      response_count: 0,
+      last_submitted: submittedAt,
+    };
+  }
+
+  private applySurveyScoreRow(
+    entry: {
+      total_score: number;
+      response_count: number;
+      last_submitted: string;
+    },
+    row: {
+      response: string;
+      survey_question_id: string;
+      submitted_at: string;
+    },
+    requiredMap: Map<string, boolean>,
+  ) {
+    const rawResponse = typeof row.response === 'string' ? row.response.trim() : '';
+    if (rawResponse === '') return;
+
+    const numeric = Number(rawResponse);
+    if (Number.isFinite(numeric)) {
+      entry.total_score += numeric;
+    } else if (requiredMap.get(row.survey_question_id)) {
+      entry.total_score += 1;
+    }
+
+    entry.response_count += 1;
+    if (row.submitted_at && (!entry.last_submitted || row.submitted_at > entry.last_submitted)) {
+      entry.last_submitted = row.submitted_at;
+    }
   }
 
   private async buildRankedCandidates(
@@ -1693,6 +2036,285 @@ export class JobsService {
 
   private getSkillPrimaryKeyColumn() {
     return 'skill_id';
+  }
+
+  private async autoGenerateSfiaScoresForApplication(params: {
+    applicationId: string;
+    jobPostingId: string;
+    applicantId: string;
+  }) {
+    const { applicationId, jobPostingId, applicantId } = params;
+
+    await this.ensureSfiaApplicationMirror(applicationId, jobPostingId, applicantId);
+
+    const supabase = this.supabaseService.getClient();
+    const { data: applicant, error: applicantError } = await supabase
+      .from('applicant_profile')
+      .select('resume_url, resume_name')
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (applicantError) throw new InternalServerErrorException(applicantError.message);
+    if (!applicant?.resume_url) {
+      return {
+        graded: false,
+        reason: 'No resume uploaded yet.',
+      };
+    }
+
+    const requirements = await this.getJobSfiaRequirementsWithDescriptions(jobPostingId);
+    if (requirements.length === 0) {
+      return {
+        graded: false,
+        reason: 'This job has no SFIA required skills configured yet.',
+      };
+    }
+
+    const resumeText = await this.extractResumeTextFromStorage(
+      applicant.resume_url,
+      applicant.resume_name ?? null,
+    );
+
+    const normalizedResume = this.normalizeText(resumeText);
+    if (!normalizedResume) {
+      return {
+        graded: false,
+        reason: 'Could not extract readable resume text for SFIA scan.',
+      };
+    }
+
+    const supplyRows = requirements.map((req) => {
+      const candidateLevel = this.estimateCandidateLevelFromResume(
+        normalizedResume,
+        req.skill_name,
+        req.required_level,
+        req.level_descriptions,
+      );
+
+      return {
+        candidate_skill_score_sfia_id: crypto.randomUUID(),
+        application_id: applicationId,
+        skill_id: req.skill_id,
+        candidate_level: candidateLevel,
+        match_score: this.computeEstimatedMatchScore(candidateLevel, req.required_level),
+      };
+    });
+
+    const { error: deleteError } = await supabase
+      .from('candidate_skill_score_sfia')
+      .delete()
+      .eq('application_id', applicationId);
+
+    if (deleteError) throw new InternalServerErrorException(deleteError.message);
+
+    const { error: insertError } = await supabase
+      .from('candidate_skill_score_sfia')
+      .insert(supplyRows);
+
+    if (insertError) throw new InternalServerErrorException(insertError.message);
+
+    const computed = this.computeSfiaScore(
+      requirements.map((req) => ({
+        skill_id: req.skill_id,
+        skill_name: req.skill_name,
+        required_level: req.required_level,
+        weight: req.weight,
+      })),
+      supplyRows.map((row) => {
+        const req = requirements.find((r) => r.skill_id === row.skill_id);
+        return {
+          owner_key: applicationId,
+          skill_id: row.skill_id,
+          skill_name: req?.skill_name ?? row.skill_id,
+          candidate_level: row.candidate_level,
+          match_score: row.match_score,
+        };
+      }),
+    );
+
+    await this.cacheSfiaScore(jobPostingId, applicationId, computed.relevancePercentage);
+
+    return {
+      graded: true,
+      sfia_matching_percentage: computed.relevancePercentage,
+      matched_skills: supplyRows.length,
+    };
+  }
+
+  private async ensureSfiaApplicationMirror(
+    applicationId: string,
+    jobPostingId: string,
+    applicantId: string,
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: existing, error: findError } = await supabase
+      .from('job_application_sfia')
+      .select('application_id')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (findError) throw new InternalServerErrorException(findError.message);
+    if (existing) return;
+
+    const { error: insertError } = await supabase
+      .from('job_application_sfia')
+      .insert({
+        application_id: applicationId,
+        job_posting_id: jobPostingId,
+        applicant_id: applicantId,
+        status: 'SUBMITTED',
+        application_timestamp: new Date().toISOString(),
+        ranking_mode: 'SFIA',
+      });
+
+    if (insertError) throw new InternalServerErrorException(insertError.message);
+  }
+
+  private async getJobSfiaRequirementsWithDescriptions(jobPostingId: string): Promise<SfiaRequirementWithDescriptors[]> {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('job_posting_sfia_skill')
+      .select(
+        'skill_id, required_level, weight, sfia_skills(skill, level_1_desc, level_2_desc, level_3_desc, level_4_desc, level_5_desc, level_6_desc, level_7_desc)',
+      )
+      .eq('job_posting_id', jobPostingId);
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    return (data ?? [])
+      .map((row: any) => {
+        const skill = Array.isArray(row.sfia_skills) ? row.sfia_skills[0] : row.sfia_skills;
+        if (!row.skill_id || !skill?.skill) return null;
+
+        const levelDescriptions = [
+          skill.level_1_desc,
+          skill.level_2_desc,
+          skill.level_3_desc,
+          skill.level_4_desc,
+          skill.level_5_desc,
+          skill.level_6_desc,
+          skill.level_7_desc,
+        ].map((value) => (typeof value === 'string' ? value : ''));
+
+        return {
+          skill_id: row.skill_id,
+          skill_name: skill.skill,
+          required_level: normalizeNumber(row.required_level),
+          weight: normalizeNumber(row.weight) || 1,
+          level_descriptions: levelDescriptions,
+        } satisfies SfiaRequirementWithDescriptors;
+      })
+      .filter((row): row is SfiaRequirementWithDescriptors => row !== null);
+  }
+
+  private async extractResumeTextFromStorage(filePath: string, fileName: string | null) {
+    const supabase = this.supabaseService.getClient();
+
+    const bucketCandidates = ['applicant-resumes', 'sfia_documents'];
+    let binaryData: Blob | null = null;
+
+    for (const bucket of bucketCandidates) {
+      const { data } = await supabase.storage.from(bucket).download(filePath);
+      if (data) {
+        binaryData = data;
+        break;
+      }
+    }
+
+    if (!binaryData) return '';
+
+    const buffer = Buffer.from(await binaryData.arrayBuffer());
+    const sourceName = (fileName ?? filePath).toLowerCase();
+
+    if (sourceName.endsWith('.pdf')) {
+      return this.extractPdfText(buffer);
+    }
+
+    if (sourceName.endsWith('.docx')) {
+      return this.extractDocxText(buffer);
+    }
+
+    return buffer.toString('utf8');
+  }
+
+  private async extractPdfText(buffer: Buffer) {
+    try {
+      const pdfParse: (input: Buffer) => Promise<{ text?: string }> = require('pdf-parse');
+      const parsed = await pdfParse(buffer);
+      return typeof parsed?.text === 'string' ? parsed.text : '';
+    } catch {
+      return '';
+    }
+  }
+
+  private async extractDocxText(buffer: Buffer) {
+    try {
+      const mammoth: { extractRawText: (input: { buffer: Buffer }) => Promise<{ value?: string }> } = require('mammoth');
+      const parsed = await mammoth.extractRawText({ buffer });
+      return typeof parsed?.value === 'string' ? parsed.value : '';
+    } catch {
+      return '';
+    }
+  }
+
+  private normalizeText(input: string) {
+    return (input ?? '').toLowerCase().replaceAll(/\s+/g, ' ').trim();
+  }
+
+  private estimateCandidateLevelFromResume(
+    normalizedResume: string,
+    skillName: string,
+    requiredLevel: number,
+    levelDescriptions: string[],
+  ) {
+    const skillTokens = this.tokenize(skillName);
+    const hasSkillMention = skillTokens.some((token) => normalizedResume.includes(token));
+
+    let bestLevel = 0;
+    let bestCoverage = 0;
+
+    for (let i = 0; i < levelDescriptions.length; i += 1) {
+      const coverage = this.keywordCoverage(normalizedResume, levelDescriptions[i]);
+      if (coverage > bestCoverage) {
+        bestCoverage = coverage;
+        bestLevel = i + 1;
+      }
+    }
+
+    if (bestLevel > 0 && bestCoverage >= 0.08) {
+      return Math.max(1, Math.min(7, bestLevel));
+    }
+
+    if (hasSkillMention) {
+      return Math.max(1, Math.min(7, requiredLevel - 1 || 1));
+    }
+
+    return 1;
+  }
+
+  private tokenize(input: string) {
+    return (input ?? '')
+      .toLowerCase()
+      .replaceAll(/[^a-z0-9\s]/g, ' ')
+      .split(/\s+/)
+      .filter((token) => token.length >= 3);
+  }
+
+  private keywordCoverage(normalizedResume: string, descriptor: string) {
+    const descriptorTokens = this.tokenize(descriptor);
+    if (descriptorTokens.length === 0) return 0;
+
+    const matched = descriptorTokens.filter((token) => normalizedResume.includes(token)).length;
+    return matched / descriptorTokens.length;
+  }
+
+  private computeEstimatedMatchScore(candidateLevel: number, requiredLevel: number) {
+    if (candidateLevel === requiredLevel) return 100;
+    if (candidateLevel > requiredLevel) return 85;
+    if (requiredLevel <= 0) return 0;
+
+    return roundToTwo((candidateLevel / requiredLevel) * 70);
   }
 
   private handleMissingSfiaSchema(message: string, tableName: string) {
