@@ -34,6 +34,18 @@ type OffboardingStatus = OffboardingCase["status"];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function getStepLabelClass(active: boolean, done: boolean): string {
+  if (active) return "font-semibold text-slate-800";
+  if (done)   return "text-slate-500";
+  return "text-slate-300";
+}
+
+function calcProgressPct(done: boolean, verified: number, total: number): number {
+  if (done)       return 100;
+  if (total > 0)  return (verified / total) * 100;
+  return 0;
+}
+
 function getStatusStep(status: OffboardingStatus): number {
   if (status === "submitted")            return 1;
   if (status === "manager_acknowledged") return 2;
@@ -94,7 +106,7 @@ function StatusTimeline({ status }: { readonly status: OffboardingStatus }) {
                   : <span className="text-xs text-slate-400">{step}</span>
                 }
               </div>
-              <p className={`text-xs mt-1.5 text-center w-24 leading-tight ${active ? "font-semibold text-slate-800" : done ? "text-slate-500" : "text-slate-300"}`}>
+              <p className={`text-xs mt-1.5 text-center w-24 leading-tight ${getStepLabelClass(active, done)}`}>
                 {label}
               </p>
             </div>
@@ -132,12 +144,9 @@ function ChecklistRow({
   return (
     <div className="flex items-center justify-between border rounded-md px-4 py-3">
       <div className="flex items-center gap-3">
-        {item.status === "verified"
-          ? <CheckCircle className="size-4 text-green-500 shrink-0" />
-          : item.status === "disputed"
-          ? <AlertTriangle className="size-4 text-red-500 shrink-0" />
-          : <Clock className="size-4 text-slate-400 shrink-0" />
-        }
+        {item.status === "verified" && <CheckCircle className="size-4 text-green-500 shrink-0" />}
+        {item.status === "disputed" && <AlertTriangle className="size-4 text-red-500 shrink-0" />}
+        {item.status !== "verified" && item.status !== "disputed" && <Clock className="size-4 text-slate-400 shrink-0" />}
         <div>
           <p className="text-sm font-medium">{item.label}</p>
           {item.proofUploaded && item.proofFileName && (
@@ -190,11 +199,11 @@ export default function EmployeeOffboardingPage() {
   useEffect(() => {
     const load = () => setData(getOffboardingCase());
     load();
-    window.addEventListener("offboarding-updated", load);
-    window.addEventListener("storage", load);
+    globalThis.addEventListener("offboarding-updated", load);
+    globalThis.addEventListener("storage", load);
     return () => {
-      window.removeEventListener("offboarding-updated", load);
-      window.removeEventListener("storage", load);
+      globalThis.removeEventListener("offboarding-updated", load);
+      globalThis.removeEventListener("storage", load);
     };
   }, []);
 
@@ -208,11 +217,11 @@ export default function EmployeeOffboardingPage() {
 
   const verifiedCount = data.checklistItems.filter(i => i.status === "verified").length;
   const totalItems    = data.checklistItems.length;
-  const progressPct   = isCompleted ? 100 : totalItems > 0 ? (verifiedCount / totalItems) * 100 : 0;
+  const progressPct   = calcProgressPct(isCompleted, verifiedCount, totalItems);
 
-  const salary      = parseFloat(data.salaryBalance ?? "0") || 0;
-  const deductAmt   = parseFloat(data.deductions    ?? "0") || 0;
-  const addAmt      = parseFloat(data.additionalPay ?? "0") || 0;
+  const salary      = Number.parseFloat(data.salaryBalance ?? "0") || 0;
+  const deductAmt   = Number.parseFloat(data.deductions    ?? "0") || 0;
+  const addAmt      = Number.parseFloat(data.additionalPay ?? "0") || 0;
   const totalAmount = Math.max(0, salary - deductAmt + addAmt);
 
   const formValid = reason && lastDay;

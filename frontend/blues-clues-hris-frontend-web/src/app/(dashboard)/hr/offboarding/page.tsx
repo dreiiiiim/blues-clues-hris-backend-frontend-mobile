@@ -101,17 +101,16 @@ function getModalStatusColor(status: ChecklistStatus | undefined): string {
 }
 
 function fmtPay(raw: string): string {
-  const stripped = raw.replace(/,/g, "");
-  const n = parseFloat(stripped);
-  if (!stripped || isNaN(n) || n === 0) return "";
+  const stripped = raw.replaceAll(",", "");
+  const n = Number.parseFloat(stripped);
+  if (!stripped || Number.isNaN(n) || n === 0) return "";
   const [intPart, decPart] = stripped.split(".");
-  const formatted = new Intl.NumberFormat("en-US").format(parseInt(intPart, 10));
-  return decPart !== undefined ? `${formatted}.${decPart}` : formatted;
+  const formatted = new Intl.NumberFormat("en-US").format(Number.parseInt(intPart, 10));
+  return decPart === undefined ? formatted : `${formatted}.${decPart}`;
 }
 
 function parsePay(input: string): string {
-  // Allow only digits and one decimal point
-  const clean = input.replace(/[^0-9.]/g, "");
+  const clean = input.replaceAll(/[^0-9.]/g, "");
   const parts = clean.split(".");
   return parts.length > 2 ? `${parts[0]}.${parts.slice(1).join("")}` : clean;
 }
@@ -249,6 +248,53 @@ function OverviewCaseRow({
   );
 }
 
+const ITEM_STATUS_CONFIG = {
+  verified: { keyPrefix: "verify", error: "Failed to verify item. Please try again." },
+  disputed: { keyPrefix: "flag",   error: "Failed to flag item. Please try again." },
+} as const;
+
+function parseMoney(val: string | undefined): number {
+  return Number.parseFloat(val ?? "0") || 0;
+}
+
+function computeCaseFlags(c: OffboardingCase | null) {
+  const isPending    = c?.status === "manager_acknowledged";
+  const isInProgress = c?.status === "hr_accepted";
+  const isCompleted  = c?.status === "completed";
+  return {
+    isPending,
+    isCompleted,
+    hasCase:      isPending || isInProgress || isCompleted,
+    showProgress: isInProgress || isCompleted,
+  };
+}
+
+function computeChecklistState(items: ChecklistItem[]) {
+  const verified = items.filter(i => i.status === "verified").length;
+  return { allVerified: items.length > 0 && verified === items.length };
+}
+
+function computeCanGenerateClearance(paymentReleased: boolean | undefined, allVerified: boolean): boolean {
+  return !!paymentReleased && allVerified;
+}
+
+const PAYMENT_STATUS_CLS: Record<string, string> = {
+  "true":  "bg-green-50 border-green-100",
+  "false": "bg-yellow-50 border-yellow-100",
+};
+
+function isInitiateFormValid(form: InitiateForm): boolean {
+  return !!(form.employeeName.trim() && form.department.trim() && form.position.trim() && form.lastWorkingDay && form.reason);
+}
+
+function findModalItem(
+  viewItem: { label: string } | null,
+  selectedCase: OffboardingCase | null
+): ChecklistItem | null {
+  if (!viewItem || !selectedCase) return null;
+  return selectedCase.checklistItems.find(i => i.label === viewItem.label) ?? null;
+}
+
 // ── Page Component ─────────────────────────────────────────────────────────────
 
 export default function HROffboardingPage() {
@@ -269,21 +315,17 @@ export default function HROffboardingPage() {
   useEffect(() => {
     const load = () => setCases(getOffboardingCases());
     load();
-    window.addEventListener("offboarding-updated", load);
-    window.addEventListener("storage", load);
+    globalThis.addEventListener("offboarding-updated", load);
+    globalThis.addEventListener("storage", load);
     return () => {
-      window.removeEventListener("offboarding-updated", load);
-      window.removeEventListener("storage", load);
+      globalThis.removeEventListener("offboarding-updated", load);
+      globalThis.removeEventListener("storage", load);
     };
   }, []);
 
   const selectedCase = cases.find(c => c.id === selectedCaseId) ?? null;
 
-  const isPending    = selectedCase?.status === "manager_acknowledged";
-  const isInProgress = selectedCase?.status === "hr_accepted";
-  const isCompleted  = selectedCase?.status === "completed";
-  const hasCase      = isPending || isInProgress || isCompleted;
-  const showProgress = isInProgress || isCompleted;
+  const { isPending, isCompleted, hasCase, showProgress } = computeCaseFlags(selectedCase);
 
   const totalActive    = cases.filter(c => c.status === "hr_accepted").length;
   const totalCompleted = cases.filter(c => c.status === "completed").length;
@@ -291,18 +333,16 @@ export default function HROffboardingPage() {
   const incomingCases  = cases.filter(c => c.status === "manager_acknowledged");
   const overviewCases  = cases.filter(c => c.status === "hr_accepted" || c.status === "completed");
 
-  const salary      = parseFloat(selectedCase?.salaryBalance ?? "0") || 0;
-  const deductAmt   = parseFloat(selectedCase?.deductions   ?? "0") || 0;
-  const addAmt      = parseFloat(selectedCase?.additionalPay ?? "0") || 0;
+  const salary      = parseMoney(selectedCase?.salaryBalance);
+  const deductAmt   = parseMoney(selectedCase?.deductions);
+  const addAmt      = parseMoney(selectedCase?.additionalPay);
   const totalAmount = Math.max(0, salary - deductAmt + addAmt);
 
-  const checklistItems       = selectedCase?.checklistItems ?? [];
-  const verifiedCount        = checklistItems.filter(i => i.status === "verified").length;
-  const totalItems           = checklistItems.length;
-  const allVerified          = totalItems > 0 && verifiedCount === totalItems;
-  const canGenerateClearance = !!selectedCase?.paymentReleased && allVerified;
+  const checklistItems = selectedCase?.checklistItems ?? [];
+  const { allVerified } = computeChecklistState(checklistItems);
+  const canGenerateClearance = computeCanGenerateClearance(selectedCase?.paymentReleased, allVerified);
 
-  const modalItem        = viewItem && selectedCase ? selectedCase.checklistItems.find(i => i.label === viewItem.label) : null;
+  const modalItem        = findModalItem(viewItem, selectedCase);
   const modalHasProof    = !!modalItem?.proofUploaded;
   const modalProofName   = modalItem?.proofFileName;
   const modalProofDate   = modalItem?.proofDate;
@@ -310,14 +350,12 @@ export default function HROffboardingPage() {
   const modalStatusColor = getModalStatusColor(modalItem?.status);
 
   const initiateLabel     = initiateForm.offboardingType === "End of Contract" ? "Initiate End of Contract" : "Initiate Termination";
-  const initiateFormValid = initiateForm.employeeName.trim() && initiateForm.department.trim()
-    && initiateForm.position.trim() && initiateForm.lastWorkingDay && initiateForm.reason;
+  const initiateFormValid = isInitiateFormValid(initiateForm);
 
   function update(id: string, patch: Partial<OffboardingCase>) { updateOffboardingCaseById(id, patch); }
 
   async function handleInitiate() {
-    const { employeeName, department, position, lastWorkingDay, reason } = initiateForm;
-    if (!employeeName.trim() || !department.trim() || !position.trim() || !lastWorkingDay || !reason) return;
+    if (!initiateFormValid) return;
     setLoadingAction("initiate");
     setError(null);
     try {
@@ -381,10 +419,11 @@ export default function HROffboardingPage() {
 
   async function handleSetItemStatus(itemId: number, status: "verified" | "disputed") {
     if (!selectedCase) return;
-    setLoadingAction(status === "verified" ? `verify-${itemId}` : `flag-${itemId}`);
+    const { keyPrefix, error } = ITEM_STATUS_CONFIG[status];
+    setLoadingAction(`${keyPrefix}-${itemId}`);
     setError(null);
     try { update(selectedCase.id, { checklistItems: selectedCase.checklistItems.map(i => i.id === itemId ? { ...i, status } : i) }); }
-    catch { setError(status === "verified" ? "Failed to verify item. Please try again." : "Failed to flag item. Please try again."); }
+    catch { setError(error); }
     finally { setLoadingAction(null); }
   }
 
@@ -809,7 +848,7 @@ export default function HROffboardingPage() {
                 <span className="text-slate-500">Total Amount</span>
                 <span>${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>
-              <div className={`flex items-center justify-between text-sm border rounded-md px-3 py-2.5 ${selectedCase.paymentReleased ? "bg-green-50 border-green-100" : "bg-yellow-50 border-yellow-100"}`}>
+              <div className={`flex items-center justify-between text-sm border rounded-md px-3 py-2.5 ${PAYMENT_STATUS_CLS[String(selectedCase.paymentReleased)]}`}>
                 <span className="text-slate-600">{selectedCase.paymentReleased ? "Payment Released" : "Payment Pending"}</span>
                 <span className="font-medium">${totalAmount.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
               </div>

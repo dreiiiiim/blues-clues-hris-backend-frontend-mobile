@@ -114,7 +114,7 @@ export const DEFAULT_CASE: OffboardingCase = {
 
 // ── Single-case API (employee view) ───────────────────────────────────────────
 export function getOffboardingCase(): OffboardingCase {
-  if (typeof window === "undefined") return { ...DEFAULT_CASE };
+  if (typeof globalThis.window === "undefined") return { ...DEFAULT_CASE };
   try {
     const stored = localStorage.getItem(SINGLE_KEY);
     if (stored) return JSON.parse(stored) as OffboardingCase;
@@ -123,10 +123,10 @@ export function getOffboardingCase(): OffboardingCase {
 }
 
 export function setOffboardingCase(data: OffboardingCase): void {
-  if (typeof window === "undefined") return;
+  if (typeof globalThis.window === "undefined") return;
   localStorage.setItem(SINGLE_KEY, JSON.stringify(data));
   syncToArray(data);
-  window.dispatchEvent(new Event("offboarding-updated"));
+  globalThis.dispatchEvent(new Event("offboarding-updated"));
 }
 
 export function resetOffboardingCase(): void {
@@ -135,7 +135,7 @@ export function resetOffboardingCase(): void {
 
 // ── Multi-case API (manager / HR views) ───────────────────────────────────────
 export function getOffboardingCases(): OffboardingCase[] {
-  if (typeof window === "undefined") return [];
+  if (typeof globalThis.window === "undefined") return [];
   try {
     const stored = localStorage.getItem(CASES_KEY);
     if (stored) return JSON.parse(stored) as OffboardingCase[];
@@ -152,12 +152,12 @@ export function getOffboardingCases(): OffboardingCase[] {
 }
 
 export function setOffboardingCases(cases: OffboardingCase[]): void {
-  if (typeof window === "undefined") return;
+  if (typeof globalThis.window === "undefined") return;
   localStorage.setItem(CASES_KEY, JSON.stringify(cases));
   // Keep single-case store in sync for employee view
   const emp = cases.find(c => c.id === "employee");
   if (emp) localStorage.setItem(SINGLE_KEY, JSON.stringify(emp));
-  window.dispatchEvent(new Event("offboarding-updated"));
+  globalThis.dispatchEvent(new Event("offboarding-updated"));
 }
 
 export function updateOffboardingCaseById(id: string, patch: Partial<OffboardingCase>): void {
@@ -184,7 +184,7 @@ export function addNewOffboardingCase(overrides: Partial<OffboardingCase>): Offb
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 function syncToArray(data: OffboardingCase): void {
-  if (typeof window === "undefined") return;
+  if (typeof globalThis.window === "undefined") return;
   try {
     const raw = localStorage.getItem(CASES_KEY);
     const cases: OffboardingCase[] = raw ? JSON.parse(raw) : [];

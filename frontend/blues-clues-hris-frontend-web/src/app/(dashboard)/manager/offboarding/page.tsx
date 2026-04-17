@@ -43,6 +43,31 @@ function getNotificationBadge(status: OffboardingCase["status"]): { label: strin
   return { label: "Rejected", cls: "bg-red-100 text-red-700 border border-red-200" };
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function filterCases(
+  cases: OffboardingCase[],
+  search: string,
+  statusFilter: string
+): OffboardingCase[] {
+  return cases.filter(c => {
+    const matchesSearch =
+      search.trim() === "" ||
+      c.employeeName.toLowerCase().includes(search.toLowerCase()) ||
+      c.department.toLowerCase().includes(search.toLowerCase());
+    const matchesStatus = statusFilter === "all" || c.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
+}
+
+function isFormValid(form: InitiateForm): boolean {
+  return !!(form.employeeName.trim() && form.department.trim() && form.position.trim() && form.lastWorkingDay && form.reason);
+}
+
+function isCaseActionable(c: OffboardingCase | null): boolean {
+  return c !== null && c.status !== "not_submitted" && c.status !== "rejected";
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function ManagerOffboardingPage() {
@@ -64,11 +89,11 @@ export default function ManagerOffboardingPage() {
   useEffect(() => {
     const load = () => setCases(getOffboardingCases());
     load();
-    window.addEventListener("offboarding-updated", load);
-    window.addEventListener("storage", load);
+    globalThis.addEventListener("offboarding-updated", load);
+    globalThis.addEventListener("storage", load);
     return () => {
-      window.removeEventListener("offboarding-updated", load);
-      window.removeEventListener("storage", load);
+      globalThis.removeEventListener("offboarding-updated", load);
+      globalThis.removeEventListener("storage", load);
     };
   }, []);
 
@@ -78,20 +103,14 @@ export default function ManagerOffboardingPage() {
     if (c) setTransferNotes(c.transferNotes);
   }, [selectedId, cases]);
 
-  const visibleCases = cases.filter(c => c.status !== "not_submitted" && c.status !== "rejected");
-  const filteredCases = visibleCases.filter(c => {
-    const matchesSearch = search.trim() === "" ||
-      c.employeeName.toLowerCase().includes(search.toLowerCase()) ||
-      c.department.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === "all" || c.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const visibleCases  = cases.filter(c => c.status !== "not_submitted" && c.status !== "rejected");
+  const filteredCases = filterCases(visibleCases, search, statusFilter);
   const selectedCase = cases.find(c => c.id === selectedId) ?? null;
   const hasPendingReview = selectedCase?.status === "submitted";
-  const isActionable    = selectedCase !== null && selectedCase.status !== "not_submitted" && selectedCase.status !== "rejected";
+  const isActionable    = isCaseActionable(selectedCase);
   const canAcknowledge  = selectedCase?.status === "submitted";
   const initiateLabel   = offboardingType === "End of Contract" ? "Initiate End of Contract" : "Initiate Termination";
-  const formValid       = form.employeeName.trim() && form.department.trim() && form.position.trim() && form.lastWorkingDay && form.reason;
+  const formValid       = isFormValid(form);
 
   async function handleInitiate() {
     if (!formValid) return;
@@ -337,10 +356,11 @@ export default function ManagerOffboardingPage() {
               const badge = getNotificationBadge(c.status);
               const isSelected = selectedId === c.id;
               return (
-                <div
+                <button
                   key={c.id}
+                  type="button"
                   onClick={() => setSelectedId(c.id)}
-                  className={`flex items-center justify-between border rounded-md px-4 py-3 cursor-pointer transition-colors hover:bg-slate-50 ${isSelected ? "border-slate-400 bg-slate-50" : ""}`}
+                  className={`w-full text-left flex items-center justify-between border rounded-md px-4 py-3 transition-colors hover:bg-slate-50 ${isSelected ? "border-slate-400 bg-slate-50" : ""}`}
                 >
                   <div className="flex items-center gap-3">
                     <div className="h-9 w-9 bg-slate-100 rounded-full flex items-center justify-center shrink-0">
@@ -355,7 +375,7 @@ export default function ManagerOffboardingPage() {
                     <Badge variant="outline" className="text-slate-500 bg-slate-100">{c.offboardingType}</Badge>
                     <Badge className={badge.cls}>{badge.label}</Badge>
                   </div>
-                </div>
+                </button>
               );
             }) : (
               <p className="text-sm text-slate-400 text-center py-4">No cases match your search</p>
