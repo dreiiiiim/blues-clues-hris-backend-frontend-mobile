@@ -67,8 +67,6 @@ type PendingSection = "legal-name" | "bank" | null;
 interface ApprovalModalState {
   open: boolean;
   section: "legal-name" | "bank";
-  fieldLabel: string;
-  newValue: string;
 }
 
 // ─── Permission Badge ──────────────────────────────────────────────────────────
@@ -130,17 +128,38 @@ function FieldRow({
 
 function ApprovalModal({
   state,
+  currentLegalName,
+  currentBank,
   onClose,
   onSubmit,
 }: {
   state: ApprovalModalState;
+  currentLegalName: { first: string; middle: string; last: string };
+  currentBank: { bankName: string; accountNumber: string; accountName: string };
   onClose: () => void;
-  onSubmit: (reason: string, file: File | null) => void;
+  onSubmit: (reason: string, file: File | null, values: Record<string, string>) => void;
 }) {
   const [reason, setReason] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // Local draft — seeded from current values so user can edit from current state
+  const [nameDraft, setNameDraft] = useState({ ...currentLegalName });
+  const [bankDraft, setBankDraft] = useState({ ...currentBank });
+
+  // Re-seed when modal opens for a different section
+  const prevOpen = useRef(false);
+  if (state.open && !prevOpen.current) {
+    prevOpen.current = true;
+    nameDraft.first  = currentLegalName.first;
+    nameDraft.middle = currentLegalName.middle;
+    nameDraft.last   = currentLegalName.last;
+    bankDraft.bankName      = currentBank.bankName;
+    bankDraft.accountNumber = currentBank.accountNumber;
+    bankDraft.accountName   = currentBank.accountName;
+  }
+  if (!state.open) prevOpen.current = false;
 
   const handleSubmit = () => {
     if (!reason.trim()) {
@@ -151,7 +170,11 @@ function ApprovalModal({
       toast.error("Reason must be at least 5 characters.");
       return;
     }
-    onSubmit(reason.trim(), file);
+    const values: Record<string, string> =
+      state.section === "bank"
+        ? { bank_name: bankDraft.bankName.trim(), bank_account_number: bankDraft.accountNumber.trim(), bank_account_name: bankDraft.accountName.trim() }
+        : { first_name: nameDraft.first.trim(), middle_name: nameDraft.middle.trim(), last_name: nameDraft.last.trim() };
+    onSubmit(reason.trim(), file, values);
     setReason("");
     setFile(null);
   };
@@ -163,26 +186,50 @@ function ApprovalModal({
     if (dropped) setFile(dropped);
   };
 
+  const fieldLabel = state.section === "legal-name" ? "Legal Name" : "Bank Account";
+
   return (
     <Dialog open={state.open} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base font-bold tracking-tight">
-            Request Changes — {state.fieldLabel}
+            Request Changes — {fieldLabel}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              New Value
-            </label>
-            <Input
-              value={state.newValue}
-              readOnly
-              className="h-9 rounded-md border bg-muted/30 px-3 shadow-xs text-sm"
-            />
-          </div>
+          {/* Section-specific fields */}
+          {state.section === "legal-name" ? (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">First Name</label>
+                <Input value={nameDraft.first} onChange={(e) => setNameDraft({ ...nameDraft, first: e.target.value })} placeholder="First" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Middle</label>
+                <Input value={nameDraft.middle} onChange={(e) => setNameDraft({ ...nameDraft, middle: e.target.value })} placeholder="Middle" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Last Name</label>
+                <Input value={nameDraft.last} onChange={(e) => setNameDraft({ ...nameDraft, last: e.target.value })} placeholder="Last" className="h-9 text-sm" />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Bank Name</label>
+                <Input value={bankDraft.bankName} onChange={(e) => setBankDraft({ ...bankDraft, bankName: e.target.value })} placeholder="e.g. BDO, BPI, Metrobank" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Account Number</label>
+                <Input value={bankDraft.accountNumber} onChange={(e) => setBankDraft({ ...bankDraft, accountNumber: e.target.value })} placeholder="00000-0000000-0" className="h-9 text-sm" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Account Name</label>
+                <Input value={bankDraft.accountName} onChange={(e) => setBankDraft({ ...bankDraft, accountName: e.target.value })} placeholder="Full name on account" className="h-9 text-sm" />
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
@@ -206,9 +253,7 @@ function ApprovalModal({
               onDrop={handleDrop}
               onClick={() => fileRef.current?.click()}
               className={`border-2 border-dashed rounded-lg p-5 text-center cursor-pointer transition-all duration-200 ${
-                dragging
-                  ? "border-primary bg-primary/5"
-                  : "border-border hover:border-primary/50 hover:bg-muted/30"
+                dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
               }`}
             >
               <Upload className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
@@ -219,22 +264,13 @@ function ApprovalModal({
                   Drag a file here or <span className="text-primary font-semibold">browse</span>
                 </p>
               )}
-              <input
-                ref={fileRef}
-                type="file"
-                className="hidden"
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              />
+              <input ref={fileRef} type="file" className="hidden" onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
             </div>
           </div>
 
           <div className="flex gap-2 pt-1">
-            <Button onClick={handleSubmit} className="flex-1">
-              Submit Request
-            </Button>
-            <Button variant="outline" onClick={onClose}>
-              Cancel
-            </Button>
+            <Button onClick={handleSubmit} className="flex-1">Submit Request</Button>
+            <Button variant="outline" onClick={onClose}>Cancel</Button>
           </div>
         </div>
       </DialogContent>
@@ -259,18 +295,16 @@ export default function EmployeeProfilePage() {
 
   // Bank state
   const [bank, setBank] = useState<BankInfo>({ bankName: "", accountNumber: "", accountName: "" });
-  const [bankDraft, setBankDraft] = useState<BankInfo>({ ...bank });
-  const [bankSaving, setBankSaving] = useState(false);
+  const [submittingRequest, setSubmittingRequest] = useState(false);
 
   // Legal name state
   const [legalName, setLegalName] = useState({ first: "", middle: "", last: "" });
-  const [legalNameDraft, setLegalNameDraft] = useState({ first: "", middle: "", last: "" });
 
   // Pending approvals
   const [pendingSection, setPendingSection] = useState<PendingSection>(null);
 
   // Approval modal
-  const [approvalModal, setApprovalModal] = useState<ApprovalModalState>({ open: false, section: "legal-name", fieldLabel: "", newValue: "" });
+  const [approvalModal, setApprovalModal] = useState<ApprovalModalState>({ open: false, section: "legal-name" });
 
   // Onboarding import banner — only shown for converted employees
   const [showImportBanner, setShowImportBanner]       = useState(false);
@@ -300,7 +334,6 @@ export default function EmployeeProfilePage() {
       .then(([p, changeReqs]) => {
         if (p.avatar_url) setProfilePhoto(p.avatar_url);
         setLegalName({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
-        setLegalNameDraft({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
         const ext: ExtendedProfile = { phone: p.personal_email ? "" : "", personalEmail: p.personal_email ?? "", address: p.complete_address ?? "", dob: p.date_of_birth ?? "", placeOfBirth: p.place_of_birth ?? "", nationality: p.nationality ?? "", civilStatus: p.civil_status ?? "" };
         // phone comes from JWT / user table differently — try JWT first
         const jwtPhone = token ? parseJwt(token)?.phone_number ?? "" : "";
@@ -309,7 +342,6 @@ export default function EmployeeProfilePage() {
         setExtendedDraft(ext);
         const bk: BankInfo = { bankName: p.bank_name ?? "", accountNumber: p.bank_account_number ?? "", accountName: p.bank_account_name ?? "" };
         setBank(bk);
-        setBankDraft(bk);
         if (p.employee_id) setJwtPayload((prev) => ({ ...(prev ?? {}), employee_id: p.employee_id! }));
 
         // Restore pending state from DB
@@ -383,34 +415,17 @@ export default function EmployeeProfilePage() {
   };
 
   // ── Approval modal open ───────────────────────────────────────────────────
-  const openApprovalModal = (
-    section: "legal-name" | "bank",
-    fieldLabel: string,
-    newValue: string
-  ) => {
-    setApprovalModal({ open: true, section, fieldLabel, newValue });
+  const openApprovalModal = (section: "legal-name" | "bank") => {
+    setApprovalModal({ open: true, section });
   };
 
-  const handleApprovalSubmit = async (reason: string, _file: File | null) => {
+  const handleApprovalSubmit = async (reason: string, _file: File | null, values: Record<string, string>) => {
     const section = approvalModal.section;
-    setBankSaving(true);
+    setSubmittingRequest(true);
     try {
-      const requestedChanges: Record<string, string> =
-        section === "bank"
-          ? {
-              bank_name:           bankDraft.bankName.trim(),
-              bank_account_number: bankDraft.accountNumber.trim(),
-              bank_account_name:   bankDraft.accountName.trim(),
-            }
-          : {
-              first_name:  legalNameDraft.first.trim(),
-              middle_name: legalNameDraft.middle.trim(),
-              last_name:   legalNameDraft.last.trim(),
-            };
-
       await submitChangeRequest({
         field_type: section === "bank" ? "bank" : "legal_name",
-        requested_changes: requestedChanges,
+        requested_changes: values,
         reason,
       });
 
@@ -420,7 +435,7 @@ export default function EmployeeProfilePage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to submit change request.");
     } finally {
-      setBankSaving(false);
+      setSubmittingRequest(false);
     }
   };
 
@@ -611,15 +626,7 @@ export default function EmployeeProfilePage() {
                   size="sm"
                   variant="outline"
                   className="h-8 px-3 text-xs cursor-pointer"
-                  onClick={() => {
-                    openApprovalModal(
-                      "legal-name",
-                      "Legal Name",
-                      [legalNameDraft.first, legalNameDraft.middle, legalNameDraft.last]
-                        .filter(Boolean)
-                        .join(" ")
-                    );
-                  }}
+                  onClick={() => openApprovalModal("legal-name")}
                 >
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Request Change
@@ -639,29 +646,23 @@ export default function EmployeeProfilePage() {
             <div className="grid sm:grid-cols-3 gap-4">
               <FieldRow label="First Name" permType="approval">
                 <Input
-                  value={legalNameDraft.first}
-                  onChange={(e) => setLegalNameDraft({ ...legalNameDraft, first: e.target.value })}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
-                  placeholder="First name"
-                  disabled={pendingSection === "legal-name"}
+                  value={legalName.first || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Middle Name" permType="approval">
                 <Input
-                  value={legalNameDraft.middle}
-                  onChange={(e) => setLegalNameDraft({ ...legalNameDraft, middle: e.target.value })}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
-                  placeholder="Middle name"
-                  disabled={pendingSection === "legal-name"}
+                  value={legalName.middle || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Last Name" permType="approval">
                 <Input
-                  value={legalNameDraft.last}
-                  onChange={(e) => setLegalNameDraft({ ...legalNameDraft, last: e.target.value })}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
-                  placeholder="Last name"
-                  disabled={pendingSection === "legal-name"}
+                  value={legalName.last || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
             </div>
@@ -811,13 +812,7 @@ export default function EmployeeProfilePage() {
                   size="sm"
                   variant="outline"
                   className="h-8 px-3 text-xs cursor-pointer"
-                  onClick={() => {
-                    openApprovalModal(
-                      "bank",
-                      "Bank Account",
-                      `${bankDraft.bankName} — ${bankDraft.accountNumber}`
-                    );
-                  }}
+                  onClick={() => openApprovalModal("bank")}
                 >
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Request Change
@@ -837,29 +832,23 @@ export default function EmployeeProfilePage() {
             <div className="grid sm:grid-cols-2 gap-4">
               <FieldRow label="Bank Name" permType="approval">
                 <Input
-                  value={bankDraft.bankName}
-                  onChange={(e) => setBankDraft({ ...bankDraft, bankName: e.target.value })}
-                  placeholder="e.g. BDO"
-                  disabled={pendingSection === "bank"}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                  value={bank.bankName || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Account Number" permType="approval">
                 <Input
-                  value={bankDraft.accountNumber}
-                  onChange={(e) => setBankDraft({ ...bankDraft, accountNumber: e.target.value })}
-                  placeholder="00000-0000000-0"
-                  disabled={pendingSection === "bank"}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                  value={bank.accountNumber || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Account Name" permType="approval">
                 <Input
-                  value={bankDraft.accountName}
-                  onChange={(e) => setBankDraft({ ...bankDraft, accountName: e.target.value })}
-                  placeholder="Full name on account"
-                  disabled={pendingSection === "bank"}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                  value={bank.accountName || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
             </div>
@@ -870,6 +859,8 @@ export default function EmployeeProfilePage() {
       {/* Approval Modal */}
       <ApprovalModal
         state={approvalModal}
+        currentLegalName={legalName}
+        currentBank={bank}
         onClose={() => setApprovalModal({ ...approvalModal, open: false })}
         onSubmit={handleApprovalSubmit}
       />

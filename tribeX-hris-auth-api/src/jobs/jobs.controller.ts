@@ -108,6 +108,17 @@ export class JobsController {
     return this.jobsService.respondToInterview(applicationId, req.user.sub_userid, dto);
   }
 
+  @Post('applicant/my-applications/:applicationId/sfia-scan')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Applicant: Trigger SFIA resume scan for a specific application' })
+  scanSfiaResume(
+    @Param('applicationId') applicationId: string,
+    @Req() req: any,
+  ) {
+    return this.jobsService.scanResumeForApplicationSfia(applicationId, req.user.sub_userid);
+  }
+
   // ---------------------------------------------------------------------------
   // HR APPLICATION DETAIL — must be before /:id to avoid param collision
   // ---------------------------------------------------------------------------

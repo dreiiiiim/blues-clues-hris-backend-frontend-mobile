@@ -6,10 +6,11 @@ import { ApplicantsService } from './applicants.service';
 import { SupabaseModule } from '../supabase/supabase.module';
 import { MailModule } from '../mail/mail.module';
 import { AuthModule } from '../auth/auth.module';
+import { SfiaScoringModule } from '../sfia-scoring/sfia-scoring.module';
 
 @Module({
   controllers: [ApplicantsController],
   providers: [ApplicantsService],
-  imports: [SupabaseModule, MailModule, AuthModule],
+  imports: [SupabaseModule, MailModule, AuthModule, SfiaScoringModule],
 })
 export class ApplicantsModule {}

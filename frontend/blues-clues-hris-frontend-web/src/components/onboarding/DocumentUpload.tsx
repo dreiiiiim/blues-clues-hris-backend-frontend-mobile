@@ -77,7 +77,7 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
       return {
         ...doc,
         files: last ? [last] : [],
-        status: last ? (last.status === "approved" ? "approved" : "submitted") as const : "pending" as const,
+        status: (last ? (last.status === "approved" ? "approved" : "submitted") : "pending") as "approved" | "submitted" | "pending",
       };
     }));
   };

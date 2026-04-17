@@ -12,6 +12,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
+import { SfiaScoringService } from '../sfia-scoring/sfia-scoring.service';
 import { CreateApplicantDto } from './dto/create-applicant.dto';
 import { ApplicantLoginDto } from './dto/applicant-login.dto';
 import { UploadSfiaResumeDto } from './dto/upload-sfia-resume.dto';
@@ -31,6 +32,7 @@ export class ApplicantsService {
     private readonly mailService: MailService,
     private readonly config: ConfigService,
     private readonly jwtService: JwtService,
+    private readonly sfiaScoring: SfiaScoringService,
   ) {}
 
   async register(dto: CreateApplicantDto, companyId?: string) {
@@ -407,10 +409,25 @@ export class ApplicantsService {
       .from('applicant-resumes')
       .createSignedUrl(filePath, 60 * 60 * 24 * 7);
 
+    let sfiaAutoscan: { graded_applications: number; total_applications: number; reason?: string };
+    try {
+      sfiaAutoscan = await this.sfiaScoring.scoreAllApplicationsForApplicant(applicantId, {
+        path: filePath,
+        name: file.originalname,
+      });
+    } catch (scanError: any) {
+      sfiaAutoscan = {
+        graded_applications: 0,
+        total_applications: 0,
+        reason: 'Resume uploaded, but SFIA autoscan failed. Please re-apply scan from application view.',
+      };
+    }
+
     return {
       resume_url: urlData?.signedUrl ?? filePath,
       resume_name: file.originalname,
       resume_uploaded_at: now,
+      sfia_autoscan: sfiaAutoscan,
     };
   }
 

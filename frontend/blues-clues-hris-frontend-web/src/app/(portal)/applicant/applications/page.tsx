@@ -208,9 +208,16 @@ function ApplicationCard({ app, onView }: { readonly app: MyApplication; readonl
 
         {/* Footer */}
         <div className="flex items-center justify-between pt-1 border-t border-border">
-          <div className="flex items-center gap-1.5">
-            <div className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
-            <span className="text-xs text-muted-foreground font-medium">{cfg.label}</span>
+          <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
+              <div className={`h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+              <span className="text-xs text-muted-foreground font-medium">{cfg.label}</span>
+            </div>
+            {(app as any).sfia_match_percentage != null && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">
+                SFIA {Math.round((app as any).sfia_match_percentage)}%
+              </span>
+            )}
           </div>
           <Button
             size="sm" variant="ghost"
@@ -571,6 +578,80 @@ function InterviewTab({
   );
 }
 
+function SfiaGradeSection({ applicationId, initialGrade, initialPct, initialStatus }: {
+  readonly applicationId: string;
+  readonly initialGrade: number | null;
+  readonly initialPct: number | null;
+  readonly initialStatus?: 'assessed' | 'not_assessed' | 'not_configured';
+}) {
+  const [grade, setGrade] = useState<number | null>(initialGrade);
+  const [pct, setPct] = useState<number | null>(initialPct);
+  const [status, setStatus] = useState(initialStatus);
+  const [scanning, setScanning] = useState(false);
+
+  const handleRescan = async () => {
+    setScanning(true);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/jobs/applicant/my-applications/${applicationId}/sfia-scan`, { method: "POST" });
+      const data: any = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Rescan failed");
+      if (data.graded && data.sfia_matching_percentage != null) {
+        const newPct = Math.max(0, Math.min(100, data.sfia_matching_percentage));
+        const newGrade = newPct <= 0 ? 1 : Math.max(1, Math.min(7, Math.ceil((newPct / 100) * 7)));
+        setPct(Math.round(newPct * 100) / 100);
+        setGrade(newGrade);
+        setStatus('assessed');
+        toast.success("SFIA scan complete!");
+      } else {
+        toast.info(data.reason || "Scan ran but no grade was produced. Make sure your resume is a PDF or DOCX file.");
+      }
+    } catch (err: any) {
+      toast.error(err?.message || "Rescan failed");
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2">
+        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">SFIA Grade</p>
+        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/60 border border-border">Skills Framework for the Information Age</span>
+      </div>
+      {status === 'not_configured' ? (
+        <div className="rounded-xl border border-dashed border-amber-400 bg-amber-50 dark:bg-amber-900/10 px-4 py-5 text-center space-y-1">
+          <p className="text-sm font-semibold text-amber-700 dark:text-amber-400">SFIA not configured</p>
+          <p className="text-xs text-amber-600/80 dark:text-amber-500/80">This job posting has no SFIA skill requirements set up yet.</p>
+        </div>
+      ) : (
+        <>
+          <SfiaGradeCard grade={grade} matchPct={pct} />
+          {grade == null && (
+            <div className="mt-2 flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs flex-1"
+                onClick={handleRescan}
+                disabled={scanning}
+              >
+                {scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                {scanning ? "Scanning…" : "Rescan Resume"}
+              </Button>
+            </div>
+          )}
+          {grade == null && (
+            <p className="mt-1.5 text-[10px] text-muted-foreground/70 text-center leading-snug">
+              Upload a PDF or DOCX resume to your profile, then rescan.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonly detail: DetailWithJob; readonly onClose: () => void; readonly initialTab?: "job" | "answers" | "interview"; readonly onOfferAccepted?: (appId: string) => void }) {
   const [tab, setTab] = useState<"job" | "answers" | "interview">(initialTab ?? "job");
   // Prefer the schedule for the current application status (stage), fall back to latest
@@ -580,7 +661,6 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
   const [localStatus, setLocalStatus]         = useState(detail.status);
   const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
   const [acceptingOffer, setAcceptingOffer]   = useState(false);
-  const cfg    = effectiveCfg;
   const job    = detail.job_postings;
   const sorted = [...detail.answers].sort((a, b) => a.application_questions.sort_order - b.application_questions.sort_order);
 
@@ -627,6 +707,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
   }
 
   const effectiveCfg = STATUS_CONFIG[localStatus] ?? STATUS_CONFIG["submitted"];
+  const cfg = effectiveCfg;
 
   return (
     <div role="presentation" className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
@@ -873,19 +954,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
               </div>
 
               {/* SFIA Grade ─────────────────────────────────────────────── */}
-              {/* TODO: SFIA hook — replace the two `null` literals below with
-                    `detail.sfia_grade ?? null` and `detail.sfia_match_percentage ?? null`
-                    once the backend populates those fields.  No other changes needed. */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">SFIA Grade</p>
-                  <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/60 border border-border">Skills Framework for the Information Age</span>
-                </div>
-                <SfiaGradeCard
-                  grade={null /* TODO: detail.sfia_grade ?? null */}
-                  matchPct={null /* TODO: detail.sfia_match_percentage ?? null */}
-                />
-              </div>
+              <SfiaGradeSection applicationId={detail.application_id} initialGrade={detail.sfia_grade ?? null} initialPct={detail.sfia_match_percentage ?? null} initialStatus={detail.sfia_assessment_status} />
             </>
           )}
 

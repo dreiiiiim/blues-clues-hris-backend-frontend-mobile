@@ -2294,12 +2294,12 @@ function ApplicationDetailModal({
             {/* Documents */}
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Documents</p>
-              {detail?.applicant_profile.resume_url ? (
+              {(detail?.resume_upload?.signed_url || detail?.applicant_profile.resume_url) ? (
                 <Button
                   variant="outline"
                   size="sm"
                   className="w-full h-8 gap-1.5 justify-start text-xs font-medium"
-                  onClick={() => window.open(detail.applicant_profile.resume_url!, "_blank")}
+                  onClick={() => window.open((detail.resume_upload?.signed_url ?? detail.applicant_profile.resume_url)!, "_blank")}
                 >
                   <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                   View Resume
@@ -2314,14 +2314,34 @@ function ApplicationDetailModal({
             {/* SFIA Score */}
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Score</p>
-              <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
-                <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-border flex items-center justify-center">
-                  <span className="text-lg font-bold text-muted-foreground/30">—</span>
+              {detail?.sfia_assessment_status === 'assessed' ? (
+                <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 flex flex-col items-center gap-2 shadow-sm">
+                  <div className="h-14 w-14 rounded-full border-[3px] border-primary bg-primary/10 flex items-center justify-center">
+                    <span className="text-lg font-bold text-primary">{Math.round(detail.sfia_match_percentage ?? 0)}%</span>
+                  </div>
+                  <p className="text-[10px] text-center text-primary font-semibold">
+                    Grade {detail.sfia_grade ?? '—'}/7
+                  </p>
                 </div>
-                <p className="text-[10px] text-center text-muted-foreground leading-snug">
-                  Not yet<br />assessed
-                </p>
-              </div>
+              ) : detail?.sfia_assessment_status === 'not_configured' ? (
+                <div className="rounded-xl border border-dashed border-amber-400 bg-amber-50 dark:bg-amber-900/10 p-4 flex flex-col items-center gap-2">
+                  <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-amber-400 flex items-center justify-center">
+                    <span className="text-lg font-bold text-amber-400">!</span>
+                  </div>
+                  <p className="text-[10px] text-center text-amber-600 leading-snug">
+                    SFIA not<br />configured
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
+                  <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-border flex items-center justify-center">
+                    <span className="text-lg font-bold text-muted-foreground/30">—</span>
+                  </div>
+                  <p className="text-[10px] text-center text-muted-foreground leading-snug">
+                    Not yet<br />assessed
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Quick info */}

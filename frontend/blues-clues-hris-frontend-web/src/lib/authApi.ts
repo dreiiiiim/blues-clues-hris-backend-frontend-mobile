@@ -443,6 +443,7 @@ export type ApplicationDetail = {
 
   sfia_grade?: number | null;
   sfia_match_percentage?: number | null;
+  sfia_assessment_status?: 'assessed' | 'not_assessed' | 'not_configured';
   resume_upload?: {
     file_name: string;
     storage_path: string;

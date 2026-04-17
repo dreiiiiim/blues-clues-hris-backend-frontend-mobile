@@ -23,6 +23,7 @@ import { ManualRankingItemDto } from './dto/save-manual-ranking.dto';
 import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
 import { InterviewResponseDto } from './dto/interview-response.dto';
 import { OnboardingService } from '../onboarding/onboarding.service';
+import { SfiaScoringService } from '../sfia-scoring/sfia-scoring.service';
 
 type RankingMode = 'sfia' | 'manual';
 
@@ -111,6 +112,7 @@ export class JobsService {
     private readonly mailService: MailService,
     private readonly onboardingService: OnboardingService,
     private readonly notificationsService: NotificationsService,
+    private readonly sfiaScoring: SfiaScoringService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -581,12 +583,17 @@ export class JobsService {
       }
     }
 
+    const sfiaScore = await this.sfiaScoring.getScoreWithFallback(applicationId);
+
     return {
       ...app,
       answers: answers ?? [],
       interview_schedule: latestSchedule,
       interview_schedules,
       resume_upload: await this.getLatestResumeUpload((app as any).applicant_id, (app as any).job_posting_id),
+      sfia_match_percentage: sfiaScore.sfia_match_percentage,
+      sfia_grade: sfiaScore.sfia_grade,
+      sfia_assessment_status: sfiaScore.sfia_assessment_status,
     };
   }
 
@@ -1449,6 +1456,22 @@ export class JobsService {
       }
     }
 
+    let sfiaAutoscan: { graded: boolean; sfia_matching_percentage?: number; matched_skills?: number; reason?: string };
+    try {
+      const resumeSource = dto.resume_storage_path && dto.resume_file_name
+        ? { bucket: 'sfia-resumes', path: dto.resume_storage_path, name: dto.resume_file_name }
+        : undefined;
+      sfiaAutoscan = await this.sfiaScoring.scoreApplication({
+        applicationId: application_id,
+        jobPostingId,
+        applicantId,
+        resumeSource,
+      });
+    } catch (scanError: any) {
+      this.logger.warn(`[applyToJob] SFIA autoscan failed for application ${application_id}: ${scanError?.message ?? scanError}`);
+      sfiaAutoscan = { graded: false, reason: 'Auto SFIA scan failed. Applicant can trigger a manual scan later.' };
+    }
+
     return {
       ...data,
       resume_upload: dto.resume_storage_path && dto.resume_file_name
@@ -1458,6 +1481,7 @@ export class JobsService {
             signed_url: '',
           }
         : await this.getLatestResumeUpload(applicantId, jobPostingId),
+      sfia_autoscan: sfiaAutoscan,
     };
   }
 
@@ -1500,12 +1524,17 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
+    const sfiaScore = await this.sfiaScoring.getScoreWithFallback(applicationId);
+
     return {
       ...app,
       answers: answers ?? [],
       interview_schedule: latestSchedule,
       interview_schedules,
       resume_upload: await this.getLatestResumeUpload(app.applicant_id, app.job_posting_id),
+      sfia_match_percentage: sfiaScore.sfia_match_percentage,
+      sfia_grade: sfiaScore.sfia_grade,
+      sfia_assessment_status: sfiaScore.sfia_assessment_status,
     };
   }
 
@@ -1530,7 +1559,55 @@ export class JobsService {
       .order('applied_at', { ascending: false });
 
     if (error) throw new InternalServerErrorException(error.message);
-    return data ?? [];
+    const applications = data ?? [];
+    if (applications.length === 0) return applications;
+
+    const ids = applications.map((a: any) => a.application_id);
+    const { data: sfiaRows } = await supabase
+      .from('job_application_sfia')
+      .select('application_id, sfia_matching_percentage')
+      .in('application_id', ids);
+
+    const sfiaMap = new Map(
+      (sfiaRows ?? []).map((r: any) => [r.application_id, r.sfia_matching_percentage]),
+    );
+
+    return applications.map((a: any) => {
+      const raw = sfiaMap.get(a.application_id);
+      const pct = raw != null && Number.isFinite(Number(raw))
+        ? Math.round(Math.max(0, Math.min(100, Number(raw))) * 100) / 100
+        : null;
+      const grade = pct != null
+        ? (pct <= 0 ? 1 : Math.max(1, Math.min(7, Math.ceil((pct / 100) * 7))))
+        : null;
+      return { ...a, sfia_match_percentage: pct, sfia_grade: grade };
+    });
+  }
+
+  async scanResumeForApplicationSfia(applicationId: string, applicantId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: app, error } = await supabase
+      .from('job_applications')
+      .select('application_id, job_posting_id, applicant_id')
+      .eq('application_id', applicationId)
+      .eq('applicant_id', applicantId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(error.message);
+    if (!app) throw new NotFoundException('Application not found');
+
+    const latest = await this.getLatestResumeUpload(applicantId, app.job_posting_id);
+    const resumeSource = latest
+      ? { bucket: 'sfia-resumes', path: latest.storage_path, name: latest.file_name }
+      : undefined;
+
+    return this.sfiaScoring.scoreApplication({
+      applicationId: app.application_id,
+      jobPostingId: app.job_posting_id,
+      applicantId: app.applicant_id,
+      resumeSource,
+    });
   }
 
   private async buildRankedCandidates(

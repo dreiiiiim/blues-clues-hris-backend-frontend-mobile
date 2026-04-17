@@ -12,6 +12,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { AuditModule } from './audit/audit.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SfiaScoringModule } from './sfia-scoring/sfia-scoring.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { NotificationsModule } from './notifications/notifications.module';
     AuditModule,
     OnboardingModule,
     NotificationsModule,
+    SfiaScoringModule,
   ],
 })
 export class AppModule {}
