@@ -249,6 +249,26 @@ export class JobsController {
     return this.jobsService.getQuestionsForPosting(id);
   }
 
+  @Get(':id/sfia-skills')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Get required SFIA skills for a job posting' })
+  getJobSfiaSkills(@Param('id') id: string, @Req() req: any) {
+    return this.jobsService.getJobSfiaSkills(id, req.user.company_id);
+  }
+
+  @Put(':id/sfia-skills')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Set required SFIA skills for a job posting' })
+  saveJobSfiaSkills(
+    @Param('id') id: string,
+    @Body() body: { skills: Array<{ skill_id: string; required_level: number; weight?: number }> },
+    @Req() req: any,
+  ) {
+    return this.jobsService.saveJobSfiaSkills(id, body.skills ?? [], req.user.company_id);
+  }
+
   @Get(':id/candidates/ranked')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...HR_AND_ABOVE)

@@ -548,6 +548,115 @@ function CreateJobModal({
 
 // ─── Edit Job Modal ────────────────────────────────────────────────────────────
 
+type SfiaSkillRow = { skill_id: string; required_level: number; weight: number };
+
+function SfiaSkillsSection({ jobId }: { jobId: string }) {
+  const [skills, setSkills] = useState<SfiaSkillRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiFetch<SfiaSkillRow[]>(`/jobs/${jobId}/sfia-skills`)
+      .then(setSkills)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [jobId]);
+
+  const addRow = () => setSkills((p) => [...p, { skill_id: "", required_level: 3, weight: 1 }]);
+  const removeRow = (i: number) => setSkills((p) => p.filter((_, idx) => idx !== i));
+  const updateRow = (i: number, field: keyof SfiaSkillRow, val: string | number) =>
+    setSkills((p) => p.map((r, idx) => idx === i ? { ...r, [field]: val } : r));
+
+  const handleSave = async () => {
+    const valid = skills.filter((s) => s.skill_id.trim());
+    setSaving(true);
+    try {
+      await apiFetch(`/jobs/${jobId}/sfia-skills`, {
+        method: "PUT",
+        body: JSON.stringify({ skills: valid }),
+      });
+      setSkills(valid);
+      toast.success("SFIA skill requirements saved.");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to save SFIA skills.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const SFIA_LEVELS = [
+    { value: 1, label: "L1 — Follow (Entry)" },
+    { value: 2, label: "L2 — Assist (Junior)" },
+    { value: 3, label: "L3 — Apply (Mid)" },
+    { value: 4, label: "L4 — Enable (Senior)" },
+    { value: 5, label: "L5 — Ensure & Advise (Lead)" },
+    { value: 6, label: "L6 — Initiate & Influence (Principal)" },
+    { value: 7, label: "L7 — Set Strategy (Director)" },
+  ];
+
+  return (
+    <div className="space-y-3 pt-3 border-t border-border">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Required Skills</p>
+          <p className="text-[11px] text-muted-foreground/60 mt-0.5">Define skills candidates will be matched against for SFIA grading.</p>
+        </div>
+        <Button type="button" variant="ghost" size="sm" onClick={addRow} className="gap-1 h-7 text-xs">
+          <Plus className="h-3.5 w-3.5" /> Add Skill
+        </Button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 py-2 text-muted-foreground text-xs">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
+        </div>
+      ) : skills.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-center">
+          <p className="text-xs text-muted-foreground/60">No skills defined — applicants won't receive a SFIA grade until skills are added.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {skills.map((row, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <Input
+                value={row.skill_id}
+                onChange={(e) => updateRow(i, "skill_id", e.target.value)}
+                placeholder="Skill code (e.g. PROG, DTAN)"
+                className="h-8 text-xs flex-1"
+              />
+              <select
+                value={row.required_level}
+                onChange={(e) => updateRow(i, "required_level", Number(e.target.value))}
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring w-52 shrink-0"
+              >
+                {SFIA_LEVELS.map((l) => (
+                  <option key={l.value} value={l.value}>{l.label}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer shrink-0"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!loading && (
+        <div className="flex justify-end">
+          <Button type="button" size="sm" onClick={handleSave} disabled={saving} className="h-8 text-xs gap-1.5">
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+            Save Skills
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function EditJobModal({
   job,
   onClose,
@@ -696,6 +805,8 @@ function EditJobModal({
               </Button>
             </div>
           </form>
+
+          <SfiaSkillsSection jobId={job.job_posting_id} />
         </div>
       </div>
     </div>
@@ -1565,9 +1676,26 @@ function InterviewScheduleForm({
   const durationLabel = formatDuration(durationMins);
   const timeInvalid = !!(form.time && form.endTime && durationMins <= 0);
 
+  // Disallow past dates and past times when today is selected
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const nowTimeStr = new Date().toTimeString().slice(0, 5); // HH:MM
+  const isToday = form.date === todayStr;
+  const minStartTime = isToday ? nowTimeStr : undefined;
+  const minEndTime = isToday
+    ? (form.time && form.time > nowTimeStr ? form.time : nowTimeStr)
+    : form.time || undefined;
+
   const handleSubmit = () => {
     if (!form.date || !form.time || !form.endTime || !form.interviewer) {
       toast.error("Date, start time, end time, and interviewer name are required.");
+      return;
+    }
+    if (form.date < todayStr) {
+      toast.error("Interview date cannot be in the past.");
+      return;
+    }
+    if (form.date === todayStr && form.time < nowTimeStr) {
+      toast.error("Interview start time cannot be in the past.");
       return;
     }
     if (durationMins <= 0) {
@@ -1603,7 +1731,7 @@ function InterviewScheduleForm({
         <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
           Date *
         </label>
-        <Input type="date" value={form.date} onChange={field("date")} className="h-9" />
+        <Input type="date" value={form.date} onChange={field("date")} min={todayStr} className="h-9" />
       </div>
 
       {/* Time range */}
@@ -1626,6 +1754,7 @@ function InterviewScheduleForm({
               type="time"
               value={form.time}
               onChange={field("time")}
+              min={minStartTime}
               className="h-10 pl-8 text-sm"
               placeholder="Start"
             />
@@ -1639,6 +1768,7 @@ function InterviewScheduleForm({
               type="time"
               value={form.endTime}
               onChange={field("endTime")}
+              min={minEndTime}
               className={`h-10 pl-8 text-sm ${timeInvalid ? "border-destructive focus-visible:ring-destructive/50" : ""}`}
               placeholder="End"
             />
@@ -2314,14 +2444,59 @@ function ApplicationDetailModal({
             {/* SFIA Score */}
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Score</p>
-              <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
-                <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-border flex items-center justify-center">
-                  <span className="text-lg font-bold text-muted-foreground/30">—</span>
-                </div>
-                <p className="text-[10px] text-center text-muted-foreground leading-snug">
-                  Not yet<br />assessed
-                </p>
-              </div>
+              {(() => {
+                const matchScore = typeof detail?.sfia_match_percentage === "number" && Number.isFinite(detail.sfia_match_percentage)
+                  ? detail.sfia_match_percentage
+                  : null;
+                const surveyScore = typeof detail?.survey_score === "number" && Number.isFinite(detail.survey_score)
+                  ? detail.survey_score
+                  : null;
+                const rawScore = matchScore ?? surveyScore;
+                const score = rawScore == null ? null : Math.max(0, Math.min(100, Math.round(rawScore)));
+                const sfiaLevel = typeof detail?.sfia_grade === "number" && Number.isFinite(detail.sfia_grade)
+                  ? Math.max(1, Math.min(7, Math.round(detail.sfia_grade)))
+                  : null;
+                const accent = score == null
+                  ? "#94a3b8"
+                  : score >= 80
+                    ? "#16a34a"
+                    : score >= 60
+                      ? "#2563eb"
+                      : score >= 40
+                        ? "#d97706"
+                        : "#dc2626";
+
+                if (score == null) {
+                  return (
+                    <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
+                      <div className="h-14 w-14 rounded-full border-[3px] border-dashed border-border flex items-center justify-center">
+                        <span className="text-lg font-bold text-muted-foreground/30">-</span>
+                      </div>
+                      <p className="text-[10px] text-center text-muted-foreground leading-snug">
+                        Not yet<br />assessed
+                      </p>
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
+                    <div className="h-14 w-14 rounded-full p-[3px]" style={{ background: `conic-gradient(${accent} ${score}%, #e5e7eb ${score}% 100%)` }}>
+                      <div className="h-full w-full rounded-full bg-card flex items-center justify-center">
+                        <span className="text-sm font-bold tabular-nums" style={{ color: accent }}>{score}%</span>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-center text-muted-foreground leading-snug">
+                      {matchScore != null ? "SFIA match" : "Screening score"}
+                    </p>
+                    {sfiaLevel != null && (
+                      <span className="inline-flex items-center rounded-full border border-border bg-muted/20 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                        SFIA L{sfiaLevel}
+                      </span>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
 
             {/* Quick info */}

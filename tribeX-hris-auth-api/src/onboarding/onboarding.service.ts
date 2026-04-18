@@ -23,6 +23,20 @@ export class OnboardingService {
     private readonly notificationsService: NotificationsService,
   ) {}
 
+  private normalizeDocType(title: string): string {
+    const map: Record<string, string> = {
+      'government id': 'government-id',
+      'tax form': 'tax-form',
+      'signed employment contract': 'employment-contract',
+      'employment contract': 'employment-contract',
+      'bank details / payroll form': 'bank-details',
+      'bank details': 'bank-details',
+      'payroll form': 'bank-details',
+    };
+    const key = title.toLowerCase().trim();
+    return map[key] ?? key.replace(/\s*\/\s*/g, '-').replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  }
+
   private async getSessionContext(sessionId: string): Promise<{
     accountId: string;
     companyId: string;
@@ -46,12 +60,43 @@ export class OnboardingService {
       .eq('user_id', accountId)
       .maybeSingle();
 
+    if (profile) {
+      return {
+        accountId,
+        companyId: profile.company_id ?? '',
+        employeeName: `${profile.first_name} ${profile.last_name}`,
+        employeeEmail: profile.email ?? '',
+      };
+    }
+
+    const { data: applicant } = await supabase
+      .from('applicant_profile')
+      .select('first_name, last_name, email, company_id')
+      .eq('applicant_id', accountId)
+      .maybeSingle();
+
     return {
       accountId,
-      companyId: profile?.company_id ?? '',
-      employeeName: profile ? `${profile.first_name} ${profile.last_name}` : 'Employee',
-      employeeEmail: profile?.email ?? '',
+      companyId: applicant?.company_id ?? '',
+      employeeName: applicant ? `${applicant.first_name} ${applicant.last_name}` : 'Employee',
+      employeeEmail: applicant?.email ?? '',
     };
+  }
+
+  private getRemarkTabTagCandidates(rawTabTag: string): string[] {
+    const normalized = rawTabTag.trim().toLowerCase();
+    const canonicalMap: Record<string, string[]> = {
+      documents: ['Documents', 'documents'],
+      tasks: ['Tasks', 'tasks'],
+      equipment: ['Equipment', 'equipment'],
+      profile: ['Profile', 'profile'],
+      forms: ['Forms', 'HR Forms', 'forms', 'hr_forms'],
+      hr_forms: ['Forms', 'HR Forms', 'forms', 'hr_forms'],
+      'hr forms': ['Forms', 'HR Forms', 'forms', 'hr_forms'],
+    };
+
+    const candidates = canonicalMap[normalized] ?? [rawTabTag.trim()];
+    return [...new Set(candidates)];
   }
 
   // =========================================================
@@ -137,7 +182,29 @@ export class OnboardingService {
         .from('onboarding_documents')
         .select('*')
         .in('onboarding_item_id', itemIds);
-      submissions = data || [];
+
+      const rawSubmissions = data || [];
+      submissions = await Promise.all(
+        rawSubmissions.map(async (submission: any) => {
+          if (!submission.file_path) return submission;
+
+          const { data: signedUrlData, error: signedUrlError } = await supabase.storage
+            .from('onboarding-documents')
+            .createSignedUrl(submission.file_path, 60 * 60 * 24 * 7);
+
+          if (signedUrlError) {
+            this.logger.warn(
+              `[getMySession] Failed to refresh signed URL for submission ${submission.submission_id}: ${signedUrlError.message}`,
+            );
+            return submission;
+          }
+
+          return {
+            ...submission,
+            file_url: signedUrlData?.signedUrl || submission.file_url,
+          };
+        }),
+      );
     }
 
     // Get remarks
@@ -282,11 +349,16 @@ export class OnboardingService {
     // Verify the item exists
     const { data: item, error: itemErr } = await supabase
       .from('onboarding_items')
-      .select('onboarding_item_id, session_id')
+      .select('onboarding_item_id, session_id, status')
       .eq('onboarding_item_id', onboardingItemId)
       .single();
 
     if (itemErr || !item) throw new NotFoundException('Onboarding item not found.');
+    if (!isProofOfReceipt && !['pending', 'rejected'].includes((item as any).status)) {
+      throw new BadRequestException(
+        'This document is locked while awaiting HR review. You can reupload only after HR rejects it.',
+      );
+    }
 
     // Upload to Supabase Storage
     const filePath = `${item.session_id}/${onboardingItemId}/${Date.now()}_${file.originalname}`;
@@ -449,6 +521,41 @@ export class OnboardingService {
   async submitForReview(sessionId: string) {
     const supabase = this.supabaseService.getClient();
 
+    const { data: reviewItems, error: reviewItemsError } = await supabase
+      .from('onboarding_items')
+      .select('status, template_items(tab_category, is_required)')
+      .eq('session_id', sessionId);
+
+    if (reviewItemsError) throw new BadRequestException(reviewItemsError.message);
+
+    const checklistTabs = new Set(['profile', 'documents', 'hr_forms', 'tasks', 'equipment']);
+    const doneStatuses = new Set(['approved', 'confirmed', 'issued']);
+
+    const requiredIncomplete = (reviewItems ?? []).filter((item: any) => {
+      const tabCategory = String(item?.template_items?.tab_category ?? '').toLowerCase();
+      const isRequired = Boolean(item?.template_items?.is_required);
+      const status = String(item?.status ?? '').toLowerCase();
+      return checklistTabs.has(tabCategory) && isRequired && !doneStatuses.has(status);
+    });
+
+    if (requiredIncomplete.length > 0) {
+      throw new BadRequestException(
+        'Please complete all required onboarding items before submitting for final review.',
+      );
+    }
+
+    const equipmentIncomplete = (reviewItems ?? []).filter((item: any) => {
+      const tabCategory = String(item?.template_items?.tab_category ?? '').toLowerCase();
+      const status = String(item?.status ?? '').toLowerCase();
+      return tabCategory === 'equipment' && !['approved', 'issued'].includes(status);
+    });
+
+    if (equipmentIncomplete.length > 0) {
+      throw new BadRequestException(
+        'Please complete the Equipment step first before submitting for final review.',
+      );
+    }
+
     await supabase
       .from('onboarding_sessions')
       .update({ status: 'for-review' })
@@ -500,42 +607,63 @@ export class OnboardingService {
 
     if (error) throw new BadRequestException(error.message);
 
-    // Enrich with employee names and template names
-    const enriched: any[] = [];
-    for (const s of sessions || []) {
-      const { data: user } = await supabase
+    const sessionRows = sessions ?? [];
+    if (sessionRows.length === 0) return [];
+
+    const accountIds = [...new Set(sessionRows.map((s) => s.account_id).filter(Boolean))];
+    const templateIds = [...new Set(sessionRows.map((s) => s.template_id).filter(Boolean))];
+
+    let users: Array<{ user_id: string; first_name: string | null; last_name: string | null }> = [];
+    let applicants: Array<{ applicant_id: string; first_name: string | null; last_name: string | null }> = [];
+    let templates: Array<{ template_id: string; name: string | null }> = [];
+
+    if (accountIds.length > 0) {
+      const { data: userRows, error: userError } = await supabase
         .from('user_profile')
-        .select('first_name, last_name')
-        .eq('user_id', s.account_id)
-        .maybeSingle();
+        .select('user_id, first_name, last_name')
+        .in('user_id', accountIds);
+      if (userError) this.logger.warn(`[getAllOnboardingSessions] user_profile lookup failed: ${userError.message}`);
+      users = (userRows ?? []) as Array<{ user_id: string; first_name: string | null; last_name: string | null }>;
 
-      let employeeName: string | null = null;
-      if (user) {
-        employeeName = `${user.first_name} ${user.last_name}`;
-      } else {
-        // Session may belong to an applicant not yet converted to employee
-        const { data: applicant } = await supabase
-          .from('applicant_profile')
-          .select('first_name, last_name')
-          .eq('applicant_id', s.account_id)
-          .maybeSingle();
-        if (applicant) employeeName = `${applicant.first_name} ${applicant.last_name}`;
-      }
-
-      const { data: template } = await supabase
-        .from('onboarding_templates')
-        .select('name')
-        .eq('template_id', s.template_id)
-        .maybeSingle();
-
-      enriched.push({
-        ...s,
-        employee_name: employeeName,
-        template_name: template?.name || null,
-      });
+      const { data: applicantRows, error: applicantError } = await supabase
+        .from('applicant_profile')
+        .select('applicant_id, first_name, last_name')
+        .in('applicant_id', accountIds);
+      if (applicantError) this.logger.warn(`[getAllOnboardingSessions] applicant_profile lookup failed: ${applicantError.message}`);
+      applicants = (applicantRows ?? []) as Array<{ applicant_id: string; first_name: string | null; last_name: string | null }>;
     }
 
-    return enriched;
+    if (templateIds.length > 0) {
+      const { data: templateRows, error: templateError } = await supabase
+        .from('onboarding_templates')
+        .select('template_id, name')
+        .in('template_id', templateIds);
+      if (templateError) this.logger.warn(`[getAllOnboardingSessions] onboarding_templates lookup failed: ${templateError.message}`);
+      templates = (templateRows ?? []) as Array<{ template_id: string; name: string | null }>;
+    }
+
+    const userNameById = new Map<string, string>();
+    for (const u of users) {
+      const fullName = `${u.first_name ?? ''} ${u.last_name ?? ''}`.trim();
+      if (fullName) userNameById.set(u.user_id, fullName);
+    }
+
+    const applicantNameById = new Map<string, string>();
+    for (const a of applicants) {
+      const fullName = `${a.first_name ?? ''} ${a.last_name ?? ''}`.trim();
+      if (fullName) applicantNameById.set(a.applicant_id, fullName);
+    }
+
+    const templateNameById = new Map<string, string | null>();
+    for (const t of templates) {
+      templateNameById.set(t.template_id, t.name ?? null);
+    }
+
+    return sessionRows.map((s) => ({
+      ...s,
+      employee_name: userNameById.get(s.account_id) ?? applicantNameById.get(s.account_id) ?? null,
+      template_name: templateNameById.get(s.template_id) ?? null,
+    }));
   }
 
   async getSessionById(sessionId: string) {
@@ -639,26 +767,81 @@ export class OnboardingService {
 
   async addRemark(dto: AddRemarkDto, authorId: string) {
     const supabase = this.supabaseService.getClient();
+    const trimmedTabTag = dto.tab_tag?.trim();
+    if (!trimmedTabTag) throw new BadRequestException('tab_tag is required');
+    if (!authorId) throw new BadRequestException('Missing author information');
 
-    const { data, error } = await supabase
-      .from('onboarding_remarks')
-      .insert({
-        remark_id: crypto.randomUUID(),
-        session_id: dto.session_id,
-        author_id: authorId,
-        tab_tag: dto.tab_tag,
-        remark_text: dto.remark_text,
-        created_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+    const tabTagCandidates = this.getRemarkTabTagCandidates(trimmedTabTag);
+    let lastErrorMessage = 'Unknown error';
 
-    if (error) throw new BadRequestException(error.message);
-    return data;
+    for (const candidateTabTag of tabTagCandidates) {
+      const { data, error } = await supabase
+        .from('onboarding_remarks')
+        .insert({
+          remark_id: crypto.randomUUID(),
+          session_id: dto.session_id,
+          author_id: authorId,
+          tab_tag: candidateTabTag,
+          remark_text: dto.remark_text,
+          created_at: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (!error) return data;
+
+      lastErrorMessage = error.message;
+      const maybeTagMismatch =
+        /tab_tag|enum|check constraint|invalid input value/i.test(lastErrorMessage);
+
+      // Retry only when failure may be caused by a tab_tag representation mismatch.
+      if (!maybeTagMismatch) {
+        throw new BadRequestException(lastErrorMessage);
+      }
+    }
+
+    throw new BadRequestException(lastErrorMessage);
   }
 
   async approveSession(sessionId: string, hrUserId?: string) {
     const supabase = this.supabaseService.getClient();
+
+    const { data: sessionRow, error: sessionError } = await supabase
+      .from('onboarding_sessions')
+      .select('account_id, status')
+      .eq('session_id', sessionId)
+      .maybeSingle();
+
+    if (sessionError) throw new InternalServerErrorException(sessionError.message);
+    if (!sessionRow) throw new NotFoundException('Session not found.');
+    if ((sessionRow as any).status !== 'for-review') {
+      throw new BadRequestException('Only sessions in "for-review" status can be approved.');
+    }
+
+    const { data: reviewItems, error: reviewItemsError } = await supabase
+      .from('onboarding_items')
+      .select('status, template_items(tab_category)')
+      .eq('session_id', sessionId);
+
+    if (reviewItemsError) throw new InternalServerErrorException(reviewItemsError.message);
+
+    const pendingTasks = (reviewItems ?? []).filter((item: any) => {
+      const tabCategory = String(item?.template_items?.tab_category ?? '').toLowerCase();
+      const status = String(item?.status ?? '').toLowerCase();
+      return tabCategory === 'tasks' && !['approved', 'confirmed'].includes(status);
+    });
+
+    const pendingEquipment = (reviewItems ?? []).filter((item: any) => {
+      const tabCategory = String(item?.template_items?.tab_category ?? '').toLowerCase();
+      const status = String(item?.status ?? '').toLowerCase();
+      return tabCategory === 'equipment' && !['issued', 'approved'].includes(status);
+    });
+
+    if (pendingTasks.length > 0 || pendingEquipment.length > 0) {
+      throw new BadRequestException(
+        `Cannot approve onboarding yet. Pending tasks: ${pendingTasks.length}. Pending equipment items: ${pendingEquipment.length}.`,
+      );
+    }
 
     // Mark session approved
     await supabase
@@ -667,11 +850,6 @@ export class OnboardingService {
       .eq('session_id', sessionId);
 
     // Resolve account_id
-    const { data: sessionRow } = await supabase
-      .from('onboarding_sessions')
-      .select('account_id')
-      .eq('session_id', sessionId)
-      .maybeSingle();
     const accountId = (sessionRow as any)?.account_id as string | undefined;
 
     // --- Applicant case: create user_profile + send set-password invite ---
@@ -722,6 +900,7 @@ export class OnboardingService {
                 email: loginEmail,
                 personal_email: personalEmail,
                 first_name: staging?.first_name ?? '',
+                middle_name: staging?.middle_name ?? null,
                 last_name: staging?.last_name ?? '',
                 username,
                 company_id: applicant.company_id,
@@ -761,7 +940,7 @@ export class OnboardingService {
                     .from('schedules')
                     .select('start_time, end_time, break_start, break_end, workdays, is_nightshift')
                     .in('employee_id', memberEmpIds)
-                    .in('schedule_source', ['bulk', 'department'])
+                    .neq('schedule_source', 'individual')
                     .order('updated_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
@@ -775,7 +954,7 @@ export class OnboardingService {
                       break_end: deptSchedule.break_end ?? '00:00',
                       workdays: deptSchedule.workdays,
                       is_nightshift: deptSchedule.is_nightshift ?? false,
-                      schedule_source: 'department',
+                      schedule_source: 'bulk',
                       updated_at: new Date().toISOString(),
                     }, { onConflict: 'employee_id' });
                     this.logger.log(`[approveSession] Inherited department schedule for new employee ${employeeCode}`);
@@ -861,6 +1040,7 @@ export class OnboardingService {
         if (staging) {
           const profileUpdate: Record<string, any> = {};
           if (staging.email_address != null)   profileUpdate.personal_email   = staging.email_address;
+          if (staging.middle_name != null)      profileUpdate.middle_name      = staging.middle_name;
           if (staging.phone_number != null)     profileUpdate.phone_number     = staging.phone_number;
           if (staging.complete_address != null) profileUpdate.complete_address = staging.complete_address;
           if (staging.date_of_birth != null)   profileUpdate.date_of_birth    = staging.date_of_birth;
@@ -895,7 +1075,7 @@ export class OnboardingService {
             const docRows: any[] = [];
             for (const doc of docs) {
               const item = sessionItems.find((i: any) => i.onboarding_item_id === doc.onboarding_item_id) as any;
-              const docType = item?.template_items?.title || 'onboarding-document';
+              const docType = this.normalizeDocType(item?.template_items?.title || 'onboarding-document');
 
               // Copy file from onboarding-documents → employee-documents so the path never expires
               let employeeFilePath = doc.file_path || doc.file_url;
@@ -1566,22 +1746,67 @@ export class OnboardingService {
             .eq('is_proof_of_receipt', false);
 
           if (docs && docs.length > 0) {
-            const docRows = docs.map((doc: any) => {
+            const docRows: any[] = [];
+            for (const doc of docs) {
               const item = sessionItems.find((i: any) => i.onboarding_item_id === doc.onboarding_item_id) as any;
-              return {
+              const docType = this.normalizeDocType(item?.template_items?.title || 'onboarding-document');
+
+              // Copy file from onboarding-documents → employee-documents so the path never expires
+              let employeeFilePath = doc.file_path || doc.file_url;
+              if (doc.file_path) {
+                try {
+                  const destPath = `${userId}/${Date.now()}_${doc.file_name}`;
+                  const { data: fileData, error: dlErr } = await supabase.storage
+                    .from('onboarding-documents')
+                    .download(doc.file_path);
+                  if (!dlErr && fileData) {
+                    const { error: upErr } = await supabase.storage
+                      .from('employee-documents')
+                      .upload(destPath, fileData, { contentType: doc.file_type || 'application/octet-stream', upsert: true });
+                    if (!upErr) employeeFilePath = destPath;
+                  }
+                } catch {
+                  // non-fatal: fall back to raw onboarding path
+                }
+              }
+
+              docRows.push({
                 id: crypto.randomUUID(),
                 user_id: userId,
-                document_type: item?.template_items?.title || 'onboarding-document',
-                file_path: doc.file_url,
+                document_type: docType,
+                file_path: employeeFilePath,
                 file_name: doc.file_name,
                 file_size: doc.file_size_bytes,
                 status: 'approved',
                 reviewed_at: new Date().toISOString(),
                 uploaded_at: doc.uploaded_at || new Date().toISOString(),
-              };
-            });
+              });
+            }
             const { error: employeeDocsError } = await supabase.from('employee_documents').insert(docRows);
             if (employeeDocsError) throw new InternalServerErrorException(employeeDocsError.message);
+          }
+        }
+
+        // Re-link session to new employee user_id so getMe/findOne can resolve emergency contacts
+        await supabase
+          .from('onboarding_sessions')
+          .update({ account_id: userId })
+          .eq('session_id', onboardingSession.session_id);
+
+        // Supplement user_profile with fields not stored in onboarding_submissions (middle_name, place_of_birth, personal_email)
+        const { data: stagingExtra } = await supabase
+          .from('employee_staging')
+          .select('middle_name, place_of_birth, email_address')
+          .eq('session_id', onboardingSession.session_id)
+          .maybeSingle();
+
+        if (stagingExtra) {
+          const extraUpdate: Record<string, any> = {};
+          if (stagingExtra.middle_name != null)   extraUpdate.middle_name    = stagingExtra.middle_name;
+          if (stagingExtra.place_of_birth != null) extraUpdate.place_of_birth = stagingExtra.place_of_birth;
+          if (stagingExtra.email_address != null)  extraUpdate.personal_email = stagingExtra.email_address;
+          if (Object.keys(extraUpdate).length > 0) {
+            await supabase.from('user_profile').update(extraUpdate).eq('user_id', userId);
           }
         }
       }

@@ -11,6 +11,15 @@ import { API_BASE_URL } from "@/lib/api";
 
 type ApplyScope = "company" | "department" | "employees";
 
+type ScheduleSeed = {
+  start_time?: string | null;
+  end_time?: string | null;
+  break_start?: string | null;
+  break_end?: string | null;
+  workdays?: string | null;
+  is_nightshift?: boolean | null;
+};
+
 export type ScheduleTemplate = {
   id: string;
   label: string;
@@ -40,6 +49,48 @@ const WEEKDAY_FULL: Record<string, string> = {
   MON: "Mon", TUE: "Tue", WED: "Wed", THU: "Thu", FRI: "Fri", SAT: "Sat", SUN: "Sun",
 };
 
+function normalizeTimeForInput(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const hh = match[1].padStart(2, "0");
+  return `${hh}:${match[2]}`;
+}
+
+function parseWorkdaysInput(value: string | null | undefined): string[] {
+  if (!value) return [];
+  return value
+    .split(",")
+    .map(day => day.trim().toUpperCase())
+    .filter(day => WEEKDAYS.includes(day));
+}
+
+function resolveInitialTemplateId(
+  schedule: ScheduleSeed | undefined,
+  parsedDays: string[],
+): string {
+  if (!schedule) return "standard";
+  const start = normalizeTimeForInput(schedule.start_time);
+  const end = normalizeTimeForInput(schedule.end_time);
+  const breakStart = normalizeTimeForInput(schedule.break_start);
+  const breakEnd = normalizeTimeForInput(schedule.break_end);
+  const isNight = Boolean(schedule.is_nightshift);
+  if (!start || !end) return "custom";
+
+  const matched = SCHEDULE_TEMPLATES.find((template) =>
+    template.id !== "custom" &&
+    template.startTime === start &&
+    template.endTime === end &&
+    template.breakStart === breakStart &&
+    template.breakEnd === breakEnd &&
+    template.isNightShift === isNight &&
+    template.workdays.length === parsedDays.length &&
+    template.workdays.every((day) => parsedDays.includes(day))
+  );
+
+  return matched?.id ?? "custom";
+}
+
 // ─── Exported types ───────────────────────────────────────────────────────────
 
 export type DepartmentOption = { id: string; name: string };
@@ -59,12 +110,18 @@ export function ScheduleManagementModal({
   employeeCount,
   departments,
   employees = [],
+  initialScope,
+  initialDepartmentId,
+  initialSchedule,
   onClose,
   onApplied,
 }: Readonly<{
   employeeCount: number;
   departments: DepartmentOption[];
   employees?: EmployeeOption[];
+  initialScope?: ApplyScope;
+  initialDepartmentId?: string;
+  initialSchedule?: ScheduleSeed | null;
   onClose: () => void;
   onApplied?: () => void;
 }>) {
@@ -80,11 +137,21 @@ export function ScheduleManagementModal({
     return `${hour12}:${mins} ${suffix}`;
   };
 
-  const [scope, setScope]                     = useState<ApplyScope>("company");
-  const [selectedDept, setSelectedDept]       = useState(departments[0]?.name ?? "");
-  const [selectedDeptId, setSelectedDeptId]   = useState(departments[0]?.id ?? "");
+  const initialDeptId =
+    initialDepartmentId && departments.some(d => d.id === initialDepartmentId)
+      ? initialDepartmentId
+      : (departments[0]?.id ?? "");
+  const initialDeptName = departments.find(d => d.id === initialDeptId)?.name ?? "";
+  const initialParsedDays = parseWorkdaysInput(initialSchedule?.workdays).length > 0
+    ? parseWorkdaysInput(initialSchedule?.workdays)
+    : ["MON","TUE","WED","THU","FRI"];
+  const initialTemplateId = resolveInitialTemplateId(initialSchedule ?? undefined, initialParsedDays);
+
+  const [scope, setScope]                     = useState<ApplyScope>(initialScope ?? "company");
+  const [selectedDept, setSelectedDept]       = useState(initialDeptName);
+  const [selectedDeptId, setSelectedDeptId]   = useState(initialDeptId);
   const [skipIndividual, setSkipIndividual]   = useState(true); // default: skip individually-set schedules
-  const [templateId, setTemplateId]           = useState("standard");
+  const [templateId, setTemplateId]           = useState(initialTemplateId);
   const [effectiveDate, setEffectiveDate]     = useState(() => {
     const d = new Date(); return d.toISOString().split("T")[0];
   });
@@ -95,12 +162,12 @@ export function ScheduleManagementModal({
   const [affectedResult, setAffectedResult]   = useState<number | null>(null);
 
   // Custom template overrides
-  const [customStart,      setCustomStart]      = useState("09:00");
-  const [customEnd,        setCustomEnd]        = useState("18:00");
-  const [customBreakStart, setCustomBreakStart] = useState("12:00");
-  const [customBreakEnd,   setCustomBreakEnd]   = useState("13:00");
-  const [customDays,       setCustomDays]       = useState<string[]>(["MON","TUE","WED","THU","FRI"]);
-  const [customNight,      setCustomNight]      = useState(false);
+  const [customStart,      setCustomStart]      = useState(normalizeTimeForInput(initialSchedule?.start_time) ?? "09:00");
+  const [customEnd,        setCustomEnd]        = useState(normalizeTimeForInput(initialSchedule?.end_time) ?? "18:00");
+  const [customBreakStart, setCustomBreakStart] = useState(normalizeTimeForInput(initialSchedule?.break_start) ?? "12:00");
+  const [customBreakEnd,   setCustomBreakEnd]   = useState(normalizeTimeForInput(initialSchedule?.break_end) ?? "13:00");
+  const [customDays,       setCustomDays]       = useState<string[]>(initialParsedDays);
+  const [customNight,      setCustomNight]      = useState(Boolean(initialSchedule?.is_nightshift));
 
   // Employees scope state
   const [empSearch,        setEmpSearch]        = useState("");
@@ -159,9 +226,14 @@ export function ScheduleManagementModal({
     });
   };
 
+  const departmentEmployeeCount = useMemo(() => {
+    if (!selectedDeptId) return 0;
+    return employees.filter(e => e.department_id === selectedDeptId).length;
+  }, [employees, selectedDeptId]);
+
   const affectedCount =
     scope === "company"    ? employeeCount :
-    scope === "department" ? Math.ceil(employeeCount / Math.max(departments.length, 1)) :
+    scope === "department" ? departmentEmployeeCount :
     selectedEmployeeIds.size;
 
   const toggleDay = (day: string) => {
@@ -601,4 +673,3 @@ export function ScheduleManagementModal({
     </div>
   );
 }
-

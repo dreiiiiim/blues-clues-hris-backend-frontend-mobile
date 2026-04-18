@@ -440,7 +440,7 @@ export type ApplicationDetail = {
   interview_schedule?: InterviewSchedule | null;
   // Per-stage schedules map: stage → schedule
   interview_schedules?: Record<string, InterviewSchedule>;
-
+  survey_score?: number | null;
   sfia_grade?: number | null;
   sfia_match_percentage?: number | null;
   resume_upload?: {
@@ -532,6 +532,13 @@ export type ApplicantProfile = {
   sfia_match_percentage?: number | null; // Highest match % across all active applications
 };
 
+export type EmergencyContact = {
+  contact_name: string;
+  relationship: string;
+  emergency_phone_number: string;
+  emergency_email_address?: string | null;
+};
+
 export type EmployeeProfile = {
   user_id: string;
   employee_id: string | null;
@@ -541,6 +548,7 @@ export type EmployeeProfile = {
   email: string;
   username: string | null;
   department_id: string | null;
+  department_name?: string | null;
   start_date: string | null;
   personal_email: string | null;
   date_of_birth: string | null;
@@ -552,6 +560,7 @@ export type EmployeeProfile = {
   bank_account_number: string | null;
   bank_account_name: string | null;
   avatar_url: string | null;
+  emergency_contacts: EmergencyContact[];
 };
 
 export async function getApplicantProfile(): Promise<ApplicantProfile> {
@@ -608,6 +617,18 @@ export async function updateEmployeeProfile(body: Partial<Omit<EmployeeProfile, 
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to update profile');
   return data as EmployeeProfile;
+}
+
+export async function updateMyEmergencyContacts(contacts: EmergencyContact[]): Promise<void> {
+  const res = await authFetch(`${API_BASE_URL}/users/me/emergency-contacts`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emergency_contacts: contacts }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { message?: string })?.message || 'Failed to update emergency contacts');
+  }
 }
 
 export async function getMyOnboarding(): Promise<OnboardingSubmission | null> {
@@ -766,17 +787,39 @@ export async function rejectEmployeeDocument(docId: string, hrNotes: string): Pr
   }
 }
 
+function normalizeHeaders(headers?: HeadersInit): Record<string, string> {
+  const merged = new Headers(headers);
+  const result: Record<string, string> = {};
+  merged.forEach((value, key) => {
+    result[key] = value;
+  });
+  return result;
+}
+
+function getRequestUrl(input: RequestInfo): string {
+  if (typeof input === "string") return input;
+  if (input instanceof Request) return input.url;
+  return "";
+}
+
+function getRefreshHandler(input: RequestInfo) {
+  const role = getUserInfo()?.role;
+  if (role === "applicant") return applicantRefreshApi;
+
+  const url = getRequestUrl(input);
+  if (url.includes("/applicants/")) return applicantRefreshApi;
+  return refreshApi;
+}
+
 export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
   let access = getAccessToken();
 
-  // On full page reload, access token is lost (memory-only by design).
-  // If we still have user context, proactively refresh first to avoid an
-  // expected 401 on the initial protected request.
-  if (!access && getUserInfo()) {
+  // Access token is memory-only by design.
+  // After reload or long idle, silently refresh before protected calls.
+  if (!access) {
     try {
       if (!refreshPromise) {
-        const userInfo = getUserInfo();
-        const doRefresh = userInfo?.role === "applicant" ? applicantRefreshApi : refreshApi;
+        const doRefresh = getRefreshHandler(input);
         refreshPromise = doRefresh().finally(() => { refreshPromise = null; });
       }
       const refreshed = await refreshPromise as { access_token?: string };
@@ -792,7 +835,7 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
     ...init,
     credentials: "include",
     headers: {
-      ...init.headers,
+      ...normalizeHeaders(init.headers),
       ...(access ? { Authorization: `Bearer ${access}` } : {}),
     },
   });
@@ -803,8 +846,7 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
   // 2) try refresh then retry (shared promise prevents concurrent refresh race)
   try {
     if (!refreshPromise) {
-      const userInfo = getUserInfo();
-      const doRefresh = userInfo?.role === "applicant" ? applicantRefreshApi : refreshApi;
+      const doRefresh = getRefreshHandler(input);
       refreshPromise = doRefresh().finally(() => { refreshPromise = null; });
     }
     const { access_token } = await refreshPromise;
@@ -813,7 +855,7 @@ export async function authFetch(input: RequestInfo, init: RequestInit = {}) {
       ...init,
       credentials: "include",
       headers: {
-        ...init.headers,
+        ...normalizeHeaders(init.headers),
         Authorization: `Bearer ${access_token}`,
       },
     });

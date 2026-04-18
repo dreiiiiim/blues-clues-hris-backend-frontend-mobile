@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   getMyOnboarding,
   saveOnboarding,
@@ -8,13 +8,14 @@ import {
   getApplicantProfile,
   OnboardingSubmission,
 } from "@/lib/authApi";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle, Clock, AlertTriangle, Send, UserCheck, Plus, Minus, Loader2 } from "lucide-react";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  CheckCircle, Clock, AlertTriangle, Send, RefreshCw,
+  Plus, Minus, Loader2, User, Phone, KeyRound, Briefcase,
+  ChevronRight,
+} from "lucide-react";
 import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -53,37 +54,54 @@ function DOBPicker({
   onChange,
   disabled,
 }: Readonly<{ value: string; onChange: (v: string) => void; disabled?: boolean }>) {
-  // value format: YYYY-MM-DD or ""
-  const parts = value ? value.split("-") : ["", "", ""];
-  const year  = parts[0] ?? "";
-  const month = parts[1] ?? "";
-  const day   = parts[2] ?? "";
+  // Internal state so partial selections (e.g. picking Month before Day/Year)
+  // are preserved without snapping back to blank.
+  const fromValue = (v: string) => {
+    const parts = v ? v.split("-") : ["", "", ""];
+    return { y: parts[0] ?? "", m: parts[1] ?? "", d: parts[2] ?? "" };
+  };
+  const initial = fromValue(value);
+  const [selYear,  setSelYear]  = useState(initial.y);
+  const [selMonth, setSelMonth] = useState(initial.m);
+  const [selDay,   setSelDay]   = useState(initial.d);
 
-  const numYear  = parseInt(year) || 0;
-  const numMonth = parseInt(month) || 0;
+  // Sync when parent value changes (e.g. autofill overwrites the field)
+  const prevValue = useRef(value);
+  useEffect(() => {
+    if (value !== prevValue.current) {
+      prevValue.current = value;
+      const { y, m, d } = fromValue(value);
+      setSelYear(y);
+      setSelMonth(m);
+      setSelDay(d);
+    }
+  }, [value]);
+
+  const numYear  = parseInt(selYear)  || 0;
+  const numMonth = parseInt(selMonth) || 0;
   const maxDay   = numYear && numMonth ? getDaysInMonth(numMonth, numYear) : 31;
 
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: 100 }, (_, i) => currentYear - i);
   const days  = Array.from({ length: maxDay }, (_, i) => i + 1);
 
-  function emit(y: string, m: string, d: string) {
+  // Only notify parent when all three parts are filled; never reset to ""
+  // mid-selection so the selects don't snap back.
+  function tryEmit(y: string, m: string, d: string) {
     if (y && m && d) {
       const clampedDay = Math.min(parseInt(d), getDaysInMonth(parseInt(m), parseInt(y)));
       onChange(`${y}-${m.padStart(2, "0")}-${String(clampedDay).padStart(2, "0")}`);
-    } else {
-      onChange("");
     }
   }
 
   const selectClass =
-    "flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+    "flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 py-1 text-sm text-slate-800 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-slate-50 cursor-pointer";
 
   return (
     <div className="grid grid-cols-3 gap-2">
       <select
-        value={month}
-        onChange={(e) => emit(year, e.target.value, day)}
+        value={selMonth}
+        onChange={(e) => { setSelMonth(e.target.value); tryEmit(selYear, e.target.value, selDay); }}
         disabled={disabled}
         className={selectClass}
         aria-label="Month"
@@ -94,8 +112,8 @@ function DOBPicker({
         ))}
       </select>
       <select
-        value={day}
-        onChange={(e) => emit(year, month, e.target.value)}
+        value={selDay}
+        onChange={(e) => { setSelDay(e.target.value); tryEmit(selYear, selMonth, e.target.value); }}
         disabled={disabled}
         className={selectClass}
         aria-label="Day"
@@ -106,8 +124,8 @@ function DOBPicker({
         ))}
       </select>
       <select
-        value={year}
-        onChange={(e) => emit(e.target.value, month, day)}
+        value={selYear}
+        onChange={(e) => { setSelYear(e.target.value); tryEmit(e.target.value, selMonth, selDay); }}
         disabled={disabled}
         className={selectClass}
         aria-label="Year"
@@ -148,7 +166,7 @@ function seedForm(sub: OnboardingSubmission | null): FormData {
     last_name: sub.last_name ?? "",
     phone: sub.phone ?? "",
     address: sub.address ?? "",
-    date_of_birth: sub.date_of_birth ?? "",
+    date_of_birth: sub.date_of_birth ? sub.date_of_birth.slice(0, 10) : "",
     nationality: sub.nationality ?? "",
     civil_status: sub.civil_status ?? "",
     preferred_username: sub.preferred_username ?? "",
@@ -157,7 +175,6 @@ function seedForm(sub: OnboardingSubmission | null): FormData {
 
 function seedContacts(sub: OnboardingSubmission | null): EmergencyContact[] {
   if (!sub) return [emptyContact()];
-  // Legacy single-contact fields
   const legacy: EmergencyContact = {
     contact_name: sub.emergency_contact_name ?? "",
     relationship: sub.emergency_contact_relationship ?? "",
@@ -204,15 +221,24 @@ function getMissingRequiredFields(form: FormData, contacts: EmergencyContact[]):
   return missing;
 }
 
+// Normalize a date string to YYYY-MM-DD; returns null for empty/invalid values
+// so Postgres never receives an empty string for a date column.
+function toDateOnly(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  // ISO timestamp → slice to date portion only
+  return raw.slice(0, 10) || null;
+}
+
 function buildSavePayload(form: FormData, contacts: EmergencyContact[]) {
+  const normalized = normalizeForm(form);
   const primary = contacts[0] ?? emptyContact();
   return {
-    ...normalizeForm(form),
-    // Legacy single-contact fields (existing API)
+    ...normalized,
+    // Send null instead of "" so Postgres date columns don't error
+    date_of_birth: toDateOnly(normalized.date_of_birth),
     emergency_contact_name: primary.contact_name.trim(),
     emergency_contact_phone: primary.emergency_phone_number.trim(),
     emergency_contact_relationship: primary.relationship.trim(),
-    // Array field for future backend support
     emergency_contacts: contacts.map((c) => ({
       contact_name: c.contact_name.trim(),
       relationship: c.relationship.trim(),
@@ -222,23 +248,113 @@ function buildSavePayload(form: FormData, contacts: EmergencyContact[]) {
   };
 }
 
-// ─── Field label component ────────────────────────────────────────────────────
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function FieldLabel({ htmlFor, children, required }: Readonly<{ htmlFor?: string; children: React.ReactNode; required?: boolean }>) {
   return (
-    <label htmlFor={htmlFor} className="text-sm font-medium text-gray-700 block mb-1.5">
+    <label htmlFor={htmlFor} className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">
       {children}
-      {required && <span className="text-red-500 ml-0.5">*</span>}
+      {required && <span className="text-red-500 ml-0.5 normal-case">*</span>}
     </label>
   );
 }
 
+function StyledInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <Input
+      {...props}
+      className="h-9 border-slate-200 bg-white text-slate-800 placeholder:text-slate-400 focus-visible:ring-blue-500/40 focus-visible:border-blue-400 disabled:bg-slate-50 disabled:text-slate-500 transition-colors"
+    />
+  );
+}
+
+// ─── Step Progress ─────────────────────────────────────────────────────────────
+
+const STEPS = [
+  { label: "Personal Info", icon: User },
+  { label: "Emergency Contact", icon: Phone },
+  { label: "Account Setup", icon: KeyRound },
+];
+
+function StepProgress() {
+  return (
+    <div className="flex items-center gap-0 mb-6">
+      {STEPS.map((step, i) => {
+        const Icon = step.icon;
+        return (
+          <div key={step.label} className="flex items-center gap-0 flex-1">
+            <div className="flex flex-col items-center gap-1 flex-1">
+              <div className="size-8 rounded-full bg-blue-900/10 border-2 border-blue-700 flex items-center justify-center shrink-0">
+                <Icon className="size-3.5 text-blue-700" />
+              </div>
+              <span className="text-[10px] font-medium text-slate-500 whitespace-nowrap hidden sm:block">{step.label}</span>
+            </div>
+            {i < STEPS.length - 1 && (
+              <div className="flex-1 h-px bg-slate-200 mb-4 mx-1" />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Section Card ─────────────────────────────────────────────────────────────
+
+function SectionCard({
+  icon: Icon,
+  title,
+  description,
+  accentColor = "blue",
+  children,
+  action,
+}: Readonly<{
+  icon: React.ElementType;
+  title: string;
+  description?: string;
+  accentColor?: "blue" | "teal" | "indigo";
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}>) {
+  const accent = {
+    blue:   "border-l-blue-700",
+    teal:   "border-l-teal-600",
+    indigo: "border-l-indigo-600",
+  }[accentColor];
+
+  const iconBg = {
+    blue:   "bg-blue-50 text-blue-700",
+    teal:   "bg-teal-50 text-teal-700",
+    indigo: "bg-indigo-50 text-indigo-700",
+  }[accentColor];
+
+  return (
+    <div className={`bg-white rounded-xl border border-slate-200 border-l-4 ${accent} shadow-sm overflow-hidden`}>
+      <div className="px-5 pt-4 pb-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-3">
+          <div className={`size-9 rounded-lg ${iconBg} flex items-center justify-center shrink-0`}>
+            <Icon className="size-4" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-slate-800">{title}</p>
+            {description && <p className="text-xs text-slate-400 mt-0.5">{description}</p>}
+          </div>
+        </div>
+        {action}
+      </div>
+      <div className="px-5 pb-5 pt-1 space-y-4">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 const selectClass =
-  "flex h-9 w-full rounded-md border border-input bg-white px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
+  "flex h-9 w-full rounded-lg border border-slate-200 bg-white px-3 py-1 text-sm text-slate-800 shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 disabled:cursor-not-allowed disabled:opacity-50 disabled:bg-slate-50 cursor-pointer";
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-export function NewHireApprovalForm() {
+export function NewHireApprovalForm({ onSubmitted }: { onSubmitted?: () => void } = {}) {
   const [submission, setSubmission]   = useState<OnboardingSubmission | null>(null);
   const [form, setForm]               = useState<FormData>(emptyForm());
   const [contacts, setContacts]       = useState<EmergencyContact[]>([emptyContact()]);
@@ -275,31 +391,27 @@ export function NewHireApprovalForm() {
     setSavedOk(false);
   };
 
-  const addContact = () => {
-    setContacts((prev) => [...prev, emptyContact()]);
-  };
+  const addContact = () => setContacts((prev) => [...prev, emptyContact()]);
+  const removeContact = (index: number) => setContacts((prev) => prev.filter((_, i) => i !== index));
 
-  const removeContact = (index: number) => {
-    setContacts((prev) => prev.filter((_, i) => i !== index));
-  };
-
-  // 2a — Autofill from applicant profile
+  // Always prefer fresh profile data — use ?? so null/undefined falls back to form but any real value (including "") overrides
   const handleAutofill = async () => {
     setAutofilling(true);
     try {
       const profile = await getApplicantProfile();
       setForm((prev) => ({
         ...prev,
-        first_name:    profile.first_name   || prev.first_name,
-        last_name:     profile.last_name    || prev.last_name,
-        phone:         profile.phone_number || prev.phone,
-        address:       profile.complete_address || prev.address,
-        date_of_birth: profile.date_of_birth   || prev.date_of_birth,
-        nationality:   profile.nationality     || prev.nationality,
-        civil_status:  profile.civil_status    || prev.civil_status,
+        first_name:    profile.first_name    != null ? profile.first_name    : prev.first_name,
+        last_name:     profile.last_name     != null ? profile.last_name     : prev.last_name,
+        phone:         profile.phone_number  != null ? profile.phone_number  : prev.phone,
+        address:       profile.complete_address != null ? profile.complete_address : prev.address,
+        // Slice to YYYY-MM-DD — profile may return a full ISO timestamp
+        date_of_birth: profile.date_of_birth != null ? (profile.date_of_birth.slice(0, 10) || prev.date_of_birth) : prev.date_of_birth,
+        nationality:   profile.nationality      != null ? profile.nationality      : prev.nationality,
+        civil_status:  profile.civil_status     != null ? profile.civil_status     : prev.civil_status,
       }));
       setSavedOk(false);
-      toast.success("Fields filled from your profile — review before submitting.");
+      toast.success("Profile data applied — review and save before submitting.");
     } catch {
       toast.error("Could not load profile data. Please fill in the fields manually.");
     } finally {
@@ -343,17 +455,24 @@ export function NewHireApprovalForm() {
       setContacts(seedContacts(saved));
       const updated = await submitOnboarding();
       setSubmission(updated);
-      setForm(seedForm(updated));
-      setContacts(seedContacts(updated));
+      toast.success("Submitted! HR will review your profile shortly.");
+      onSubmitted?.();
     } catch (err: any) {
-      setSubmitError(err?.message || "Failed to submit. Please fill in all required fields.");
+      setSubmitError(err?.message || "Failed to submit. Please try again.");
     } finally {
       setSubmitting(false);
     }
   };
 
   if (loading) {
-    return <div className="p-8 text-muted-foreground animate-pulse">Loading your onboarding form...</div>;
+    return (
+      <div className="flex items-center justify-center min-h-[40vh]">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="size-7 animate-spin text-blue-700" />
+          <p className="text-sm text-slate-500">Loading your onboarding form…</p>
+        </div>
+      </div>
+    );
   }
 
   if (!submission) {
@@ -371,127 +490,159 @@ export function NewHireApprovalForm() {
   const isReadOnly = status === "submitted" || status === "approved";
 
   return (
-    <div className="max-w-2xl mx-auto py-8 px-4 space-y-6">
-      {/* Header */}
-      <div>
-        <h2 className="text-2xl font-semibold text-slate-800">Welcome Aboard!</h2>
-        <p className="text-slate-500 mt-1 text-sm">
-          Please complete your onboarding profile. HR will review and activate your employee account.
-        </p>
-        {submission.job_postings?.title && (
-          <p className="text-sm text-slate-400 mt-0.5">
-            Position: <span className="font-medium text-slate-600">{submission.job_postings.title}</span>
+    <div className="flex gap-6 items-start">
+
+      {/* ── LEFT STICKY PANEL ── */}
+      <aside className="hidden lg:flex w-72 xl:w-80 shrink-0 flex-col gap-4 sticky top-0">
+
+        {/* Hero */}
+        <div className="bg-blue-900 rounded-2xl p-6 text-white shadow-md">
+          <div className="size-12 rounded-xl bg-white/10 flex items-center justify-center mb-4">
+            <Briefcase className="size-6 text-white" />
+          </div>
+          <h2 className="text-xl font-bold leading-tight">Welcome Aboard!</h2>
+          <p className="text-blue-200 text-sm mt-1.5 leading-relaxed">
+            Complete all three sections below. HR will review and activate your employee account.
           </p>
-        )}
-      </div>
+          {submission.job_postings?.title && (
+            <span className="inline-flex items-center gap-1.5 mt-3 bg-white/10 border border-white/20 text-white rounded-full px-3 py-1 text-xs font-medium">
+              <Briefcase className="size-3" />
+              {submission.job_postings.title}
+            </span>
+          )}
+        </div>
 
-      {/* Status banners */}
-      {status === "submitted" && (
-        <Alert className="bg-blue-50 border-blue-200">
-          <Clock className="size-4 text-blue-600 shrink-0 mt-0.5" />
-          <AlertDescription className="text-blue-800 text-sm">
-            Your profile has been <strong>submitted</strong> and is awaiting HR review. You will be notified once it is processed.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {status === "approved" && (
-        <Alert className="bg-emerald-50 border-emerald-200">
-          <CheckCircle className="size-4 text-emerald-600 shrink-0 mt-0.5" />
-          <AlertDescription className="text-emerald-800 text-sm">
-            Your profile has been <strong>approved</strong>. Check your email for your employee account credentials.
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {status === "rejected" && submission.hr_notes && (
-        <Alert className="bg-amber-50 border-amber-200">
-          <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
-          <AlertDescription className="text-amber-800 text-sm">
-            <p className="font-semibold">HR has requested changes:</p>
-            <p className="mt-0.5">{submission.hr_notes}</p>
-          </AlertDescription>
-        </Alert>
-      )}
-
-      <ScrollArea className="h-[calc(100vh-280px)] pr-4">
-        <div className="space-y-5">
-
-          {/* Personal Information */}
-          <Card className="rounded-xl border border-gray-200 bg-white shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <div>
-                  <CardTitle className="text-base font-semibold text-gray-900">Personal Information</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">Fields marked * are required to submit.</CardDescription>
+        {/* Step progress */}
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-4">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 mb-3">Your Progress</p>
+          <div className="flex flex-col gap-3">
+            {[
+              { label: "Personal Information", icon: User, color: "text-blue-700 bg-blue-50" },
+              { label: "Emergency Contact",    icon: Phone, color: "text-teal-700 bg-teal-50" },
+              { label: "Account Setup",        icon: KeyRound, color: "text-indigo-700 bg-indigo-50" },
+            ].map(({ label, icon: Icon, color }, i) => (
+              <div key={label} className="flex items-center gap-3">
+                <div className={`size-8 rounded-lg ${color} flex items-center justify-center shrink-0`}>
+                  <Icon className="size-3.5" />
                 </div>
-                {/* 2a — Autofill button */}
-                {!isReadOnly && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleAutofill}
-                    disabled={autofilling}
-                    className="h-8 px-3 text-xs border-blue-200 text-blue-700 hover:bg-blue-50 shrink-0"
-                  >
-                    {autofilling ? (
-                      <><Loader2 className="h-3 w-3 mr-1.5 animate-spin" />Auto-filling…</>
-                    ) : (
-                      <><UserCheck className="h-3 w-3 mr-1.5" />Auto-fill from my profile</>
-                    )}
-                  </Button>
-                )}
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-slate-700 truncate">{label}</p>
+                  <p className="text-[10px] text-slate-400">Section {i + 1} of 3</p>
+                </div>
               </div>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-0">
-              <div className="grid grid-cols-2 gap-4">
+            ))}
+          </div>
+        </div>
+
+        {/* Status banners */}
+        {status === "submitted" && (
+          <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+            <Clock className="size-4 text-blue-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-blue-800">
+              <strong>Submitted</strong> — awaiting HR review. You&apos;ll be notified once processed.
+            </p>
+          </div>
+        )}
+        {status === "approved" && (
+          <div className="flex items-start gap-3 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            <CheckCircle className="size-4 text-emerald-600 shrink-0 mt-0.5" />
+            <p className="text-xs text-emerald-800">
+              <strong>Approved!</strong> Check your email for your employee account credentials.
+            </p>
+          </div>
+        )}
+        {status === "rejected" && submission.hr_notes && (
+          <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+            <AlertTriangle className="size-4 text-amber-600 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-800">
+              <p className="font-semibold">HR requested changes:</p>
+              <p className="mt-0.5">{submission.hr_notes}</p>
+            </div>
+          </div>
+        )}
+      </aside>
+
+      {/* ── RIGHT FORM AREA ── */}
+      <div className="flex-1 min-w-0">
+
+        {/* Mobile-only header (shown when sidebar is hidden) */}
+        <div className="lg:hidden mb-4">
+          <div className="flex items-start gap-3 mb-3">
+            <div className="size-10 rounded-xl bg-blue-900 flex items-center justify-center shrink-0">
+              <Briefcase className="size-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Welcome Aboard!</h2>
+              <p className="text-slate-500 text-xs mt-0.5">Complete all sections and submit for HR review.</p>
+            </div>
+          </div>
+          {status === "submitted" && (
+            <div className="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5 mb-3">
+              <Clock className="size-4 text-blue-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-blue-800"><strong>Submitted</strong> — awaiting HR review.</p>
+            </div>
+          )}
+        </div>
+
+        <div className="space-y-4">
+          <div className="space-y-4 pr-2">
+
+            {/* ── Section 1: Personal Information ── */}
+            <SectionCard
+              icon={User}
+              title="Personal Information"
+              description="Fields marked * are required to submit."
+              accentColor="blue"
+              action={!isReadOnly ? (
+                <button
+                  type="button"
+                  onClick={handleAutofill}
+                  disabled={autofilling}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-900 text-white text-xs font-medium hover:bg-blue-800 disabled:opacity-60 transition-colors cursor-pointer shadow-sm"
+                >
+                  {autofilling
+                    ? <><Loader2 className="size-3 animate-spin" />Filling…</>
+                    : <><RefreshCw className="size-3" />Auto-fill from profile</>
+                  }
+                </button>
+              ) : undefined}
+            >
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <FieldLabel htmlFor="first_name" required>First Name</FieldLabel>
-                  <Input id="first_name" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} disabled={isReadOnly} />
+                  <StyledInput id="first_name" value={form.first_name} onChange={(e) => set("first_name", e.target.value)} disabled={isReadOnly} placeholder="Juan" />
                 </div>
                 <div>
                   <FieldLabel htmlFor="last_name" required>Last Name</FieldLabel>
-                  <Input id="last_name" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} disabled={isReadOnly} />
+                  <StyledInput id="last_name" value={form.last_name} onChange={(e) => set("last_name", e.target.value)} disabled={isReadOnly} placeholder="Dela Cruz" />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <FieldLabel htmlFor="phone" required>Phone Number</FieldLabel>
-                  <Input id="phone" type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} disabled={isReadOnly} />
+                  <StyledInput id="phone" type="tel" value={form.phone} onChange={(e) => set("phone", e.target.value)} disabled={isReadOnly} placeholder="+63 917 000 0000" />
                 </div>
                 <div>
-                  {/* 2c — DOB picker with dropdowns */}
                   <FieldLabel required>Date of Birth</FieldLabel>
-                  <DOBPicker
-                    value={form.date_of_birth}
-                    onChange={(v) => set("date_of_birth", v)}
-                    disabled={isReadOnly}
-                  />
+                  <DOBPicker value={form.date_of_birth} onChange={(v) => set("date_of_birth", v)} disabled={isReadOnly} />
                 </div>
               </div>
 
               <div>
                 <FieldLabel htmlFor="address" required>Complete Address</FieldLabel>
-                <Input id="address" value={form.address} onChange={(e) => set("address", e.target.value)} disabled={isReadOnly} />
+                <StyledInput id="address" value={form.address} onChange={(e) => set("address", e.target.value)} disabled={isReadOnly} placeholder="Street, Barangay, City, Province, ZIP" />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <FieldLabel htmlFor="nationality" required>Nationality</FieldLabel>
-                  <Input id="nationality" value={form.nationality} onChange={(e) => set("nationality", e.target.value)} disabled={isReadOnly} />
+                  <StyledInput id="nationality" value={form.nationality} onChange={(e) => set("nationality", e.target.value)} disabled={isReadOnly} placeholder="e.g. Filipino" />
                 </div>
                 <div>
                   <FieldLabel htmlFor="civil_status" required>Civil Status</FieldLabel>
-                  <select
-                    id="civil_status"
-                    value={form.civil_status}
-                    onChange={(e) => set("civil_status", e.target.value)}
-                    disabled={isReadOnly}
-                    className={selectClass}
-                  >
-                    <option value="">Select...</option>
+                  <select id="civil_status" value={form.civil_status} onChange={(e) => set("civil_status", e.target.value)} disabled={isReadOnly} className={selectClass}>
+                    <option value="">Select…</option>
                     <option value="Single">Single</option>
                     <option value="Married">Married</option>
                     <option value="Widowed">Widowed</option>
@@ -499,158 +650,141 @@ export function NewHireApprovalForm() {
                   </select>
                 </div>
               </div>
-            </CardContent>
-          </Card>
+            </SectionCard>
 
-          {/* Emergency Contacts — 2b dynamic list */}
-          <Card className="rounded-xl border border-gray-200 bg-white shadow-sm">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <CardTitle className="text-base font-semibold text-gray-900">Emergency Contacts</CardTitle>
-                  <CardDescription className="text-xs mt-0.5">At least one contact required.</CardDescription>
-                </div>
-                {!isReadOnly && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={addContact}
-                    className="h-8 px-3 text-xs border-gray-200 text-gray-700 hover:bg-gray-50 shrink-0"
-                  >
-                    <Plus className="h-3.5 w-3.5 mr-1" />
-                    Add Contact
-                  </Button>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4 pt-0">
-              {contacts.map((contact, index) => (
-                <div
-                  key={index}
-                  className={`rounded-xl border border-gray-100 bg-gray-50/60 p-4 space-y-3 ${index > 0 ? "relative" : ""}`}
+            {/* ── Section 2: Emergency Contacts ── */}
+            <SectionCard
+              icon={Phone}
+              title="Emergency Contacts"
+              description="At least one contact required."
+              accentColor="teal"
+              action={!isReadOnly ? (
+                <button
+                  type="button"
+                  onClick={addContact}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 text-xs font-medium hover:bg-slate-50 transition-colors cursor-pointer"
                 >
-                  {contacts.length > 1 && (
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Contact {index + 1}</p>
-                      {!isReadOnly && (
-                        <button
-                          type="button"
-                          onClick={() => removeContact(index)}
-                          className="h-6 w-6 rounded-md flex items-center justify-center hover:bg-red-50 text-red-400 hover:text-red-600 transition-colors cursor-pointer"
-                          title="Remove contact"
-                        >
-                          <Minus className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                  <Plus className="size-3.5" />Add Contact
+                </button>
+              ) : undefined}
+            >
+              <div className="space-y-3">
+                {contacts.map((contact, index) => (
+                  <div key={index} className="rounded-lg border border-slate-100 bg-slate-50/70 p-4 space-y-3">
+                    {contacts.length > 1 && (
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">Contact {index + 1}</span>
+                        {!isReadOnly && (
+                          <button
+                            type="button"
+                            onClick={() => removeContact(index)}
+                            className="size-6 rounded-md flex items-center justify-center hover:bg-red-50 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                            title="Remove contact"
+                          >
+                            <Minus className="size-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <FieldLabel htmlFor={`ec_name_${index}`} required={index === 0}>Full Name</FieldLabel>
+                        <StyledInput id={`ec_name_${index}`} value={contact.contact_name} onChange={(e) => setContact(index, "contact_name", e.target.value)} disabled={isReadOnly} placeholder="e.g. Maria Santos" />
+                      </div>
+                      <div>
+                        <FieldLabel htmlFor={`ec_rel_${index}`} required={index === 0}>Relationship</FieldLabel>
+                        <StyledInput id={`ec_rel_${index}`} value={contact.relationship} onChange={(e) => setContact(index, "relationship", e.target.value)} disabled={isReadOnly} placeholder="e.g. Mother" />
+                      </div>
                     </div>
-                  )}
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <FieldLabel htmlFor={`ec_name_${index}`} required={index === 0}>Full Name</FieldLabel>
-                      <Input
-                        id={`ec_name_${index}`}
-                        value={contact.contact_name}
-                        onChange={(e) => setContact(index, "contact_name", e.target.value)}
-                        disabled={isReadOnly}
-                        placeholder="e.g. Maria Santos"
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel htmlFor={`ec_rel_${index}`} required={index === 0}>Relationship</FieldLabel>
-                      <Input
-                        id={`ec_rel_${index}`}
-                        value={contact.relationship}
-                        onChange={(e) => setContact(index, "relationship", e.target.value)}
-                        disabled={isReadOnly}
-                        placeholder="e.g. Mother"
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <FieldLabel htmlFor={`ec_phone_${index}`} required={index === 0}>Phone Number</FieldLabel>
-                      <Input
-                        id={`ec_phone_${index}`}
-                        type="tel"
-                        value={contact.emergency_phone_number}
-                        onChange={(e) => setContact(index, "emergency_phone_number", e.target.value)}
-                        disabled={isReadOnly}
-                        placeholder="+63 9XX XXX XXXX"
-                      />
-                    </div>
-                    <div>
-                      <FieldLabel htmlFor={`ec_email_${index}`}>Email (optional)</FieldLabel>
-                      <Input
-                        id={`ec_email_${index}`}
-                        type="email"
-                        value={contact.emergency_email_address}
-                        onChange={(e) => setContact(index, "emergency_email_address", e.target.value)}
-                        disabled={isReadOnly}
-                        placeholder="email@example.com"
-                      />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <FieldLabel htmlFor={`ec_phone_${index}`} required={index === 0}>Phone Number</FieldLabel>
+                        <StyledInput id={`ec_phone_${index}`} type="tel" value={contact.emergency_phone_number} onChange={(e) => setContact(index, "emergency_phone_number", e.target.value)} disabled={isReadOnly} placeholder="+63 9XX XXX XXXX" />
+                      </div>
+                      <div>
+                        <FieldLabel htmlFor={`ec_email_${index}`}>Email (optional)</FieldLabel>
+                        <StyledInput id={`ec_email_${index}`} type="email" value={contact.emergency_email_address} onChange={(e) => setContact(index, "emergency_email_address", e.target.value)} disabled={isReadOnly} placeholder="email@example.com" />
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
+                ))}
+              </div>
+            </SectionCard>
 
-          {/* Account Setup */}
-          <Card className="rounded-xl border border-gray-200 bg-white shadow-sm">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base font-semibold text-gray-900">Account Setup</CardTitle>
-              <CardDescription className="text-xs mt-0.5">Choose your preferred employee username for logging in.</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-0">
+            {/* ── Section 3: Account Setup ── */}
+            <SectionCard
+              icon={KeyRound}
+              title="Account Setup"
+              description="Choose your preferred employee username for logging in."
+              accentColor="indigo"
+            >
               <div>
                 <FieldLabel htmlFor="preferred_username" required>Preferred Username</FieldLabel>
-                <Input
-                  id="preferred_username"
-                  value={form.preferred_username}
-                  onChange={(e) => set("preferred_username", e.target.value)}
-                  disabled={isReadOnly}
-                  placeholder="e.g. jdelacruz"
-                />
+                <StyledInput id="preferred_username" value={form.preferred_username} onChange={(e) => set("preferred_username", e.target.value)} disabled={isReadOnly} placeholder="e.g. jdelacruz" />
+                <p className="text-xs text-slate-400 mt-1.5">This will be your login username once HR approves your account.</p>
               </div>
-            </CardContent>
-          </Card>
+            </SectionCard>
 
-          {/* Actions */}
-          {!isReadOnly && (
-            <div className="space-y-3 pb-4">
-              {saveError && (
-                <Alert className="bg-red-50 border-red-200">
-                  <AlertDescription className="text-red-700 text-sm">{saveError}</AlertDescription>
-                </Alert>
-              )}
-              {submitError && (
-                <Alert className="bg-red-50 border-red-200">
-                  <AlertDescription className="text-red-700 text-sm">{submitError}</AlertDescription>
-                </Alert>
-              )}
-              {savedOk && (
-                <Alert className="bg-emerald-50 border-emerald-200">
-                  <CheckCircle className="size-4 text-emerald-600 shrink-0" />
-                  <AlertDescription className="text-emerald-700 text-sm">Draft saved successfully.</AlertDescription>
-                </Alert>
-              )}
-              <div className="flex gap-3">
-                <Button variant="outline" className="flex-1 cursor-pointer" onClick={handleSave} disabled={saving || submitting}>
-                  {saving ? <><Loader2 className="size-4 mr-2 animate-spin" />Saving…</> : "Save Draft"}
-                </Button>
-                <Button className="flex-1 cursor-pointer" onClick={handleSubmit} disabled={saving || submitting}>
-                  {submitting ? (
-                    <><Loader2 className="size-4 mr-2 animate-spin" />Submitting…</>
-                  ) : (
-                    <><Send className="size-4 mr-2" />Submit for Review</>
-                  )}
-                </Button>
+            {/* ── Actions ── */}
+            {!isReadOnly && (
+              <div className="space-y-3 pb-4 pt-1">
+                {saveError && (
+                  <Alert className="bg-red-50 border-red-200">
+                    <AlertDescription className="text-red-700 text-sm">{saveError}</AlertDescription>
+                  </Alert>
+                )}
+                {submitError && (
+                  <Alert className="bg-red-50 border-red-200">
+                    <AlertDescription className="text-red-700 text-sm">{submitError}</AlertDescription>
+                  </Alert>
+                )}
+                {savedOk && (
+                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5">
+                    <CheckCircle className="size-4 text-emerald-600 shrink-0" />
+                    <p className="text-sm text-emerald-700">Draft saved successfully.</p>
+                  </div>
+                )}
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1 cursor-pointer border-slate-200 text-slate-700 hover:bg-slate-50 hover:text-slate-900 transition-colors"
+                    onClick={handleSave}
+                    disabled={saving || submitting}
+                  >
+                    {saving
+                      ? <><Loader2 className="size-4 mr-2 animate-spin" />Saving…</>
+                      : "Save Draft"
+                    }
+                  </Button>
+                  <Button
+                    className="flex-1 cursor-pointer bg-blue-900 hover:bg-blue-800 text-white transition-colors shadow-sm"
+                    onClick={handleSubmit}
+                    disabled={saving || submitting}
+                  >
+                    {submitting
+                      ? <><Loader2 className="size-4 mr-2 animate-spin" />Submitting…</>
+                      : <><Send className="size-4 mr-2" />Submit for Review</>
+                    }
+                  </Button>
+                </div>
+                <p className="text-center text-xs text-slate-400">
+                  After submitting, HR will review your profile. You&apos;ll be notified via email.
+                </p>
               </div>
-            </div>
-          )}
+            )}
+
+            {/* Read-only continue hint */}
+            {isReadOnly && status === "submitted" && (
+              <div className="flex items-center gap-2 justify-center text-sm text-slate-500 py-2 pb-4">
+                <ChevronRight className="size-4" />
+                <span>Continue filling your onboarding checklist while HR reviews your profile.</span>
+              </div>
+            )}
+
+          </div>
+
         </div>
-      </ScrollArea>
+      </div>
     </div>
   );
 }

@@ -41,7 +41,7 @@ type ScheduleRow = {
   break_start?: string | null;
   break_end?: string | null;
   is_nightshift: boolean | null;
-  schedule_source?: 'bulk' | 'individual' | 'default' | null;
+  schedule_source?: 'bulk' | 'department' | 'individual' | 'default' | null;
   updated_by_name?: string | null;
   updated_at?: string | null;
 };
@@ -989,6 +989,7 @@ export class TimekeepingService {
         break_end: dto.schedule.break_end ?? '00:00',
         workdays: dto.schedule.workdays,
         is_nightshift: dto.schedule.is_nightshift,
+        // Keep DB-safe source value for all bulk writes (company/department scopes).
         schedule_source: 'bulk' as const,
         updated_by_name: updatedByName,
         updated_at: now,
@@ -1029,6 +1030,7 @@ export class TimekeepingService {
       employee_id: string;
       first_name: string;
       last_name: string;
+      department_id: string | null;
       department_name: string | null;
       schedule: ScheduleRow | null;
     }[]
@@ -1058,6 +1060,7 @@ export class TimekeepingService {
       employee_id: e.employee_id,
       first_name: e.first_name,
       last_name: e.last_name,
+      department_id: e.department_id ?? null,
       department_name: normalizeDepartmentName(
         (e as EmployeeUserRow).department_name,
       ),

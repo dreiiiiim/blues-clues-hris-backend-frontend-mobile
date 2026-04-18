@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { CheckCircle, XCircle, Plus, Trash2, Clock, Pencil, AlertTriangle } from "lucide-react";
+import { CheckCircle, XCircle, Plus, Trash2, Clock, Pencil, AlertTriangle, RefreshCw } from "lucide-react";
 import { DateOfBirthPicker } from "@/components/ui/date-of-birth-picker";
 import { ProfileData, EmergencyContact, Remark } from "@/types/onboarding.types";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -51,6 +51,7 @@ function seedContacts(profile: ProfileData | null): EmergencyContact[] {
 
 export function ProfileSetup({ profile, sessionId, remarks, onUpdate, profileRejected = false, profileApproved = false, profileConfirmed = false }: Readonly<ProfileSetupProps>) {
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState({
     first_name: profile?.first_name || "",
@@ -84,6 +85,29 @@ export function ProfileSetup({ profile, sessionId, remarks, onUpdate, profileRej
       }));
     }).catch(() => {});
   }, []);
+
+  const importFromProfile = async () => {
+    setImporting(true);
+    try {
+      const ap = await getApplicantProfile();
+      setFormData((prev) => ({
+        first_name:       ap.first_name        != null ? ap.first_name        : prev.first_name,
+        last_name:        ap.last_name         != null ? ap.last_name         : prev.last_name,
+        middle_name:      ap.middle_name       != null ? ap.middle_name       : prev.middle_name,
+        email_address:    ap.personal_email    != null ? ap.personal_email    : prev.email_address,
+        phone_number:     ap.phone_number      != null ? ap.phone_number      : prev.phone_number,
+        complete_address: ap.complete_address  != null ? ap.complete_address  : prev.complete_address,
+        date_of_birth:    ap.date_of_birth     != null ? ap.date_of_birth.slice(0, 10) : prev.date_of_birth,
+        place_of_birth:   ap.place_of_birth    != null ? ap.place_of_birth    : prev.place_of_birth,
+        nationality:      ap.nationality       != null ? ap.nationality       : prev.nationality,
+        civil_status:     ap.civil_status      != null ? ap.civil_status      : prev.civil_status,
+      }));
+    } catch {
+      // silently ignore — profile may not exist yet
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const handleInputChange = (field: string, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -225,8 +249,24 @@ export function ProfileSetup({ profile, sessionId, remarks, onUpdate, profileRej
           {/* Personal Information */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Personal Information</CardTitle>
-              <CardDescription>Enter your complete personal details</CardDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle className="text-lg">Personal Information</CardTitle>
+                  <CardDescription>Enter your complete personal details</CardDescription>
+                </div>
+                {!isLocked && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={importing}
+                    onClick={importFromProfile}
+                    className="shrink-0 bg-slate-800 hover:bg-slate-700 text-white text-xs gap-1.5"
+                  >
+                    <RefreshCw className={`size-3.5 ${importing ? "animate-spin" : ""}`} />
+                    {importing ? "Importing…" : "Import from Profile"}
+                  </Button>
+                )}
+              </div>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-3 gap-4">

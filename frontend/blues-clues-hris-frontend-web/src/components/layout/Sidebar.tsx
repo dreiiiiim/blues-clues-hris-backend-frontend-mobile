@@ -23,6 +23,7 @@ import {
   Trophy,
   PanelLeftClose,
   PanelLeftOpen,
+  ShieldCheck,
 } from "lucide-react";
 
 import {
@@ -67,6 +68,7 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
         { name: "Recruitment", href: "/hr/jobs",       icon: Briefcase },
         { name: "Candidates",  href: "/hr/candidates", icon: Trophy },
         { name: "Onboarding",  href: "/hr/onboarding", icon: UserPlus },
+        { name: "Approvals",   href: "/hr/approvals",  icon: ShieldCheck },
       ],
     },
     {
@@ -121,6 +123,7 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
         { name: "Dashboard",       href: "/system-admin",                icon: LayoutDashboard },
         { name: "Users",           href: "/system-admin/users",          icon: Users },
         { name: "Onboarding",      href: "/system-admin/onboarding",     icon: UserPlus },
+        { name: "Approvals",       href: "/system-admin/approvals",      icon: ShieldCheck },
         { name: "Timekeeping",     href: "/system-admin/timekeeping",    icon: Clock },
         { name: "Subscriptions",   href: "/system-admin/subscriptions",  icon: DollarSign },
         { name: "Audit Logs",      href: "/system-admin/audit-logs",     icon: ScrollText },

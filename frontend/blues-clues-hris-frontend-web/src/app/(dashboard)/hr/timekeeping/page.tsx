@@ -104,6 +104,19 @@ type ViewMode = "day" | "week" | "month" | "custom";
 type StatusFilter = RosterEntry["status"] | "all";
 type TabMode = "today" | "schedule" | "attendance";
 
+type ScheduleModalPreset = {
+  scope: "company" | "department" | "employees";
+  departmentId?: string;
+  schedule?: {
+    start_time?: string | null;
+    end_time?: string | null;
+    break_start?: string | null;
+    break_end?: string | null;
+    workdays?: string | null;
+    is_nightshift?: boolean | null;
+  } | null;
+} | null;
+
 // ─── Date helpers ─────────────────────────────────────────────────────────────
 
 function parseTs(ts: string): Date {
@@ -1384,6 +1397,7 @@ export default function HRTimekeepingPage() {
 
   // Schedule modals
   const [showScheduleModal, setShowScheduleModal]     = useState(false);
+  const [scheduleModalPreset, setScheduleModalPreset] = useState<ScheduleModalPreset>(null);
   const [editScheduleUser, setEditScheduleUser]       = useState<{ employeeId: string; name: string; schedule: any; effectiveLabel?: string } | null>(null);
   const [scheduleRosterRefreshKey, setScheduleRosterRefreshKey] = useState(0);
 
@@ -1712,7 +1726,13 @@ export default function HRTimekeepingPage() {
                 ? (u.department[0]?.department_name ?? null)
                 : (u.department as { department_name?: string | null } | null)?.department_name ?? null),
           }))}
-          onClose={() => setShowScheduleModal(false)}
+          initialScope={scheduleModalPreset?.scope}
+          initialDepartmentId={scheduleModalPreset?.departmentId}
+          initialSchedule={scheduleModalPreset?.schedule}
+          onClose={() => {
+            setShowScheduleModal(false);
+            setScheduleModalPreset(null);
+          }}
           onApplied={() => {
             setScheduleRosterRefreshKey(v => v + 1);
             void refreshTimekeepingData(false);
@@ -1961,7 +1981,10 @@ export default function HRTimekeepingPage() {
             variant="outline"
             size="sm"
             className="h-9 gap-1.5 cursor-pointer"
-            onClick={() => setShowScheduleModal(true)}
+            onClick={() => {
+              setScheduleModalPreset(null);
+              setShowScheduleModal(true);
+            }}
           >
             <Calendar className="h-3.5 w-3.5" />
             Manage Schedules
@@ -1987,6 +2010,23 @@ export default function HRTimekeepingPage() {
           onEditEmployee={(userId, name, schedule) =>
             setEditScheduleUser({ employeeId: userId, name, schedule, effectiveLabel })
           }
+          onEditDepartment={(departmentId, _departmentName, schedule) => {
+            setScheduleModalPreset({
+              scope: "department",
+              departmentId,
+              schedule: schedule
+                ? {
+                    start_time: schedule.start_time,
+                    end_time: schedule.end_time,
+                    break_start: schedule.break_start,
+                    break_end: schedule.break_end,
+                    workdays: schedule.workdays,
+                    is_nightshift: schedule.is_nightshift,
+                  }
+                : null,
+            });
+            setShowScheduleModal(true);
+          }}
         />
       )}
 

@@ -24,21 +24,61 @@ export class NotificationsService {
     message: string;
     metadata?: Record<string, unknown>;
   }): Promise<void> {
-    const { error } = await this.supabaseService
-      .getClient()
-      .from('user_notifications')
-      .insert({
-        user_id: dto.userId,
-        company_id: dto.companyId,
-        type: dto.type,
-        title: dto.title,
-        message: dto.message,
-        metadata: dto.metadata ?? null,
-      });
+    const supabase = this.supabaseService.getClient();
 
-    if (error) {
-      this.logger.error('[NotificationsService] Failed to create notification:', error.message);
+    const { data: user } = await supabase
+      .from('user_profile')
+      .select('user_id, company_id')
+      .eq('user_id', dto.userId)
+      .maybeSingle();
+
+    if (user?.user_id) {
+      const { error } = await supabase
+        .from('user_notifications')
+        .insert({
+          user_id: dto.userId,
+          company_id: dto.companyId || user.company_id,
+          type: dto.type,
+          title: dto.title,
+          message: dto.message,
+          metadata: dto.metadata ?? null,
+        });
+
+      if (error) {
+        this.logger.error('[NotificationsService] Failed to create notification:', error.message);
+      }
+      return;
     }
+
+    const { data: applicant } = await supabase
+      .from('applicant_profile')
+      .select('applicant_id')
+      .eq('applicant_id', dto.userId)
+      .maybeSingle();
+
+    if (applicant?.applicant_id) {
+      const jobPostingId =
+        typeof dto.metadata?.job_posting_id === 'string' ? (dto.metadata.job_posting_id as string) : null;
+
+      const { error } = await supabase
+        .from('notifications')
+        .insert({
+          notification_id: crypto.randomUUID(),
+          applicant_id: applicant.applicant_id,
+          message: `${dto.title}: ${dto.message}`,
+          type: dto.type || 'status_update',
+          job_posting_id: jobPostingId,
+          is_read: false,
+          created_at: new Date().toISOString(),
+        });
+
+      if (error) {
+        this.logger.error('[NotificationsService] Failed to create applicant notification:', error.message);
+      }
+      return;
+    }
+
+    this.logger.warn(`[NotificationsService] Notification skipped. Unknown recipient id: ${dto.userId}`);
   }
 
   async notifyAllHRInCompany(

@@ -189,6 +189,12 @@ export class UsersController {
     return this.usersService.getOnboardingStaging(req.user.sub_userid);
   }
 
+  @Patch('me/emergency-contacts')
+  @HttpCode(200)
+  updateMyEmergencyContacts(@Req() req: any, @Body() body: { emergency_contacts: any[] }) {
+    return this.usersService.updateEmergencyContacts(req.user.sub_userid, body.emergency_contacts ?? []);
+  }
+
   @Get(':id')
   @UseGuards(RolesGuard)
   @Roles(...HR_AND_ABOVE)

@@ -64,7 +64,12 @@ function ApplicationForm({
   const [uploadingResume, setUploadingResume] = useState(false);
   const [deletingResume, setDeletingResume] = useState(false);
   const resumeInputRef = useRef<HTMLInputElement | null>(null);
-  const [resumeFile, setResumeFile] = useState<File | null>(null);
+
+  const [sfiaResumeMode, setSfiaResumeMode] = useState<"profile" | "upload">(
+    profile?.resume_url ? "profile" : "upload",
+  );
+  const [sfiaResumeFile, setSfiaResumeFile] = useState<File | null>(null);
+  const sfiaResumeInputRef = useRef<HTMLInputElement | null>(null);
 
   const jwt = parseJwt(getAccessToken() ?? "");
   const userInfo = getUserInfo();
@@ -161,18 +166,6 @@ function ApplicationForm({
     }
     setSubmitting(true);
     try {
-      let resumeUpload:
-        | { file_name: string; storage_path: string }
-        | undefined;
-
-      if (resumeFile) {
-        const uploaded = await uploadApplicantSfiaResume(job.job_posting_id, resumeFile);
-        resumeUpload = {
-          file_name: uploaded.file_name,
-          storage_path: uploaded.storage_path,
-        };
-      }
-
       const answerPayload = questions.map((q) => {
         let answer_value = answers[q.question_id] ?? "";
         if (q.question_type === "multiple_choice" && answer_value !== "") {
@@ -188,20 +181,32 @@ function ApplicationForm({
         return { question_id: q.question_id, answer_value };
       }).filter((a) => a.answer_value !== "");
 
-      await applyToJob(
-        job.job_posting_id,
-        answerPayload.length || resumeUpload
-          ? {
-              ...(answerPayload.length ? { answers: answerPayload } : {}),
-              ...(resumeUpload
-                ? {
-                    resume_file_name: resumeUpload.file_name,
-                    resume_storage_path: resumeUpload.storage_path,
-                  }
-                : {}),
-            }
-          : undefined,
-      );
+      let resume_storage_path: string | undefined;
+      let resume_file_name: string | undefined;
+
+      if (sfiaResumeMode === "upload" && sfiaResumeFile) {
+        const uploaded = await uploadApplicantSfiaResume(job.job_posting_id, sfiaResumeFile);
+        resume_storage_path = uploaded.storage_path;
+        resume_file_name = uploaded.file_name;
+      } else if (sfiaResumeMode === "profile" && profile?.resume_url) {
+        try {
+          const response = await fetch(profile.resume_url);
+          const blob = await response.blob();
+          const fileName = profile.resume_name || "resume.pdf";
+          const file = new File([blob], fileName, { type: blob.type || "application/pdf" });
+          const uploaded = await uploadApplicantSfiaResume(job.job_posting_id, file);
+          resume_storage_path = uploaded.storage_path;
+          resume_file_name = uploaded.file_name;
+        } catch {
+          // SFIA upload failed — proceed without SFIA scoring
+        }
+      }
+
+      await applyToJob(job.job_posting_id, {
+        answers: answerPayload.length ? answerPayload : undefined,
+        resume_storage_path,
+        resume_file_name,
+      });
       toast.success("Application submitted!");
       onApplied();
     } catch (err: any) {
@@ -296,11 +301,16 @@ function ApplicationForm({
             <p className="text-[10px] text-muted-foreground/50 mt-2">Pulled from your account profile.</p>
           </div>
 
+          {/* Resume — import from profile */}
           <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="text-xs font-semibold text-foreground">Resume (optional)</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Upload PDF, DOC, or DOCX format.</p>
+                <p className="text-xs font-semibold text-foreground">Resume</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {profile?.resume_url
+                    ? "Your profile resume will be submitted with this application."
+                    : "No resume on your profile yet. Upload one to strengthen your application."}
+                </p>
               </div>
               <input
                 ref={resumeInputRef}
@@ -322,13 +332,16 @@ function ApplicationForm({
               </Button>
             </div>
 
-            {profile?.resume_url && (
-              <div className="rounded-lg border border-border bg-background px-3 py-2.5">
+            {profile?.resume_url ? (
+              <div className="rounded-lg border border-green-200 bg-green-50/60 dark:border-green-800/40 dark:bg-green-900/10 px-3 py-2.5">
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="text-xs font-medium text-foreground truncate">
-                    {profile.resume_name || "Uploaded resume"}
-                  </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                    <p className="text-xs font-medium text-green-800 dark:text-green-300 truncate">
+                      {profile.resume_name || "Profile resume"}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5">
                     <Button
                       type="button"
                       variant="ghost"
@@ -347,35 +360,130 @@ function ApplicationForm({
                       disabled={deletingResume || uploadingResume || submitting}
                     >
                       {deletingResume ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                      Remove
                     </Button>
                   </div>
                 </div>
               </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground/60">
+                You can still apply without a resume. Go to{" "}
+                <a href="/applicant/profile" className="underline hover:text-foreground">My Profile</a>{" "}
+                to upload one first.
+              </p>
             )}
           </div>
 
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-3">SFIA Resume Upload</p>
-            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground font-medium">Resume File</label>
-                <Input
-                  type="file"
-                  accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                  onChange={(e) => setResumeFile(e.target.files?.[0] ?? null)}
-                  className="h-10 cursor-pointer"
-                />
-              </div>
-              <p className="text-[11px] text-muted-foreground">
-                Upload a PDF, DOC, or DOCX resume for SFIA processing. This upload is optional for now.
+          {/* SFIA Resume Section */}
+          <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-foreground">Resume for SFIA Assessment</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                This resume will be analyzed to assess your skill match for this role.
               </p>
-              {resumeFile && (
-                <p className="text-[11px] font-medium text-foreground">
-                  Selected: {resumeFile.name}
-                </p>
-              )}
             </div>
+
+            {/* Mode toggle */}
+            <div className="flex gap-2">
+              {profile?.resume_url && (
+                <button
+                  type="button"
+                  onClick={() => setSfiaResumeMode("profile")}
+                  className={`flex-1 h-8 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                    sfiaResumeMode === "profile"
+                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                      : "bg-transparent text-muted-foreground border-border hover:bg-muted/40 hover:text-foreground"
+                  }`}
+                >
+                  Use Profile Resume
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setSfiaResumeMode("upload")}
+                className={`flex-1 h-8 rounded-lg text-xs font-semibold border transition-all cursor-pointer ${
+                  sfiaResumeMode === "upload"
+                    ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                    : "bg-transparent text-muted-foreground border-border hover:bg-muted/40 hover:text-foreground"
+                }`}
+              >
+                Upload Resume
+              </button>
+            </div>
+
+            {sfiaResumeMode === "profile" && profile?.resume_url ? (
+              <div className="rounded-lg border border-green-200 bg-green-50/60 dark:border-green-800/40 dark:bg-green-900/10 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                    <p className="text-xs font-medium text-green-800 dark:text-green-300 truncate">
+                      {profile.resume_name || "Profile resume"}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => window.open(profile.resume_url!, "_blank", "noopener,noreferrer")}
+                  >
+                    View
+                  </Button>
+                </div>
+              </div>
+            ) : sfiaResumeMode === "upload" ? (
+              <div className="space-y-2">
+                <input
+                  ref={sfiaResumeInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setSfiaResumeFile(file);
+                    e.target.value = "";
+                  }}
+                />
+                {sfiaResumeFile ? (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50/60 dark:border-blue-800/40 dark:bg-blue-900/10 px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <Check className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+                        <p className="text-xs font-medium text-blue-800 dark:text-blue-300 truncate">
+                          {sfiaResumeFile.name}
+                        </p>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                        onClick={() => setSfiaResumeFile(null)}
+                        disabled={submitting}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => sfiaResumeInputRef.current?.click()}
+                    disabled={submitting}
+                    className="w-full h-20 rounded-lg border-2 border-dashed border-border hover:border-primary/50 bg-muted/10 hover:bg-primary/5 flex flex-col items-center justify-center gap-1.5 transition-all cursor-pointer group disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Upload className="h-5 w-5 text-muted-foreground group-hover:text-primary transition-colors" />
+                    <p className="text-xs font-semibold text-muted-foreground group-hover:text-primary transition-colors">
+                      Click to upload resume
+                    </p>
+                    <p className="text-[10px] text-muted-foreground/60">PDF, DOC, DOCX</p>
+                  </button>
+                )}
+              </div>
+            ) : null}
+
+            <p className="text-[10px] text-muted-foreground/50">
+              SFIA score will be computed on submission and visible to you and HR after applying.
+            </p>
           </div>
 
           {loading ? (

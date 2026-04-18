@@ -45,7 +45,11 @@ export async function uploadDocument(onboardingItemId: string, file: File, isPro
       body: formData,
     },
   );
-  if (!res.ok) throw new Error('Upload failed');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg = Array.isArray(body?.message) ? body.message.join(', ') : (body?.message || 'Upload failed');
+    throw new Error(msg);
+  }
   return res.json();
 }
 
@@ -111,18 +115,51 @@ export async function updateItemStatus(onboardingItemId: string, status: string,
     headers: headers(),
     body: JSON.stringify({ status, remarks }),
   });
-  if (!res.ok) throw new Error('Failed to update status');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({} as any));
+    const msg = Array.isArray(body?.message)
+      ? body.message.join(', ')
+      : (body?.message || 'Failed to update status');
+    throw new Error(msg);
+  }
   return res.json();
 }
 
 export async function addRemark(session_id: string, tab_tag: string, remark_text: string): Promise<any> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/hr/remarks`, {
-    method: 'POST',
-    headers: headers(),
-    body: JSON.stringify({ session_id, tab_tag, remark_text }),
-  });
-  if (!res.ok) throw new Error('Failed to add remark');
-  return res.json();
+  const normalized = tab_tag.trim().toLowerCase();
+  const tagCandidatesMap: Record<string, string[]> = {
+    documents: ['Documents', 'documents'],
+    tasks: ['Tasks', 'tasks'],
+    equipment: ['Equipment', 'equipment'],
+    profile: ['Profile', 'profile'],
+    forms: ['Forms', 'HR Forms', 'forms', 'hr_forms'],
+    hr_forms: ['Forms', 'HR Forms', 'forms', 'hr_forms'],
+    'hr forms': ['Forms', 'HR Forms', 'forms', 'hr_forms'],
+  };
+
+  const tabTagCandidates = [...new Set(tagCandidatesMap[normalized] ?? [tab_tag])];
+  let lastErrorMessage = 'Failed to add remark';
+
+  for (const candidateTabTag of tabTagCandidates) {
+    const res = await fetch(`${API_BASE_URL}/onboarding/hr/remarks`, {
+      method: 'POST',
+      headers: headers(),
+      body: JSON.stringify({ session_id, tab_tag: candidateTabTag, remark_text }),
+    });
+
+    if (res.ok) return res.json();
+
+    const body = await res.json().catch(() => ({} as any));
+    const msg = Array.isArray(body?.message)
+      ? body.message.join(', ')
+      : (body?.message || `Failed to add remark (HTTP ${res.status})`);
+    lastErrorMessage = msg;
+
+    const maybeTagMismatch = /tab_tag|enum|check constraint|invalid input value/i.test(msg);
+    if (!maybeTagMismatch) break;
+  }
+
+  throw new Error(lastErrorMessage);
 }
 
 export async function updateSessionDeadline(sessionId: string, deadline_date: string): Promise<any> {

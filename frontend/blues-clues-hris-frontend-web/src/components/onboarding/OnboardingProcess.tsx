@@ -1,18 +1,22 @@
 import { useState, useEffect } from "react";
 import { submitForReview } from "@/lib/onboardingApi";
-import { Clock, AlertCircle, CheckCircle, XCircle, User as UserIcon, FileText, ClipboardList, Monitor } from "lucide-react";
+import {
+  Clock, AlertCircle, CheckCircle, XCircle,
+  User as UserIcon, FileText, ClipboardList, Monitor, Lock,
+  Briefcase, CalendarDays, ChevronRight,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { DocumentUpload } from "./DocumentUpload";
 import { TaskChecklist } from "./TaskChecklist";
 import { EquipmentRequest } from "./EquipmentRequest";
 import { ProfileSetup } from "./ProfileSetup";
 import { HRForms } from "./HRForms";
-import { OnboardingSession, DocumentItem, TaskItem, EquipmentItem, HRFormItem, ProfileData, OnboardingItemBase } from "@/types/onboarding.types";
+import {
+  OnboardingSession, DocumentItem, TaskItem, EquipmentItem,
+  HRFormItem, ProfileData, OnboardingItemBase,
+} from "@/types/onboarding.types";
 
 interface OnboardingProcessProps {
   session: OnboardingSession;
@@ -36,103 +40,21 @@ export function OnboardingProcess({
   const equipment = session.equipment || [];
   const hrForms = session.hr_forms || [];
   const profileItems: OnboardingItemBase[] = session.profile_items || [];
-  const welcomeItems: OnboardingItemBase[] = session.welcome || [];
-  const displayTasks = isEmployee
-    ? tasks.filter(t => t.type !== "video")
-    : tasks;
+  const displayTasks = isEmployee ? tasks.filter(t => t.type !== "video") : tasks;
 
   useEffect(() => {
-    const today = new Date();
     const deadline = new Date(session.deadline_date);
-    const diffTime = deadline.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    setDaysRemaining(diffDays);
+    const diff = deadline.getTime() - Date.now();
+    setDaysRemaining(Math.ceil(diff / (1000 * 60 * 60 * 24)));
   }, [session.deadline_date]);
 
+  // ── Progress counts ──────────────────────────────────────────────────────────
   const allItems = [...documents, ...displayTasks, ...equipment, ...hrForms, ...profileItems];
   const requiredItems = allItems.filter(i => i.is_required);
-  const completedItems = requiredItems.filter(i => ['approved', 'confirmed', 'issued'].includes(i.status));
+  const completedItems = requiredItems.filter(i => ["approved", "confirmed", "issued"].includes(i.status));
   const progress = requiredItems.length > 0
     ? Math.round((completedItems.length / requiredItems.length) * 100)
     : 0;
-
-  const handleUpdateDocuments = (docs: DocumentItem[]) => {
-    onUpdateSession({ ...session, documents: docs });
-  };
-
-  const handleUpdateTasks = (tasks: TaskItem[]) => {
-    onUpdateSession({ ...session, tasks: tasks });
-  };
-
-  const handleUpdateEquipment = (equipment: EquipmentItem[]) => {
-    onUpdateSession({ ...session, equipment: equipment });
-  };
-
-  const handleUpdateHRForms = (forms: HRFormItem[]) => {
-    onUpdateSession({ ...session, hr_forms: forms });
-  };
-
-  const handleUpdateProfile = (profile: ProfileData) => {
-    onUpdateSession({
-      ...session,
-      profile: profile,
-      profile_items: session.profile_items.map(item => ({ ...item, status: 'confirmed' as const })),
-    });
-  };
-
-  const handleSubmitForReview = async () => {
-    if (progress < 100) {
-      alert("Please complete all required items before submitting for review");
-      return;
-    }
-
-    setSubmittingForReview(true);
-    try {
-      await submitForReview(session.session_id);
-      onUpdateSession({
-        ...session,
-        status: "for-review",
-      });
-      alert("Your onboarding has been submitted for final review!");
-      onComplete();
-    } catch {
-      alert("Failed to submit for review. Please try again.");
-    } finally {
-      setSubmittingForReview(false);
-    }
-  };
-
-  const getDeadlineAlert = () => {
-    if (daysRemaining <= 0) {
-      return (
-        <Alert className="border-red-500 bg-red-50">
-          <AlertCircle className="size-4 text-red-600" />
-          <AlertDescription className="text-red-800">
-            <strong>Overdue!</strong> Your onboarding deadline has passed.
-          </AlertDescription>
-        </Alert>
-      );
-    } else if (daysRemaining <= 3) {
-      return (
-        <Alert className="border-orange-500 bg-orange-50">
-          <AlertCircle className="size-4 text-orange-600" />
-          <AlertDescription className="text-orange-800">
-            <strong>Urgent!</strong> Only {daysRemaining} day{daysRemaining === 1 ? '' : 's'} remaining until your deadline.
-          </AlertDescription>
-        </Alert>
-      );
-    } else if (daysRemaining <= 7) {
-      return (
-        <Alert className="border-yellow-500 bg-yellow-50">
-          <Clock className="size-4 text-yellow-600" />
-          <AlertDescription className="text-yellow-800">
-            {daysRemaining} days remaining. Please complete all items soon.
-          </AlertDescription>
-        </Alert>
-      );
-    }
-    return null;
-  };
 
   const approvedCount = [
     ...documents.filter(d => d.status === "approved"),
@@ -158,188 +80,307 @@ export function OnboardingProcess({
     ...hrForms.filter(f => f.status === "pending" || f.status === "rejected"),
   ].length;
 
+  // ── Sequential step-unlock logic ─────────────────────────────────────────────
+  // Each tab is visible only after the previous tab's required items are all HR-approved.
+  const profileApproved = profileItems.some(i => i.status === "approved");
+
+  const allRequired = (items: { is_required: boolean; status: string }[], doneStatuses: string[]) =>
+    items.filter(i => i.is_required).length === 0 ||
+    items.filter(i => i.is_required).every(i => doneStatuses.includes(i.status));
+
+  const documentsAllApproved = allRequired(documents, ["approved"]);
+  const formsAllApproved     = allRequired(hrForms,   ["approved"]);
+  const tasksAllApproved     = allRequired(displayTasks, ["approved", "confirmed"]);
+  const equipmentAllApproved = equipment.length === 0 || equipment.every(e => ["approved", "issued"].includes(e.status));
+
+  const documentsUnlocked = profileApproved;
+  const formsUnlocked     = profileApproved && documentsAllApproved;
+  const tasksUnlocked     = profileApproved && documentsAllApproved && formsAllApproved;
+  const equipmentUnlocked = profileApproved && documentsAllApproved && formsAllApproved && tasksAllApproved;
+  const finalReady = progress === 100 && equipmentAllApproved;
+
+  // ── Session update handlers ───────────────────────────────────────────────────
+  const handleUpdateDocuments = (docs: DocumentItem[]) =>
+    onUpdateSession({ ...session, documents: docs });
+  const handleUpdateTasks = (t: TaskItem[]) =>
+    onUpdateSession({ ...session, tasks: t });
+  const handleUpdateEquipment = (eq: EquipmentItem[]) =>
+    onUpdateSession({ ...session, equipment: eq });
+  const handleUpdateHRForms = (forms: HRFormItem[]) =>
+    onUpdateSession({ ...session, hr_forms: forms });
+  const handleUpdateProfile = (profile: ProfileData) =>
+    onUpdateSession({
+      ...session,
+      profile,
+      profile_items: session.profile_items.map(item => ({ ...item, status: "confirmed" as const })),
+    });
+
+  const handleSubmitForReview = async () => {
+    if (!finalReady) {
+      if (!equipmentAllApproved) {
+        alert("Please complete the Equipment step first before submitting for final review.");
+        return;
+      }
+      alert("Please complete all required items before submitting for review");
+      return;
+    }
+    setSubmittingForReview(true);
+    try {
+      await submitForReview(session.session_id);
+      onUpdateSession({ ...session, status: "for-review" });
+      alert("Your onboarding has been submitted for final review!");
+      onComplete();
+    } catch {
+      alert("Failed to submit for review. Please try again.");
+    } finally {
+      setSubmittingForReview(false);
+    }
+  };
+
+  // ── Deadline badge ────────────────────────────────────────────────────────────
+  const deadlineBadge = () => {
+    if (daysRemaining <= 0)
+      return <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-red-100 text-red-700 border border-red-200 rounded-full px-3 py-1"><AlertCircle className="size-3" />Overdue</span>;
+    if (daysRemaining <= 3)
+      return <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-orange-100 text-orange-700 border border-orange-200 rounded-full px-3 py-1"><AlertCircle className="size-3" />{daysRemaining}d left — urgent</span>;
+    if (daysRemaining <= 7)
+      return <span className="inline-flex items-center gap-1.5 text-xs font-semibold bg-amber-100 text-amber-700 border border-amber-200 rounded-full px-3 py-1"><Clock className="size-3" />{daysRemaining} days left</span>;
+    return null;
+  };
+
+  // ── Rejected items alert ──────────────────────────────────────────────────────
+  const rejectedItems = [
+    ...profileItems.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Profile" })),
+    ...documents.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Documents" })),
+    ...hrForms.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "HR Forms" })),
+    ...displayTasks.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Tasks" })),
+    ...equipment.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Equipment" })),
+  ];
+
+  // ── Tab step definitions ──────────────────────────────────────────────────────
+  const steps = [
+    { value: "profile",   label: "Profile",    icon: UserIcon,     unlocked: true,              approved: profileApproved },
+    { value: "documents", label: "Documents",  icon: FileText,     unlocked: documentsUnlocked, approved: documentsAllApproved && documentsUnlocked },
+    { value: "forms",     label: "HR Forms",   icon: ClipboardList,unlocked: formsUnlocked,     approved: formsAllApproved && formsUnlocked },
+    { value: "tasks",     label: "Tasks",      icon: CheckCircle,  unlocked: tasksUnlocked,     approved: tasksAllApproved && tasksUnlocked },
+    { value: "equipment", label: "Equipment",  icon: Monitor,      unlocked: equipmentUnlocked, approved: equipmentAllApproved && equipmentUnlocked },
+  ] as const;
 
   return (
-    <div className="min-h-screen bg-slate-50 p-4 md:p-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl mb-4">Employee Onboarding</h1>
-          <div className="flex gap-4">
-            <div className="border rounded-lg p-4 flex-1">
-              <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Role</p>
-              <p className="font-semibold text-slate-800 whitespace-nowrap">
-                {session.assigned_position} • {session.assigned_department}
-              </p>
+    <div className="space-y-5">
+
+      {/* ── Hero header ── */}
+      <div className="bg-blue-900 rounded-2xl px-6 py-5 text-white shadow-md">
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+              <Briefcase className="size-6 text-white" />
             </div>
-            <div className="border rounded-lg p-4 flex-1">
-              <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Deadline</p>
-              <div className="flex items-center gap-1.5">
-                <Clock className="size-4 text-slate-500" />
-                <p className="font-semibold text-slate-800">
-                  {new Date(session.deadline_date).toLocaleDateString('en-US')}
-                </p>
-              </div>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-blue-300 mb-0.5">Employee Onboarding</p>
+              <h1 className="text-xl font-bold leading-tight">{session.assigned_position}</h1>
+              <p className="text-blue-300 text-sm">{session.assigned_department}</p>
             </div>
           </div>
+          <div className="flex items-center gap-3 flex-wrap">
+            {deadlineBadge()}
+            <span className="inline-flex items-center gap-1.5 text-xs text-blue-200 bg-white/10 border border-white/20 rounded-full px-3 py-1">
+              <CalendarDays className="size-3" />
+              Due {new Date(session.deadline_date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Rejected items alert ── */}
+      {rejectedItems.length > 0 && (
+        <div className="flex items-start gap-3 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          <XCircle className="size-4 text-red-600 shrink-0 mt-0.5" />
+          <div className="text-sm text-red-800">
+            <p className="font-semibold mb-1">Action required — {rejectedItems.length} item{rejectedItems.length > 1 ? "s" : ""} need{rejectedItems.length === 1 ? "s" : ""} attention:</p>
+            <ul className="list-disc list-inside space-y-0.5">
+              {rejectedItems.map(i => (
+                <li key={i.onboarding_item_id}>
+                  <span className="font-medium">{i.title}</span>
+                  <span className="text-red-500 ml-1">({i.tab})</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {/* ── Progress card ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-5">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-sm font-semibold text-slate-700">Overall Progress</p>
+          <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${progress === 100 ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+            {progress}% Complete
+          </span>
+        </div>
+        <Progress value={progress} className="h-2.5 mb-3" />
+        <div className="flex items-center gap-4 text-xs text-slate-500 flex-wrap">
+          <span className="flex items-center gap-1.5"><CheckCircle className="size-3.5 text-emerald-500" />{approvedCount} approved</span>
+          <span className="text-slate-200">•</span>
+          <span className="flex items-center gap-1.5"><Clock className="size-3.5 text-amber-500" />{underReviewCount} under review</span>
+          <span className="text-slate-200">•</span>
+          <span className="flex items-center gap-1.5"><AlertCircle className="size-3.5 text-slate-400" />{remainingCount} remaining</span>
+        </div>
+      </div>
+
+      {/* ── Main checklist ── */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <div className="px-5 pt-4 pb-2 border-b border-slate-100">
+          <p className="text-sm font-semibold text-slate-800">Onboarding Checklist</p>
+          <p className="text-xs text-slate-400 mt-0.5">Complete each section in order. The next step unlocks once HR approves the current one.</p>
         </div>
 
-        {/* Deadline Alert */}
-        {getDeadlineAlert()}
-
-        {/* Rejected Items Alert */}
-        {(() => {
-          const rejectedItems = [
-            ...profileItems.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Profile" })),
-            ...documents.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Documents" })),
-            ...hrForms.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "HR Forms" })),
-            ...displayTasks.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Tasks" })),
-            ...equipment.filter(i => i.status === "rejected").map(i => ({ ...i, tab: "Equipment" })),
-          ];
-          if (rejectedItems.length === 0) return null;
-          return (
-            <Alert className="border-red-200 bg-red-50">
-              <XCircle className="size-4 text-red-600 shrink-0" />
-              <AlertDescription className="text-red-800">
-                <p className="font-semibold mb-1">Action required — {rejectedItems.length} item{rejectedItems.length > 1 ? "s" : ""} need{rejectedItems.length === 1 ? "s" : ""} your attention:</p>
-                <ul className="list-disc list-inside space-y-0.5 text-sm">
-                  {rejectedItems.map(i => (
-                    <li key={i.onboarding_item_id}>
-                      <span className="font-medium">{i.title}</span>
-                      <span className="text-red-600 ml-1">({i.tab})</span>
-                    </li>
-                  ))}
-                </ul>
-                <p className="mt-2 text-sm">Check the remarks in each section, correct the information, and resubmit.</p>
-              </AlertDescription>
-            </Alert>
-          );
-        })()}
-
-        {/* Progress Section */}
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle>Overall Progress</CardTitle>
-              <Badge variant={progress === 100 ? "default" : "secondary"}>{progress}% Complete</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <Progress value={progress} className="h-3" />
-            <div className="flex items-center gap-4 text-sm text-slate-600 flex-wrap">
-              <div className="flex items-center gap-2">
-                <CheckCircle className="size-4 text-green-600" />
-                <span>{approvedCount} approved</span>
-              </div>
-              <span className="text-slate-300">•</span>
-              <div className="flex items-center gap-2">
-                <Clock className="size-4 text-orange-600" />
-                <span>{underReviewCount} under review</span>
-              </div>
-              <span className="text-slate-300">•</span>
-              <div className="flex items-center gap-2">
-                <AlertCircle className="size-4 text-slate-600" />
-                <span>{remainingCount} remaining</span>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Main Onboarding Content */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Onboarding Checklist</CardTitle>
-            <CardDescription>Complete all required sections below</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Tabs defaultValue="profile" className="w-full">
-              <TabsList className="grid w-full grid-cols-5">
-                <TabsTrigger value="profile" className="flex items-center gap-2">
-                  <UserIcon className="size-4" />
-                  Profile
+        <Tabs defaultValue="profile" className="w-full">
+          {/* Step tab bar */}
+          <div className="px-5 pt-3 pb-0">
+            <TabsList className="flex h-auto gap-1 p-1 bg-slate-100 rounded-xl w-full">
+              {steps.map(({ value, label, icon: Icon, unlocked, approved }, idx) => (
+                <TabsTrigger
+                  key={value}
+                  value={value}
+                  disabled={!unlocked}
+                  className="flex flex-1 flex-col items-center gap-1 py-2 px-1 rounded-lg text-xs font-medium text-slate-500 disabled:opacity-50 disabled:cursor-not-allowed data-[state=active]:bg-white data-[state=active]:text-blue-700 data-[state=active]:shadow-sm data-[state=active]:font-semibold transition-all cursor-pointer"
+                >
+                  <span className="relative flex items-center justify-center">
+                    {approved ? (
+                      <span className="size-6 rounded-full bg-emerald-100 flex items-center justify-center">
+                        <CheckCircle className="size-3.5 text-emerald-600" />
+                      </span>
+                    ) : !unlocked ? (
+                      <span className="size-6 rounded-full bg-slate-200 flex items-center justify-center">
+                        <Lock className="size-3 text-slate-400" />
+                      </span>
+                    ) : (
+                      <span className="size-6 rounded-full bg-blue-50 flex items-center justify-center">
+                        <Icon className="size-3.5 text-blue-600" />
+                      </span>
+                    )}
+                  </span>
+                  <span className="hidden sm:block truncate max-w-[60px] xl:max-w-none">{label}</span>
+                  {!unlocked && idx > 0 && (
+                    <span className="hidden md:block text-[9px] text-slate-400 font-normal">Step {idx}</span>
+                  )}
                 </TabsTrigger>
-                <TabsTrigger value="documents" className="flex items-center gap-2">
-                  <FileText className="size-4" />
-                  Documents
-                </TabsTrigger>
-                <TabsTrigger value="forms" className="flex items-center gap-2">
-                  <ClipboardList className="size-4" />
-                  HR Forms
-                </TabsTrigger>
-                <TabsTrigger value="tasks" className="flex items-center gap-2">
-                  <CheckCircle className="size-4" />
-                  Tasks
-                </TabsTrigger>
-                <TabsTrigger value="equipment" className="flex items-center gap-2">
-                  <Monitor className="size-4" />
-                  Equipment
-                </TabsTrigger>
-              </TabsList>
+              ))}
+            </TabsList>
+          </div>
 
-              <TabsContent value="profile">
-                <ProfileSetup
-                  profile={session.profile}
-                  sessionId={session.session_id}
-                  remarks={session.remarks}
-                  onUpdate={handleUpdateProfile}
-                  profileRejected={session.profile_items?.some(i => i.status === "rejected")}
-                  profileApproved={session.profile_items?.some(i => i.status === "approved")}
-                  profileConfirmed={session.profile_items?.some(i => i.status === "confirmed")}
-                />
-              </TabsContent>
+          <div className="p-5">
+            {/* Profile */}
+            <TabsContent value="profile" className="mt-0">
+              <ProfileSetup
+                profile={session.profile}
+                sessionId={session.session_id}
+                remarks={session.remarks}
+                onUpdate={handleUpdateProfile}
+                profileRejected={session.profile_items?.some(i => i.status === "rejected")}
+                profileApproved={session.profile_items?.some(i => i.status === "approved")}
+                profileConfirmed={session.profile_items?.some(i => i.status === "confirmed")}
+              />
+            </TabsContent>
 
-              <TabsContent value="documents">
+            {/* Documents — locked overlay when not unlocked */}
+            <TabsContent value="documents" className="mt-0">
+              {!documentsUnlocked ? (
+                <LockedStep label="Profile" />
+              ) : (
                 <DocumentUpload
                   documents={documents}
                   remarks={session.remarks.filter(r => r.tab_tag === "Documents")}
                   onUpdate={handleUpdateDocuments}
                 />
-              </TabsContent>
+              )}
+            </TabsContent>
 
-              <TabsContent value="forms">
+            {/* HR Forms */}
+            <TabsContent value="forms" className="mt-0">
+              {!formsUnlocked ? (
+                <LockedStep label="Documents" />
+              ) : (
                 <HRForms
                   forms={hrForms}
                   remarks={session.remarks.filter(r => r.tab_tag === "Forms")}
                   onUpdate={handleUpdateHRForms}
                 />
-              </TabsContent>
+              )}
+            </TabsContent>
 
-              <TabsContent value="tasks">
+            {/* Tasks */}
+            <TabsContent value="tasks" className="mt-0">
+              {!tasksUnlocked ? (
+                <LockedStep label="HR Forms" />
+              ) : (
                 <TaskChecklist
                   tasks={displayTasks}
                   remarks={session.remarks.filter(r => r.tab_tag === "Tasks")}
                   onUpdateTasks={handleUpdateTasks}
                 />
-              </TabsContent>
+              )}
+            </TabsContent>
 
-              <TabsContent value="equipment">
+            {/* Equipment */}
+            <TabsContent value="equipment" className="mt-0">
+              {!equipmentUnlocked ? (
+                <LockedStep label="Tasks" />
+              ) : (
                 <EquipmentRequest
                   equipment={equipment}
                   remarks={session.remarks.filter(r => r.tab_tag === "Equipment")}
                   onUpdateEquipment={handleUpdateEquipment}
                 />
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+              )}
+            </TabsContent>
+          </div>
+        </Tabs>
+      </div>
 
-        {/* Submit Button */}
-        {progress === 100 && session.status !== "for-review" && session.status !== "approved" && (
-          <Card className="bg-green-50 border-green-200">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-semibold text-green-900">Ready to Submit</h3>
-                  <p className="text-sm text-green-700">You've completed all requirements. Submit for final review.</p>
-                </div>
-                <Button onClick={handleSubmitForReview} className="bg-green-600 hover:bg-green-700" disabled={submittingForReview}>
-                  <CheckCircle className="size-4 mr-2" />
-                  {submittingForReview ? "Submitting..." : "Submit for Final Review"}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        )}
+      {/* ── Submit for final review ── */}
+      {progress === 100 && !equipmentAllApproved && session.status !== "for-review" && session.status !== "approved" && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 flex items-center gap-3">
+          <AlertCircle className="size-4 text-amber-600 shrink-0" />
+          <p className="text-xs text-amber-800">
+            Finish the <strong>Equipment</strong> step first before you can submit for final HR review.
+          </p>
+        </div>
+      )}
+      {finalReady && session.status !== "for-review" && session.status !== "approved" && (
+        <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-5 py-4 flex items-center justify-between gap-4 flex-wrap">
+          <div>
+            <p className="font-semibold text-emerald-900 text-sm">Ready to Submit</p>
+            <p className="text-xs text-emerald-700 mt-0.5">You&apos;ve completed all requirements. Submit for final HR review.</p>
+          </div>
+          <Button
+            onClick={handleSubmitForReview}
+            disabled={submittingForReview}
+            className="bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm cursor-pointer"
+          >
+            <CheckCircle className="size-4 mr-2" />
+            {submittingForReview ? "Submitting…" : "Submit for Final Review"}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Locked step placeholder ───────────────────────────────────────────────────
+function LockedStep({ label }: { label: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-16 gap-4 text-center">
+      <div className="size-14 rounded-full bg-slate-100 flex items-center justify-center">
+        <Lock className="size-6 text-slate-400" />
+      </div>
+      <div>
+        <p className="font-semibold text-slate-700">This step is locked</p>
+        <p className="text-sm text-slate-500 mt-1 flex items-center justify-center gap-1">
+          Complete and get <strong className="text-slate-700 mx-1">{label}</strong> approved by HR first
+          <ChevronRight className="size-3.5" />
+        </p>
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import * as crypto from 'node:crypto';
+import { PDFParse } from 'pdf-parse';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
@@ -193,6 +194,47 @@ export class JobsService {
     if (error) throw new InternalServerErrorException(error.message);
     if (!data) throw new NotFoundException('Job posting not found');
     return data;
+  }
+
+  async getJobSfiaSkills(jobPostingId: string, companyId: string) {
+    await this.findOnePosting(jobPostingId, companyId);
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('job_posting_sfia_skill')
+      .select('job_posting_skills_id, skill_id, required_level, weight')
+      .eq('job_posting_id', jobPostingId)
+      .order('required_level', { ascending: false });
+    if (error) throw new InternalServerErrorException(error.message);
+    return data ?? [];
+  }
+
+  async saveJobSfiaSkills(
+    jobPostingId: string,
+    skills: Array<{ skill_id: string; required_level: number; weight?: number }>,
+    companyId: string,
+  ) {
+    await this.findOnePosting(jobPostingId, companyId);
+    const supabase = this.supabaseService.getClient();
+
+    // Delete existing skills for this job
+    await supabase.from('job_posting_sfia_skill').delete().eq('job_posting_id', jobPostingId);
+
+    if (skills.length === 0) return [];
+
+    const rows = skills.map((s) => ({
+      job_posting_id: jobPostingId,
+      skill_id: s.skill_id.trim(),
+      required_level: Math.max(1, Math.min(7, Math.round(s.required_level))),
+      weight: s.weight ?? 1,
+    }));
+
+    const { data, error } = await supabase
+      .from('job_posting_sfia_skill')
+      .insert(rows)
+      .select('job_posting_skills_id, skill_id, required_level, weight');
+
+    if (error) throw new InternalServerErrorException(error.message);
+    return data ?? [];
   }
 
   async updatePosting(jobPostingId: string, dto: UpdateJobPostingDto, companyId: string, performedBy: string) {
@@ -570,6 +612,27 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
+    // Fetch SFIA values (when mirrored into job_application_sfia)
+    const { data: sfiaApp } = await supabase
+      .from('job_application_sfia')
+      .select('pre_screening_score, sfia_matching_percentage')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    const surveyScore = sfiaApp
+      ? this.readNullableNumber(
+          sfiaApp as unknown as Record<string, unknown>,
+          ['pre_screening_score'],
+        )
+      : null;
+    const sfiaMatchPercentage = sfiaApp
+      ? this.readNullableNumber(
+          sfiaApp as unknown as Record<string, unknown>,
+          ['sfia_matching_percentage'],
+        )
+      : null;
+    const sfiaGrade = this.deriveSfiaGrade(sfiaMatchPercentage, surveyScore);
+
     // Generate a signed URL for the resume if it's stored as a file path
     const profile = (app as any).applicant_profile as Record<string, any> | null;
     if (profile?.resume_url && !profile.resume_url.startsWith('https://')) {
@@ -586,6 +649,11 @@ export class JobsService {
       answers: answers ?? [],
       interview_schedule: latestSchedule,
       interview_schedules,
+      // Backward-compatible field for older frontend consumers.
+      // In this schema, pre_screening_score stores screening score (0-100).
+      survey_score: surveyScore,
+      sfia_grade: sfiaGrade,
+      sfia_match_percentage: sfiaMatchPercentage,
       resume_upload: await this.getLatestResumeUpload((app as any).applicant_id, (app as any).job_posting_id),
     };
   }
@@ -1183,17 +1251,32 @@ export class JobsService {
 
     const { data: application, error: appError } = await supabase
       .from('job_applications')
-      .select('application_id, applicant_id, survey_score')
+      .select('application_id, applicant_id')
       .eq('application_id', applicationId)
       .maybeSingle();
 
     if (appError) throw new InternalServerErrorException(appError.message);
     if (!application) throw new NotFoundException('Application not found');
 
+    const { data: sfiaApp, error: sfiaError } = await supabase
+      .from('job_application_sfia')
+      .select('pre_screening_score')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (sfiaError) throw new InternalServerErrorException(sfiaError.message);
+
+    const surveyScore = sfiaApp
+      ? this.readNullableNumber(
+          sfiaApp as unknown as Record<string, unknown>,
+          ['pre_screening_score'],
+        ) ?? 0
+      : 0;
+
     return { 
       applicationId: application.application_id,
       applicantId: application.applicant_id,
-      surveyScore: application.survey_score ?? 0,
+      surveyScore,
     };
   }
 
@@ -1440,14 +1523,42 @@ export class JobsService {
       // Calculate survey score after answers are saved
       const surveyScore = await this.calculateSurveyScore(application_id);
       const { error: scoreError } = await supabase
-        .from('job_applications')
-        .update({ survey_score: surveyScore })
+        .from('job_application_sfia')
+        .update({ pre_screening_score: surveyScore })
         .eq('application_id', application_id);
 
       if (scoreError) {
         console.error('Failed to save survey score:', scoreError.message);
       }
     }
+
+    // Extract SFIA skills from the uploaded resume, then score
+    if (dto.resume_storage_path) {
+      try {
+        const resumeBuffer = await this.downloadResumeBuffer(dto.resume_storage_path);
+        if (resumeBuffer) {
+          const mimeType = dto.resume_storage_path.toLowerCase().endsWith('.pdf')
+            ? 'application/pdf'
+            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+          const resumeText = await this.extractResumeText(resumeBuffer, mimeType);
+          if (resumeText.trim().length > 0) {
+            const allSkills = await this.getAllSfiaSkills();
+            const matches = this.matchSkillsFromText(resumeText, allSkills);
+            await this.populateCandidateSkillScores(application_id, matches);
+          }
+        }
+      } catch (err) {
+        this.logger.warn(
+          `SFIA skill extraction failed for application ${application_id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    await this.calculateAndCacheSfiaScoreForApplication(
+      jobPostingId,
+      application_id,
+      applicantId,
+    );
 
     return {
       ...data,
@@ -1500,11 +1611,35 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
+    // Fetch SFIA values for applicant-side detail view
+    const { data: sfiaApp } = await supabase
+      .from('job_application_sfia')
+      .select('pre_screening_score, sfia_matching_percentage')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    const surveyScore = sfiaApp
+      ? this.readNullableNumber(
+          sfiaApp as unknown as Record<string, unknown>,
+          ['pre_screening_score'],
+        )
+      : null;
+    const sfiaMatchPercentage = sfiaApp
+      ? this.readNullableNumber(
+          sfiaApp as unknown as Record<string, unknown>,
+          ['sfia_matching_percentage'],
+        )
+      : null;
+    const sfiaGrade = this.deriveSfiaGrade(sfiaMatchPercentage, surveyScore);
+
     return {
       ...app,
       answers: answers ?? [],
       interview_schedule: latestSchedule,
       interview_schedules,
+      survey_score: surveyScore,
+      sfia_grade: sfiaGrade,
+      sfia_match_percentage: sfiaMatchPercentage,
       resume_upload: await this.getLatestResumeUpload(app.applicant_id, app.job_posting_id),
     };
   }
@@ -1555,7 +1690,9 @@ export class JobsService {
     const ranked = applications.map((application) => {
       const profile = profileByApplicantId.get(application.applicant_id);
       const supplySkills =
-        groupedSupply[application.application_id] ?? [];
+        groupedSupply[application.application_id] ??
+        groupedSupply[application.applicant_id] ??
+        [];
 
       const score = this.computeSfiaScore(demandSkills, supplySkills);
       void this.cacheSfiaScore(jobPostingId, application.application_id, score.relevancePercentage);
@@ -1615,8 +1752,9 @@ export class JobsService {
       const supplyLevel = supplySkill?.candidate_level ?? 0;
 
       let points = 0;
-      if (supplyLevel === demandSkill.required_level) points = 3;
-      else if (supplyLevel > demandSkill.required_level) points = 1.5;
+      if (supplyLevel >= demandSkill.required_level) points = 3;
+      else if (supplyLevel === demandSkill.required_level - 1) points = 1.5;
+      else if (supplyLevel === demandSkill.required_level - 2) points = 0.5;
 
       return {
         sfia_skill_id: demandSkill.skill_id,
@@ -1703,7 +1841,7 @@ export class JobsService {
     const supplyRows = (data ?? [])
       .map((row: Record<string, unknown>) => {
         const ownerKey =
-          this.readFirstString(row, ['applicant_id', 'application_id']) ?? '';
+          this.readFirstString(row, ['application_id', 'applicant_id']) ?? '';
         const skillId = this.readFirstString(row, [
           'sfia_skill_id',
           'skill_id',
@@ -1724,6 +1862,135 @@ export class JobsService {
       .filter((row): row is SfiaSupplySkill => row !== null);
 
     return this.attachSkillNames(supplyRows);
+  }
+
+  private async getCandidateSupplySkillsForApplication(
+    applicationId: string,
+    applicantId: string,
+  ): Promise<SfiaSupplySkill[]> {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('candidate_skill_score_sfia')
+      .select('application_id, skill_id, candidate_level, match_score')
+      .eq('application_id', applicationId);
+
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'candidate_skill_score_sfia');
+      // Table may not exist yet — return empty so the score caches as 0 instead of failing silently
+      return [];
+    }
+
+    const supplyRows = (data ?? [])
+      .map((row: Record<string, unknown>) => {
+        const ownerKey =
+          this.readFirstString(row, ['application_id', 'applicant_id']) ??
+          applicationId;
+        const skillId = this.readFirstString(row, [
+          'sfia_skill_id',
+          'skill_id',
+          'sfia_id',
+        ]);
+        if (!ownerKey || !skillId) return null;
+
+        return {
+          owner_key: ownerKey,
+          skill_id: skillId,
+          skill_name: skillId,
+          candidate_level: normalizeNumber(
+            this.readFirstValue(row, ['candidate_level', 'level']),
+          ),
+          match_score: this.readNullableNumber(row, ['match_score']),
+        } satisfies SfiaSupplySkill;
+      })
+      .filter((row): row is SfiaSupplySkill => row !== null);
+
+    // Fallback: if no per-application rows exist yet, allow applicant-level rows.
+    if (supplyRows.length > 0) {
+      return this.attachSkillNames(supplyRows);
+    }
+
+    const { data: applicantRows, error: applicantErr } = await supabase
+      .from('candidate_skill_score_sfia')
+      .select('application_id, skill_id, candidate_level, match_score')
+      .eq('applicant_id', applicantId);
+
+    if (applicantErr) {
+      this.handleMissingSfiaSchema(applicantErr.message, 'candidate_skill_score_sfia');
+      return [];
+    }
+
+    const fallbackRows = (applicantRows ?? [])
+      .map((row: Record<string, unknown>) => {
+        const skillId = this.readFirstString(row, [
+          'sfia_skill_id',
+          'skill_id',
+          'sfia_id',
+        ]);
+        if (!skillId) return null;
+
+        return {
+          owner_key: applicationId,
+          skill_id: skillId,
+          skill_name: skillId,
+          candidate_level: normalizeNumber(
+            this.readFirstValue(row, ['candidate_level', 'level']),
+          ),
+          match_score: this.readNullableNumber(row, ['match_score']),
+        } satisfies SfiaSupplySkill;
+      })
+      .filter((row): row is SfiaSupplySkill => row !== null);
+
+    return this.attachSkillNames(fallbackRows);
+  }
+
+  private async calculateAndCacheSfiaScoreForApplication(
+    jobPostingId: string,
+    applicationId: string,
+    applicantId: string,
+  ) {
+    try {
+      const demandSkills = await this.getJobDemandSkills(jobPostingId);
+      const supplySkills = await this.getCandidateSupplySkillsForApplication(
+        applicationId,
+        applicantId,
+      );
+
+      const score = this.computeSfiaScore(demandSkills, supplySkills);
+      await this.cacheSfiaScore(
+        jobPostingId,
+        applicationId,
+        score.relevancePercentage,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(
+        `Unable to compute SFIA score for application ${applicationId}: ${message}`,
+      );
+    }
+  }
+
+  private mapPercentageToSfiaLevel(percentage: number): number {
+    const clamped = Math.max(0, Math.min(100, percentage));
+    const level = Math.round((clamped / 100) * 6 + 1);
+    return Math.max(1, Math.min(7, level));
+  }
+
+  private deriveSfiaGrade(
+    sfiaMatchPercentage: number | null,
+    surveyScore: number | null,
+  ): number | null {
+    if (sfiaMatchPercentage != null) {
+      return this.mapPercentageToSfiaLevel(sfiaMatchPercentage);
+    }
+
+    if (surveyScore == null) return null;
+
+    // Keep compatibility with historical records where 1-7 was stored directly.
+    if (surveyScore >= 1 && surveyScore <= 7) {
+      return Math.round(surveyScore);
+    }
+
+    return this.mapPercentageToSfiaLevel(surveyScore);
   }
 
   private async cacheSfiaScore(
@@ -2132,5 +2399,100 @@ export class JobsService {
     const { error: insertErr } = await supabase.from('attendance_time_logs').insert(closeRows);
     if (insertErr) cronLogger.error(`Failed to insert auto clock-outs: ${insertErr.message}`);
     else cronLogger.log(`Auto clock-out recorded for ${closeRows.length} employee(s) from ${yesterday}`);
+  }
+
+  // ── SFIA Resume Skill Extraction ────────────────────────────────────────────
+
+  private async extractResumeText(buffer: Buffer, mimeType: string): Promise<string> {
+    try {
+      if (mimeType === 'application/pdf') {
+        const parser = new PDFParse({ data: buffer });
+        const result = await parser.getText();
+        return result.text ?? '';
+      }
+      // DOC (OLE2 binary) and DOCX: decode as latin1 to preserve all bytes,
+      // then strip non-printable chars — equivalent to `cat file | tr -cd '[:print:]'`
+      return buffer.toString('latin1').replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ');
+    } catch {
+      return '';
+    }
+  }
+
+  private matchSkillsFromText(
+    resumeText: string,
+    sfiaSkills: Array<{ skill_id: string; skill: string; category: string }>,
+  ): Array<{ skill_id: string; candidate_level: number }> {
+    const lowerText = resumeText.toLowerCase();
+    const results: Array<{ skill_id: string; candidate_level: number }> = [];
+
+    const highKeywords = ['lead', 'senior', 'principal', 'head of', 'architect', 'manager', 'director'];
+    const midHighKeywords = ['specialist', 'expert', 'advanced'];
+    const midKeywords = ['mid', 'intermediate', 'experienced'];
+    const lowKeywords = ['junior', 'associate', 'entry', 'graduate', 'intern'];
+
+    // Assess overall seniority from the full document — a resume has one seniority level
+    let globalLevel = 3;
+    if (highKeywords.some(kw => lowerText.includes(kw))) globalLevel = 5;
+    else if (midHighKeywords.some(kw => lowerText.includes(kw))) globalLevel = 4;
+    else if (lowKeywords.some(kw => lowerText.includes(kw))) globalLevel = 2;
+
+    for (const skill of sfiaSkills) {
+      const term = skill.skill.toLowerCase();
+      const catTerm = skill.category.toLowerCase();
+      if (!lowerText.includes(term) && !lowerText.includes(catTerm)) continue;
+      results.push({ skill_id: skill.skill_id, candidate_level: globalLevel });
+    }
+
+    return results;
+  }
+
+  private async getAllSfiaSkills(): Promise<Array<{ skill_id: string; skill: string; category: string }>> {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('sfia_skills')
+      .select('skill_id, skill, category');
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'sfia_skills');
+      return [];
+    }
+    return (data ?? []) as Array<{ skill_id: string; skill: string; category: string }>;
+  }
+
+  private async populateCandidateSkillScores(
+    applicationId: string,
+    matches: Array<{ skill_id: string; candidate_level: number }>,
+  ): Promise<void> {
+    if (matches.length === 0) return;
+    const supabase = this.supabaseService.getClient();
+    const rows = matches.map(m => ({
+      candidate_skill_score_sfia_id: crypto.randomUUID(),
+      application_id: applicationId,
+      skill_id: m.skill_id,
+      candidate_level: m.candidate_level,
+      match_score: null,
+    }));
+    try {
+      const { error } = await supabase.from('candidate_skill_score_sfia').upsert(rows, {
+        onConflict: 'application_id,skill_id',
+        ignoreDuplicates: false,
+      });
+      if (error) this.logger.warn(`populateCandidateSkillScores: ${error.message}`);
+    } catch (err) {
+      this.logger.warn(`populateCandidateSkillScores threw: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async downloadResumeBuffer(storagePath: string): Promise<Buffer | null> {
+    try {
+      const supabase = this.supabaseService.getClient();
+      const { data, error } = await supabase.storage.from('sfia-resumes').download(storagePath);
+      if (error || !data) {
+        this.logger.warn(`Could not download SFIA resume at ${storagePath}: ${error?.message}`);
+        return null;
+      }
+      return Buffer.from(await data.arrayBuffer());
+    } catch {
+      return null;
+    }
   }
 }

@@ -1,21 +1,29 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty, IsEnum } from 'class-validator';
+import { IsString, IsNotEmpty } from 'class-validator';
 
-export enum TabTagEnum {
-  DOCUMENTS = 'Documents',
-  TASKS = 'Tasks',
-  EQUIPMENT = 'Equipment',
-  PROFILE = 'Profile',
-  FORMS = 'Forms',
-}
+export const SUPPORTED_TAB_TAGS = [
+  'Documents',
+  'Tasks',
+  'Equipment',
+  'Profile',
+  'Forms',
+  'HR Forms',
+  'documents',
+  'tasks',
+  'equipment',
+  'profile',
+  'forms',
+  'hr_forms',
+] as const;
 
 export class AddRemarkDto {
   @ApiProperty() @IsString() @IsNotEmpty()
   session_id: string;
 
-  @ApiProperty({ enum: TabTagEnum })
-  @IsEnum(TabTagEnum)
-  tab_tag: TabTagEnum;
+  @ApiProperty({ enum: SUPPORTED_TAB_TAGS, description: 'Tab/category for the remark' })
+  @IsString()
+  @IsNotEmpty()
+  tab_tag: string;
 
   @ApiProperty() @IsString() @IsNotEmpty()
   remark_text: string;

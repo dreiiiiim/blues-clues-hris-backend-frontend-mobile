@@ -17,13 +17,13 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 
 const COOKIE_NAME = 'refresh_token';
 
-function setCookieOptions(rememberMe: boolean) {
+function setCookieOptions(maxAgeMs: number) {
   const isProd = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? 'none' : 'lax',
-    maxAge: rememberMe ? 30 * 24 * 60 * 60 * 1000 : 7 * 24 * 60 * 60 * 1000,
+    maxAge: maxAgeMs,
     path: '/api/tribeX/auth',
   } as const;
 }
@@ -39,7 +39,8 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { access_token, refresh_token } = await this.authService.login(
+    const { access_token, refresh_token, refresh_max_age_ms } =
+      await this.authService.login(
       loginDto,
       req,
     );
@@ -47,22 +48,30 @@ export class AuthController {
     res.cookie(
       COOKIE_NAME,
       refresh_token,
-      setCookieOptions(loginDto.rememberMe ?? false),
+      setCookieOptions(refresh_max_age_ms),
     );
 
-    return { access_token, refresh_token };
+    return { access_token };
   }
 
   @UseGuards(ThrottlerGuard)
   @Post('refresh')
-  async refresh(@Req() req: Request) {
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const token: string | undefined = (req.cookies as Record<string, string>)[
       COOKIE_NAME
     ];
 
     if (!token) throw new UnauthorizedException('No refresh token cookie');
 
-    return this.authService.refresh(token);
+    const { access_token, refresh_token, refresh_max_age_ms } =
+      await this.authService.refresh(token);
+
+    res.cookie(COOKIE_NAME, refresh_token, setCookieOptions(refresh_max_age_ms));
+
+    return { access_token };
   }
 
   @UseGuards(ThrottlerGuard)

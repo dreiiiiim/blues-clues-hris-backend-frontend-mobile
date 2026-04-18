@@ -9,14 +9,15 @@ import { API_BASE_URL } from "@/lib/api";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type ScheduleSource = "bulk" | "individual" | "default" | null;
-type SourceFilter = "all" | "custom" | "standard" | "default" | "unset";
+type ScheduleSource = "bulk" | "department" | "individual" | "default" | null;
+type SourceFilter = "all" | "custom" | "standard" | "department" | "default" | "unset";
 
 type RosterEntry = {
   user_id: string;
   employee_id: string;
   first_name: string;
   last_name: string;
+  department_id: string | null;
   department_name: string | null;
   department?: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   schedule: {
@@ -59,7 +60,7 @@ function normalizeScheduleSource(
   source: unknown,
   hasSchedule: boolean,
 ): ScheduleSource {
-  if (source === "individual" || source === "bulk" || source === "default") {
+  if (source === "individual" || source === "bulk" || source === "department" || source === "default") {
     return source;
   }
   return hasSchedule ? "default" : null;
@@ -130,6 +131,13 @@ function SourceBadge({ source, startTime, endTime }: {
       </span>
     );
   }
+  if (source === "department") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-200 whitespace-nowrap">
+        Department
+      </span>
+    );
+  }
   if (source === "default") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
@@ -173,10 +181,12 @@ export function ScheduleRosterTable({
   canEdit,
   refreshKey,
   onEditEmployee,
+  onEditDepartment,
 }: Readonly<{
   canEdit: boolean;
   refreshKey?: number;
   onEditEmployee: (userId: string, name: string, schedule: RosterEntry["schedule"]) => void;
+  onEditDepartment?: (departmentId: string, departmentName: string, schedule: RosterEntry["schedule"]) => void;
 }>) {
   const [roster, setRoster]           = useState<RosterEntry[]>([]);
   const [loading, setLoading]         = useState(true);
@@ -212,12 +222,69 @@ export function ScheduleRosterTable({
       const matchSource =
         sourceFilter === "all" ? true :
         sourceFilter === "custom" ? source === "individual" :
-        sourceFilter === "standard" ? source === "bulk" || source === "default" :
+        sourceFilter === "standard" ? source === "bulk" || source === "default" || source === "department" :
+        sourceFilter === "department" ? source === "department" :
         sourceFilter === "default" ? source === "default" :
         !r.schedule || source === null;
       return matchSearch && matchDept && matchSource;
     });
   }, [roster, search, deptFilter, sourceFilter]);
+
+  const departmentSchedules = useMemo(() => {
+    type DepartmentSummary = {
+      department_id: string;
+      department_name: string;
+      members: number;
+      withSchedule: number;
+      schedule: RosterEntry["schedule"];
+    };
+
+    const grouped = new Map<string, DepartmentSummary>();
+
+    for (const row of roster) {
+      if (!row.department_id || !row.department_name) continue;
+      const key = row.department_id;
+      const current = grouped.get(key) ?? {
+        department_id: row.department_id,
+        department_name: row.department_name,
+        members: 0,
+        withSchedule: 0,
+        schedule: null,
+      };
+      current.members += 1;
+      if (row.schedule) current.withSchedule += 1;
+      grouped.set(key, current);
+    }
+
+    const byLatest = (a: RosterEntry["schedule"], b: RosterEntry["schedule"]) =>
+      new Date(b?.updated_at ?? 0).getTime() - new Date(a?.updated_at ?? 0).getTime();
+
+    for (const summary of grouped.values()) {
+      const rows = roster.filter((row) => row.department_id === summary.department_id);
+      const preferred = rows
+        .map((row) => row.schedule)
+        .filter((sched): sched is NonNullable<RosterEntry["schedule"]> =>
+          Boolean(
+            sched &&
+            (sched.schedule_source === "department" ||
+              sched.schedule_source === "bulk" ||
+              sched.schedule_source === "default"),
+          ),
+        )
+        .sort(byLatest);
+
+      const fallback = rows
+        .map((row) => row.schedule)
+        .filter((sched): sched is NonNullable<RosterEntry["schedule"]> => Boolean(sched))
+        .sort(byLatest);
+
+      summary.schedule = preferred[0] ?? fallback[0] ?? null;
+    }
+
+    return Array.from(grouped.values()).sort((a, b) =>
+      a.department_name.localeCompare(b.department_name),
+    );
+  }, [roster]);
 
   const customCount = roster.filter(r => r.schedule?.schedule_source === "individual").length;
   const unsetCount  = roster.filter(r => !r.schedule || r.schedule?.schedule_source === null).length;
@@ -272,6 +339,7 @@ export function ScheduleRosterTable({
           <option value="all">All Sources</option>
           <option value="custom">Custom only</option>
           <option value="standard">Standard only</option>
+          <option value="department">Department only</option>
           <option value="default">Default only</option>
           <option value="unset">Unset only</option>
         </select>
@@ -285,6 +353,106 @@ export function ScheduleRosterTable({
         >
           <RefreshCw className="h-3.5 w-3.5" />
         </Button>
+      </div>
+
+      {/* Department Schedule View */}
+      <div className="rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border bg-muted/20">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+            Department Schedule View
+          </p>
+        </div>
+        {loading ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            Loading department schedules...
+          </div>
+        ) : error ? (
+          <div className="py-10 text-center text-sm text-destructive">
+            Failed to load department schedules.
+          </div>
+        ) : departmentSchedules.length === 0 ? (
+          <div className="py-10 text-center text-sm text-muted-foreground">
+            No departments available yet.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Department</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Coverage</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Shift</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Break</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Work Days</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Source</th>
+                  {canEdit && onEditDepartment && (
+                    <th className="px-4 py-3 text-right text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Action</th>
+                  )}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {departmentSchedules.map((dept) => {
+                  const sched = dept.schedule;
+                  const workdays = parseWorkdays(sched?.workdays ?? null);
+                  return (
+                    <tr key={dept.department_id} className="hover:bg-muted/20 transition-colors">
+                      <td className="px-4 py-3">
+                        <p className="font-semibold">{dept.department_name}</p>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {dept.withSchedule} / {dept.members} scheduled
+                      </td>
+                      <td className="px-4 py-3">
+                        {sched ? (
+                          <div className="flex items-center gap-1 text-xs font-semibold">
+                            {formatClock(sched.start_time)}
+                            <span className="text-muted-foreground">→</span>
+                            {formatClock(sched.end_time)}
+                            {sched.is_nightshift && (
+                              <span className="text-[9px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1 py-0.5 rounded font-bold ml-1">Night</span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">No shared schedule</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {sched?.break_start && sched?.break_end
+                          ? `${formatClock(sched.break_start)} - ${formatClock(sched.break_end)}`
+                          : <span className="italic">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {workdays.length > 0 ? (
+                          <WorkdayDots workdays={workdays} />
+                        ) : (
+                          <span className="text-xs text-muted-foreground italic">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <SourceBadge
+                          source={sched?.schedule_source ?? null}
+                          startTime={sched?.start_time}
+                          endTime={sched?.end_time}
+                        />
+                      </td>
+                      {canEdit && onEditDepartment && (
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            onClick={() => onEditDepartment(dept.department_id, dept.department_name, sched)}
+                            className="flex items-center gap-1.5 text-xs font-semibold text-primary hover:text-primary/80 transition-colors cursor-pointer ml-auto"
+                          >
+                            <CalendarDays className="h-3.5 w-3.5" />
+                            {sched ? "Edit Dept" : "Set Dept Schedule"}
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -424,4 +592,3 @@ export function ScheduleRosterTable({
     </div>
   );
 }
-

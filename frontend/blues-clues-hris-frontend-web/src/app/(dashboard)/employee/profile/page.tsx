@@ -7,7 +7,7 @@ import {
   parseJwt,
   type StoredUser,
 } from "@/lib/authStorage";
-import { getEmployeeProfile, updateEmployeeProfile, authFetch } from "@/lib/authApi";
+import { getEmployeeProfile, updateEmployeeProfile, updateMyEmergencyContacts, type EmergencyContact, authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
 import { submitChangeRequest, getMyChangeRequests } from "@/lib/changeRequestApi";
 import { Button } from "@/components/ui/button";
@@ -40,6 +40,12 @@ import {
   CheckCircle2,
   Download,
   X as XIcon,
+  Plus,
+  Phone,
+  Mail,
+  UsersRound,
+  Trash2,
+  Building2,
 } from "lucide-react";
 import { DateOfBirthPicker } from "@/components/ui/date-of-birth-picker";
 import { toast } from "sonner";
@@ -67,8 +73,6 @@ type PendingSection = "legal-name" | "bank" | null;
 interface ApprovalModalState {
   open: boolean;
   section: "legal-name" | "bank";
-  fieldLabel: string;
-  newValue: string;
 }
 
 // ─── Permission Badge ──────────────────────────────────────────────────────────
@@ -130,17 +134,37 @@ function FieldRow({
 
 function ApprovalModal({
   state,
+  currentLegalName,
+  currentBank,
   onClose,
   onSubmit,
 }: {
   state: ApprovalModalState;
+  currentLegalName: { first: string; middle: string; last: string };
+  currentBank: { bankName: string; accountNumber: string; accountName: string };
   onClose: () => void;
-  onSubmit: (reason: string, file: File | null) => void;
+  onSubmit: (reason: string, file: File | null, values: Record<string, string>) => void;
 }) {
   const [reason, setReason] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const [nameDraft, setNameDraft] = useState({ ...currentLegalName });
+  const [bankDraft, setBankDraft] = useState({ ...currentBank });
+
+  // Re-seed drafts when modal opens
+  const prevOpen = useRef(false);
+  if (state.open && !prevOpen.current) {
+    prevOpen.current = true;
+    nameDraft.first = currentLegalName.first;
+    nameDraft.middle = currentLegalName.middle;
+    nameDraft.last = currentLegalName.last;
+    bankDraft.bankName = currentBank.bankName;
+    bankDraft.accountNumber = currentBank.accountNumber;
+    bankDraft.accountName = currentBank.accountName;
+  }
+  if (!state.open) prevOpen.current = false;
 
   const handleSubmit = () => {
     if (!reason.trim()) {
@@ -151,7 +175,19 @@ function ApprovalModal({
       toast.error("Reason must be at least 5 characters.");
       return;
     }
-    onSubmit(reason.trim(), file);
+    const values: Record<string, string> =
+      state.section === "bank"
+        ? {
+            bank_name: bankDraft.bankName.trim(),
+            bank_account_number: bankDraft.accountNumber.trim(),
+            bank_account_name: bankDraft.accountName.trim(),
+          }
+        : {
+            first_name: nameDraft.first.trim(),
+            middle_name: nameDraft.middle.trim(),
+            last_name: nameDraft.last.trim(),
+          };
+    onSubmit(reason.trim(), file, values);
     setReason("");
     setFile(null);
   };
@@ -163,26 +199,92 @@ function ApprovalModal({
     if (dropped) setFile(dropped);
   };
 
+  const fieldLabel = state.section === "legal-name" ? "Legal Name" : "Bank Account";
+
   return (
     <Dialog open={state.open} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle className="text-base font-bold tracking-tight">
-            Request Changes — {state.fieldLabel}
+            Request Changes — {fieldLabel}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 pt-1">
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-              New Value
-            </label>
-            <Input
-              value={state.newValue}
-              readOnly
-              className="h-9 rounded-md border bg-muted/30 px-3 shadow-xs text-sm"
-            />
-          </div>
+          {/* Section-specific fields */}
+          {state.section === "legal-name" ? (
+            <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  First Name
+                </label>
+                <Input
+                  value={nameDraft.first}
+                  onChange={(e) => setNameDraft({ ...nameDraft, first: e.target.value })}
+                  placeholder="First"
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  Middle
+                </label>
+                <Input
+                  value={nameDraft.middle}
+                  onChange={(e) => setNameDraft({ ...nameDraft, middle: e.target.value })}
+                  placeholder="Middle"
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  Last Name
+                </label>
+                <Input
+                  value={nameDraft.last}
+                  onChange={(e) => setNameDraft({ ...nameDraft, last: e.target.value })}
+                  placeholder="Last"
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  Bank Name
+                </label>
+                <Input
+                  value={bankDraft.bankName}
+                  onChange={(e) => setBankDraft({ ...bankDraft, bankName: e.target.value })}
+                  placeholder="e.g. BDO, BPI, Metrobank"
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  Account Number
+                </label>
+                <Input
+                  value={bankDraft.accountNumber}
+                  onChange={(e) => setBankDraft({ ...bankDraft, accountNumber: e.target.value })}
+                  placeholder="00000-0000000-0"
+                  className="h-9 text-sm"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                  Account Name
+                </label>
+                <Input
+                  value={bankDraft.accountName}
+                  onChange={(e) => setBankDraft({ ...bankDraft, accountName: e.target.value })}
+                  placeholder="Full name on account"
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+          )}
 
           <div className="space-y-1.5">
             <label className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
@@ -201,7 +303,10 @@ function ApprovalModal({
               Supporting Document (optional)
             </label>
             <div
-              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
               onDragLeave={() => setDragging(false)}
               onDrop={handleDrop}
               onClick={() => fileRef.current?.click()}
@@ -257,26 +362,31 @@ export default function EmployeeProfilePage() {
   const [extendedDraft, setExtendedDraft] = useState<ExtendedProfile>({ ...extended });
   const [extendedSaving, setExtendedSaving] = useState(false);
 
-  // Bank state
-  const [bank, setBank] = useState<BankInfo>({ bankName: "", accountNumber: "", accountName: "" });
-  const [bankDraft, setBankDraft] = useState<BankInfo>({ ...bank });
-  const [bankSaving, setBankSaving] = useState(false);
+  // Emergency contacts state
+  const [emergencyContacts, setEmergencyContacts] = useState<EmergencyContact[]>([]);
+  const [ecEditing, setEcEditing] = useState(false);
+  const [ecDraft, setEcDraft] = useState<EmergencyContact[]>([]);
+  const [ecSaving, setEcSaving] = useState(false);
 
-  // Legal name state
+  // Bank state (read-only on page; editing happens in modal)
+  const [bank, setBank] = useState<BankInfo>({ bankName: "", accountNumber: "", accountName: "" });
+  const [submittingRequest, setSubmittingRequest] = useState(false);
+  const [assignedDepartment, setAssignedDepartment] = useState("");
+
+  // Legal name state (read-only on page; editing happens in modal)
   const [legalName, setLegalName] = useState({ first: "", middle: "", last: "" });
-  const [legalNameDraft, setLegalNameDraft] = useState({ first: "", middle: "", last: "" });
 
   // Pending approvals
   const [pendingSection, setPendingSection] = useState<PendingSection>(null);
 
   // Approval modal
-  const [approvalModal, setApprovalModal] = useState<ApprovalModalState>({ open: false, section: "legal-name", fieldLabel: "", newValue: "" });
+  const [approvalModal, setApprovalModal] = useState<ApprovalModalState>({ open: false, section: "legal-name" });
 
   // Onboarding import banner — only shown for converted employees
-  const [showImportBanner, setShowImportBanner]       = useState(false);
-  const [importDismissed, setImportDismissed]         = useState(false);
-  const [importing, setImporting]                     = useState(false);
-  const [cachedStagingData, setCachedStagingData]     = useState<{
+  const [showImportBanner, setShowImportBanner] = useState(false);
+  const [importDismissed, setImportDismissed] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [cachedStagingData, setCachedStagingData] = useState<{
     first_name?: string; last_name?: string; middle_name?: string;
     phone_number?: string; complete_address?: string; date_of_birth?: string;
     place_of_birth?: string; nationality?: string; civil_status?: string; personal_email?: string;
@@ -300,26 +410,24 @@ export default function EmployeeProfilePage() {
       .then(([p, changeReqs]) => {
         if (p.avatar_url) setProfilePhoto(p.avatar_url);
         setLegalName({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
-        setLegalNameDraft({ first: p.first_name ?? "", middle: p.middle_name ?? "", last: p.last_name ?? "" });
         const ext: ExtendedProfile = { phone: p.personal_email ? "" : "", personalEmail: p.personal_email ?? "", address: p.complete_address ?? "", dob: p.date_of_birth ?? "", placeOfBirth: p.place_of_birth ?? "", nationality: p.nationality ?? "", civilStatus: p.civil_status ?? "" };
-        // phone comes from JWT / user table differently — try JWT first
         const jwtPhone = token ? parseJwt(token)?.phone_number ?? "" : "";
         ext.phone = jwtPhone;
         setExtended(ext);
         setExtendedDraft(ext);
         const bk: BankInfo = { bankName: p.bank_name ?? "", accountNumber: p.bank_account_number ?? "", accountName: p.bank_account_name ?? "" };
         setBank(bk);
-        setBankDraft(bk);
+        setAssignedDepartment(p.department_name?.trim() ?? "");
+        const ec = p.emergency_contacts ?? [];
+        setEmergencyContacts(ec);
+        setEcDraft(ec);
         if (p.employee_id) setJwtPayload((prev) => ({ ...(prev ?? {}), employee_id: p.employee_id! }));
 
-        // Restore pending state from DB
         const pendingLegal = changeReqs.find(r => r.field_type === 'legal_name' && r.status === 'pending');
         const pendingBank  = changeReqs.find(r => r.field_type === 'bank'       && r.status === 'pending');
-        if (pendingLegal)      setPendingSection('legal-name');
-        else if (pendingBank)  setPendingSection('bank');
+        if (pendingLegal)     setPendingSection('legal-name');
+        else if (pendingBank) setPendingSection('bank');
 
-        // Show onboarding import banner ONLY for converted employees (those with
-        // an onboarding session). Non-converted employees get a 404 here.
         const isEmpty = !p.date_of_birth && !p.complete_address && !p.nationality && !p.civil_status;
         if (isEmpty) {
           authFetch(`${API_BASE_URL}/users/me/onboarding-staging`)
@@ -330,7 +438,7 @@ export default function EmployeeProfilePage() {
                 setShowImportBanner(true);
               }
             })
-            .catch(() => {}); // silently ignore — non-converted employees get 404
+            .catch(() => {});
         }
       })
       .catch(() => toast.error("Failed to load profile."))
@@ -360,11 +468,11 @@ export default function EmployeeProfilePage() {
     setExtendedSaving(true);
     try {
       await updateEmployeeProfile({
-        personal_email:  extendedDraft.personalEmail.trim() || null as any,
-        date_of_birth:   extendedDraft.dob || null as any,
-        place_of_birth:  extendedDraft.placeOfBirth.trim() || null as any,
-        nationality:     extendedDraft.nationality.trim() || null as any,
-        civil_status:    extendedDraft.civilStatus || null as any,
+        personal_email:   extendedDraft.personalEmail.trim() || null as any,
+        date_of_birth:    extendedDraft.dob || null as any,
+        place_of_birth:   extendedDraft.placeOfBirth.trim() || null as any,
+        nationality:      extendedDraft.nationality.trim() || null as any,
+        civil_status:     extendedDraft.civilStatus || null as any,
         complete_address: extendedDraft.address.trim() || null as any,
       });
       setExtended(extendedDraft);
@@ -382,45 +490,27 @@ export default function EmployeeProfilePage() {
     setExtendedEditing(false);
   };
 
-  // ── Approval modal open ───────────────────────────────────────────────────
-  const openApprovalModal = (
-    section: "legal-name" | "bank",
-    fieldLabel: string,
-    newValue: string
-  ) => {
-    setApprovalModal({ open: true, section, fieldLabel, newValue });
+  // ── Approval modal ────────────────────────────────────────────────────────
+  const openApprovalModal = (section: "legal-name" | "bank") => {
+    setApprovalModal({ open: true, section });
   };
 
-  const handleApprovalSubmit = async (reason: string, _file: File | null) => {
+  const handleApprovalSubmit = async (reason: string, _file: File | null, values: Record<string, string>) => {
     const section = approvalModal.section;
-    setBankSaving(true);
+    setSubmittingRequest(true);
     try {
-      const requestedChanges: Record<string, string> =
-        section === "bank"
-          ? {
-              bank_name:           bankDraft.bankName.trim(),
-              bank_account_number: bankDraft.accountNumber.trim(),
-              bank_account_name:   bankDraft.accountName.trim(),
-            }
-          : {
-              first_name:  legalNameDraft.first.trim(),
-              middle_name: legalNameDraft.middle.trim(),
-              last_name:   legalNameDraft.last.trim(),
-            };
-
       await submitChangeRequest({
         field_type: section === "bank" ? "bank" : "legal_name",
-        requested_changes: requestedChanges,
+        requested_changes: values,
         reason,
       });
-
       setPendingSection(section);
       setApprovalModal({ ...approvalModal, open: false });
       toast.success("Change request submitted — awaiting HR approval.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to submit change request.");
     } finally {
-      setBankSaving(false);
+      setSubmittingRequest(false);
     }
   };
 
@@ -428,8 +518,6 @@ export default function EmployeeProfilePage() {
   const handleOnboardingImport = async () => {
     setImporting(true);
     try {
-      // Use the data we already fetched on mount; fall back to a fresh fetch
-      // only if somehow the cache is missing.
       let data = cachedStagingData;
       if (!data) {
         const res = await authFetch(`${API_BASE_URL}/users/me/onboarding-staging`);
@@ -451,7 +539,6 @@ export default function EmployeeProfilePage() {
         civilStatus:   data.civil_status     || extended.civilStatus,
       };
 
-      // Auto-save the imported data
       await updateEmployeeProfile({
         personal_email:   imported.personalEmail.trim() || null as any,
         date_of_birth:    imported.dob || null as any,
@@ -470,6 +557,37 @@ export default function EmployeeProfilePage() {
     } finally {
       setImporting(false);
     }
+  };
+
+  const handleEcSave = async () => {
+    setEcSaving(true);
+    try {
+      await updateMyEmergencyContacts(ecDraft);
+      setEmergencyContacts(ecDraft);
+      setEcEditing(false);
+      toast.success("Emergency contacts saved.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setEcSaving(false);
+    }
+  };
+
+  const handleEcCancel = () => {
+    setEcDraft(emergencyContacts);
+    setEcEditing(false);
+  };
+
+  const updateEcField = (idx: number, field: keyof EmergencyContact, value: string) => {
+    setEcDraft((prev) => prev.map((c, i) => i === idx ? { ...c, [field]: value } : c));
+  };
+
+  const addEcContact = () => {
+    setEcDraft((prev) => [...prev, { contact_name: "", relationship: "", emergency_phone_number: "", emergency_email_address: "" }]);
+  };
+
+  const removeEcContact = (idx: number) => {
+    setEcDraft((prev) => prev.filter((_, i) => i !== idx));
   };
 
   const employeeId = jwtPayload?.employee_id ?? "EMP-XXXX";
@@ -572,6 +690,12 @@ export default function EmployeeProfilePage() {
                 <Lock className="h-3 w-3 text-muted-foreground" />
                 <span className="text-[11px] font-semibold text-muted-foreground">{employeeId}</span>
               </div>
+              <div className="flex items-center gap-1.5 bg-muted/60 rounded-full px-3 py-1">
+                <Building2 className="h-3 w-3 text-muted-foreground" />
+                <span className="text-[11px] font-semibold text-muted-foreground">
+                  {assignedDepartment || "No department assigned"}
+                </span>
+              </div>
             </div>
 
             <div className="border-t border-border" />
@@ -585,6 +709,7 @@ export default function EmployeeProfilePage() {
                 { id: "personal-info", label: "Personal Info", icon: User },
                 { id: "contact-address", label: "Contact & Address", icon: MapPin },
                 { id: "bank-account", label: "Bank Account", icon: CreditCard },
+                { id: "emergency-contacts", label: "Emergency Contacts", icon: UsersRound },
               ].map(({ id, label, icon: Icon }) => (
                 <a
                   key={id}
@@ -611,15 +736,7 @@ export default function EmployeeProfilePage() {
                   size="sm"
                   variant="outline"
                   className="h-8 px-3 text-xs cursor-pointer"
-                  onClick={() => {
-                    openApprovalModal(
-                      "legal-name",
-                      "Legal Name",
-                      [legalNameDraft.first, legalNameDraft.middle, legalNameDraft.last]
-                        .filter(Boolean)
-                        .join(" ")
-                    );
-                  }}
+                  onClick={() => openApprovalModal("legal-name")}
                 >
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Request Change
@@ -636,32 +753,27 @@ export default function EmployeeProfilePage() {
               </div>
             )}
 
+            {/* Legal name — read-only; changes happen via modal */}
             <div className="grid sm:grid-cols-3 gap-4">
               <FieldRow label="First Name" permType="approval">
                 <Input
-                  value={legalNameDraft.first}
-                  onChange={(e) => setLegalNameDraft({ ...legalNameDraft, first: e.target.value })}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
-                  placeholder="First name"
-                  disabled={pendingSection === "legal-name"}
+                  value={legalName.first || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Middle Name" permType="approval">
                 <Input
-                  value={legalNameDraft.middle}
-                  onChange={(e) => setLegalNameDraft({ ...legalNameDraft, middle: e.target.value })}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
-                  placeholder="Middle name"
-                  disabled={pendingSection === "legal-name"}
+                  value={legalName.middle || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Last Name" permType="approval">
                 <Input
-                  value={legalNameDraft.last}
-                  onChange={(e) => setLegalNameDraft({ ...legalNameDraft, last: e.target.value })}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
-                  placeholder="Last name"
-                  disabled={pendingSection === "legal-name"}
+                  value={legalName.last || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
             </div>
@@ -689,6 +801,16 @@ export default function EmployeeProfilePage() {
                     className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground pr-8"
                   />
                   <Lock className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                </div>
+              </FieldRow>
+              <FieldRow label="Department" permType="system">
+                <div className="relative">
+                  <Input
+                    value={assignedDepartment || "—"}
+                    disabled
+                    className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground pr-8"
+                  />
+                  <Building2 className="absolute right-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
                 </div>
               </FieldRow>
             </div>
@@ -811,13 +933,7 @@ export default function EmployeeProfilePage() {
                   size="sm"
                   variant="outline"
                   className="h-8 px-3 text-xs cursor-pointer"
-                  onClick={() => {
-                    openApprovalModal(
-                      "bank",
-                      "Bank Account",
-                      `${bankDraft.bankName} — ${bankDraft.accountNumber}`
-                    );
-                  }}
+                  onClick={() => openApprovalModal("bank")}
                 >
                   <Pencil className="h-3.5 w-3.5 mr-1.5" />
                   Request Change
@@ -834,35 +950,153 @@ export default function EmployeeProfilePage() {
               </div>
             )}
 
+            {/* Bank fields — read-only; changes happen via modal */}
             <div className="grid sm:grid-cols-2 gap-4">
               <FieldRow label="Bank Name" permType="approval">
                 <Input
-                  value={bankDraft.bankName}
-                  onChange={(e) => setBankDraft({ ...bankDraft, bankName: e.target.value })}
-                  placeholder="e.g. BDO"
-                  disabled={pendingSection === "bank"}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                  value={bank.bankName || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Account Number" permType="approval">
                 <Input
-                  value={bankDraft.accountNumber}
-                  onChange={(e) => setBankDraft({ ...bankDraft, accountNumber: e.target.value })}
-                  placeholder="00000-0000000-0"
-                  disabled={pendingSection === "bank"}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                  value={bank.accountNumber || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
               <FieldRow label="Account Name" permType="approval">
                 <Input
-                  value={bankDraft.accountName}
-                  onChange={(e) => setBankDraft({ ...bankDraft, accountName: e.target.value })}
-                  placeholder="Full name on account"
-                  disabled={pendingSection === "bank"}
-                  className="h-9 rounded-md border bg-transparent px-3 shadow-xs disabled:bg-muted/40 disabled:text-muted-foreground"
+                  value={bank.accountName || "—"}
+                  readOnly
+                  className="h-9 rounded-md border bg-muted/40 px-3 shadow-xs text-muted-foreground"
                 />
               </FieldRow>
             </div>
+          </section>
+
+          {/* ── Section 4: Emergency Contacts ─────────────────────────────── */}
+          <section id="emergency-contacts" className="bg-card border rounded-xl shadow-sm p-6 space-y-5 scroll-mt-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold tracking-tight">Emergency Contacts</h2>
+              {ecEditing ? (
+                <div className="flex gap-2">
+                  <Button size="sm" className="h-8 px-3 text-xs cursor-pointer" onClick={handleEcSave} disabled={ecSaving}>
+                    {ecSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />}Save
+                  </Button>
+                  <Button size="sm" variant="outline" className="h-8 px-3 text-xs cursor-pointer" onClick={handleEcCancel} disabled={ecSaving}>
+                    Cancel
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-3 text-xs cursor-pointer"
+                  onClick={() => { setEcDraft(emergencyContacts); setEcEditing(true); }}
+                >
+                  <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                  Edit
+                </Button>
+              )}
+            </div>
+
+            {/* View mode */}
+            {!ecEditing && (
+              emergencyContacts.length === 0 ? (
+                <p className="text-sm text-muted-foreground italic">No emergency contacts on file.</p>
+              ) : (
+                <div className="space-y-3">
+                  {emergencyContacts.map((c, idx) => (
+                    <div key={idx} className="rounded-xl border border-border bg-muted/20 p-4 grid sm:grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-0.5">Name</p>
+                        <p className="text-sm font-semibold text-foreground">{c.contact_name || "—"}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground mb-0.5">Relationship</p>
+                        <p className="text-sm text-foreground">{c.relationship || "—"}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Phone className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        <p className="text-sm text-foreground">{c.emergency_phone_number || "—"}</p>
+                      </div>
+                      {c.emergency_email_address && (
+                        <div className="flex items-center gap-2">
+                          <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <p className="text-sm text-foreground">{c.emergency_email_address}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            )}
+
+            {/* Edit mode */}
+            {ecEditing && (
+              <div className="space-y-4">
+                {ecDraft.map((c, idx) => (
+                  <div key={idx} className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Contact {idx + 1}</p>
+                      <button
+                        onClick={() => removeEcContact(idx)}
+                        className="h-6 w-6 rounded-md flex items-center justify-center text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors cursor-pointer"
+                        title="Remove contact"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <FieldRow label="Name" permType="self">
+                        <Input
+                          value={c.contact_name}
+                          onChange={(e) => updateEcField(idx, "contact_name", e.target.value)}
+                          placeholder="Full name"
+                          className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
+                        />
+                      </FieldRow>
+                      <FieldRow label="Relationship" permType="self">
+                        <Input
+                          value={c.relationship}
+                          onChange={(e) => updateEcField(idx, "relationship", e.target.value)}
+                          placeholder="e.g. Father, Spouse"
+                          className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
+                        />
+                      </FieldRow>
+                      <FieldRow label="Phone" permType="self">
+                        <Input
+                          value={c.emergency_phone_number}
+                          onChange={(e) => updateEcField(idx, "emergency_phone_number", e.target.value)}
+                          placeholder="+63 900 000 0000"
+                          className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
+                        />
+                      </FieldRow>
+                      <FieldRow label="Email (optional)" permType="self">
+                        <Input
+                          value={c.emergency_email_address ?? ""}
+                          onChange={(e) => updateEcField(idx, "emergency_email_address", e.target.value)}
+                          placeholder="email@example.com"
+                          type="email"
+                          className="h-9 rounded-md border bg-transparent px-3 shadow-xs"
+                        />
+                      </FieldRow>
+                    </div>
+                  </div>
+                ))}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full h-9 text-xs border-dashed cursor-pointer"
+                  onClick={addEcContact}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1.5" />
+                  Add Contact
+                </Button>
+              </div>
+            )}
           </section>
         </div>
       </div>
@@ -870,6 +1104,8 @@ export default function EmployeeProfilePage() {
       {/* Approval Modal */}
       <ApprovalModal
         state={approvalModal}
+        currentLegalName={legalName}
+        currentBank={bank}
         onClose={() => setApprovalModal({ ...approvalModal, open: false })}
         onSubmit={handleApprovalSubmit}
       />

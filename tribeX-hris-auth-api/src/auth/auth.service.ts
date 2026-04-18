@@ -278,11 +278,16 @@ export class AuthService {
       last_name: user.last_name,
     };
 
+    const refreshMaxAgeMs = rememberMe
+      ? 30 * 24 * 60 * 60 * 1000
+      : 7 * 24 * 60 * 60 * 1000;
+    const refreshExpiresIn = Math.floor(refreshMaxAgeMs / 1000);
+
     const [access_token, refresh_token] = await Promise.all([
       this.jwtService.signAsync(accessPayload, { expiresIn: '15m' }),
       this.jwtService.signAsync(
         { type: 'refresh', sub_userid: user.user_id, role_id: user.role_id, login_id, session_id },
-        { expiresIn: rememberMe ? '30d' : '7d' },
+        { expiresIn: refreshExpiresIn },
       ),
     ]);
 
@@ -307,7 +312,11 @@ export class AuthService {
       }),
     ]);
 
-    return { access_token, refresh_token };
+    return {
+      access_token,
+      refresh_token,
+      refresh_max_age_ms: refreshMaxAgeMs,
+    };
   }
 
   async logout(refreshToken: string, req?: any, accessToken?: string) {
@@ -443,7 +452,41 @@ export class AuthService {
       expiresIn: '15m',
     });
 
-    return { access_token };
+    const refreshRemainingMs =
+      new Date(session.expires_at).getTime() - Date.now();
+    if (refreshRemainingMs <= 0) {
+      throw new UnauthorizedException('Session expired');
+    }
+
+    const rotatedRefreshToken = await this.jwtService.signAsync(
+      {
+        type: 'refresh',
+        sub_userid: user.user_id,
+        role_id: user.role_id,
+        login_id: decoded.login_id ?? crypto.randomUUID(),
+        session_id: decoded.session_id ?? crypto.randomUUID(),
+      },
+      { expiresIn: Math.max(1, Math.floor(refreshRemainingMs / 1000)) },
+    );
+
+    const { data: rotatedSession, error: rotateErr } = await supabase
+      .from('refresh_session')
+      .update({ token_hash: sha256(rotatedRefreshToken) })
+      .eq('user_id', userId)
+      .eq('token_hash', token_hash)
+      .is('revoked_at', null)
+      .select('user_id')
+      .maybeSingle();
+
+    if (rotateErr || !rotatedSession) {
+      throw new UnauthorizedException('Failed to rotate session');
+    }
+
+    return {
+      access_token,
+      refresh_token: rotatedRefreshToken,
+      refresh_max_age_ms: refreshRemainingMs,
+    };
   }
 
   async me(accessToken: string) {

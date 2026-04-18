@@ -7,15 +7,32 @@ export type IncidentSeverity = 'WARNING' | 'ERROR' | 'CRITICAL';
 export class AuditService {
   constructor(private readonly supabaseService: SupabaseService) {}
 
+  private async resolveUserId(userId?: string | null): Promise<string | null> {
+    if (!userId) return null;
+    const { data } = await this.supabaseService
+      .getClient()
+      .from('user_profile')
+      .select('user_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    return data?.user_id ?? null;
+  }
+
   async log(action: string, performedBy: string, companyId: string, targetUserId?: string) {
+    const [safePerformedBy, safeTargetUserId] = await Promise.all([
+      this.resolveUserId(performedBy),
+      this.resolveUserId(targetUserId),
+    ]);
+
     const { error } = await this.supabaseService
       .getClient()
       .from('admin_audit_logs')
       .insert({
         action,
-        performed_by: performedBy,
+        performed_by: safePerformedBy,
         company_id: companyId,
-        target_user_id: targetUserId ?? null,
+        target_user_id: safeTargetUserId,
         severity: 'INFO',
       });
 
@@ -35,14 +52,19 @@ export class AuditService {
       ipAddress?: string;
     },
   ) {
+    const [safePerformedBy, safeTargetUserId] = await Promise.all([
+      this.resolveUserId(options?.performedBy),
+      this.resolveUserId(options?.targetUserId),
+    ]);
+
     const { error } = await this.supabaseService
       .getClient()
       .from('admin_audit_logs')
       .insert({
         action,
-        performed_by: options?.performedBy ?? null,
+        performed_by: safePerformedBy,
         company_id: options?.companyId ?? null,
-        target_user_id: options?.targetUserId ?? null,
+        target_user_id: safeTargetUserId,
         severity,
         ip_address: options?.ipAddress ?? null,
       });

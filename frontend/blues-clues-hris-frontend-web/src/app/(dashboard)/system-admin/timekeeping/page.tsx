@@ -60,6 +60,19 @@ type RosterEntry = {
 type ViewMode = "day" | "week" | "month";
 type StatusFilter = RosterEntry["status"] | "all";
 
+type ScheduleModalPreset = {
+  scope: "company" | "department" | "employees";
+  departmentId?: string;
+  schedule?: {
+    start_time?: string | null;
+    end_time?: string | null;
+    break_start?: string | null;
+    break_end?: string | null;
+    workdays?: string | null;
+    is_nightshift?: boolean | null;
+  } | null;
+} | null;
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function parseTs(ts: string): Date {
@@ -244,7 +257,9 @@ export default function SystemAdminTimekeepingPage() {
 
   // Schedule modals
   const [showScheduleModal, setShowScheduleModal]   = useState(false);
+  const [scheduleModalPreset, setScheduleModalPreset] = useState<ScheduleModalPreset>(null);
   const [editScheduleFor, setEditScheduleFor]       = useState<{ userId: string; name: string; schedule?: any } | null>(null);
+  const [scheduleRosterRefreshKey, setScheduleRosterRefreshKey] = useState(0);
 
   // Fetch departments once on mount
   useEffect(() => {
@@ -372,8 +387,16 @@ export default function SystemAdminTimekeepingPage() {
                 ? (u.department[0]?.department_name ?? null)
                 : (u.department as { department_name?: string | null } | null)?.department_name ?? null),
           }))}
-          onClose={() => setShowScheduleModal(false)}
-          onApplied={() => {}}
+          initialScope={scheduleModalPreset?.scope}
+          initialDepartmentId={scheduleModalPreset?.departmentId}
+          initialSchedule={scheduleModalPreset?.schedule}
+          onClose={() => {
+            setShowScheduleModal(false);
+            setScheduleModalPreset(null);
+          }}
+          onApplied={() => {
+            setScheduleRosterRefreshKey((v) => v + 1);
+          }}
         />
       )}
       {editScheduleFor && (
@@ -527,7 +550,15 @@ export default function SystemAdminTimekeepingPage() {
 
         {/* Right: actions */}
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="gap-1.5 cursor-pointer" onClick={() => setShowScheduleModal(true)}>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5 cursor-pointer"
+            onClick={() => {
+              setScheduleModalPreset(null);
+              setShowScheduleModal(true);
+            }}
+          >
             <Settings2 className="h-3.5 w-3.5" />
             Assign Schedule
           </Button>
@@ -550,9 +581,27 @@ export default function SystemAdminTimekeepingPage() {
       {mainPanel === "schedules" && (
         <ScheduleRosterTable
           canEdit
+          refreshKey={scheduleRosterRefreshKey}
           onEditEmployee={(userId, name, schedule) =>
             setEditScheduleFor({ userId, name, schedule })
           }
+          onEditDepartment={(departmentId, _departmentName, schedule) => {
+            setScheduleModalPreset({
+              scope: "department",
+              departmentId,
+              schedule: schedule
+                ? {
+                    start_time: schedule.start_time,
+                    end_time: schedule.end_time,
+                    break_start: schedule.break_start,
+                    break_end: schedule.break_end,
+                    workdays: schedule.workdays,
+                    is_nightshift: schedule.is_nightshift,
+                  }
+                : null,
+            });
+            setShowScheduleModal(true);
+          }}
         />
       )}
 

@@ -106,8 +106,8 @@ export function SfiaGradeCard({
               title={`Level ${l.level}: ${l.name}`}
               className={[
                 "flex-1 h-1.5 rounded-full transition-all",
-                l.level <= grade ? levelCfg.barColor : "bg-muted",
-                l.level === grade ? "opacity-100" : l.level < grade ? "opacity-60" : "opacity-25",
+                l.level <= levelCfg.level ? levelCfg.barColor : "bg-muted",
+                l.level === levelCfg.level ? "opacity-100" : l.level < levelCfg.level ? "opacity-60" : "opacity-25",
               ].join(" ")}
             />
           ))}

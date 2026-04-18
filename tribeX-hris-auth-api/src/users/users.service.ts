@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -27,6 +28,7 @@ type UserListRow = {
   department_id: string | null;
   start_date: string | null;
   account_status: string | null;
+  avatar_url?: string | null;
 };
 
 type RoleRow = {
@@ -166,6 +168,8 @@ const LIFECYCLE_MODULE_DEFINITIONS: LifecycleModuleDefinition[] = [
 
 @Injectable()
 export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly mailService: MailService,
@@ -683,6 +687,85 @@ export class UsersService {
     return lastLoginByUser;
   }
 
+  private async inheritDepartmentScheduleForEmployee(
+    companyId: string,
+    departmentId: string,
+    employeeId: string,
+    updaterName: string | null,
+  ): Promise<void> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: existingSchedule, error: existingScheduleError } = await supabase
+      .from('schedules')
+      .select('schedule_source')
+      .eq('employee_id', employeeId)
+      .maybeSingle();
+
+    if (existingScheduleError) {
+      throw new Error(existingScheduleError.message);
+    }
+
+    if ((existingSchedule as { schedule_source?: string | null } | null)?.schedule_source === 'individual') {
+      // Preserve manually-assigned schedules.
+      return;
+    }
+
+    const { data: departmentMembers, error: departmentMembersError } = await supabase
+      .from('user_profile')
+      .select('employee_id')
+      .eq('company_id', companyId)
+      .eq('department_id', departmentId)
+      .not('employee_id', 'is', null)
+      .neq('employee_id', employeeId)
+      .limit(200);
+
+    if (departmentMembersError) {
+      throw new Error(departmentMembersError.message);
+    }
+
+    const memberEmployeeIds = (departmentMembers ?? [])
+      .map((member: { employee_id?: string | null }) => member.employee_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    if (memberEmployeeIds.length === 0) return;
+
+    const { data: departmentSchedule, error: departmentScheduleError } = await supabase
+      .from('schedules')
+      .select('start_time, end_time, break_start, break_end, workdays, is_nightshift')
+      .in('employee_id', memberEmployeeIds)
+      .neq('schedule_source', 'individual')
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (departmentScheduleError) {
+      throw new Error(departmentScheduleError.message);
+    }
+
+    if (!departmentSchedule) return;
+
+    const { error: upsertError } = await supabase.from('schedules').upsert(
+      {
+        employee_id: employeeId,
+        start_time: departmentSchedule.start_time,
+        end_time: departmentSchedule.end_time,
+        break_start: departmentSchedule.break_start ?? '00:00',
+        break_end: departmentSchedule.break_end ?? '00:00',
+        workdays: departmentSchedule.workdays,
+        is_nightshift: departmentSchedule.is_nightshift ?? false,
+        // Use an existing, DB-safe source value for inherited department schedules.
+        schedule_source: 'bulk',
+        updated_by_name: updaterName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'employee_id' },
+    );
+
+    if (upsertError) {
+      throw new Error(upsertError.message);
+    }
+  }
+
   async getRoles(companyId: string) {
     const { data, error } = await this.supabaseService
       .getClient()
@@ -797,7 +880,7 @@ export class UsersService {
       .getClient()
       .from('user_profile')
       .select(
-        'user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status',
+        'user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status, avatar_url',
       )
       .eq('company_id', companyId)
       .order('first_name');
@@ -820,11 +903,11 @@ export class UsersService {
   }
 
   async findOne(id: string, companyId: string) {
-    const { data, error } = await this.supabaseService
-      .getClient()
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
       .from('user_profile')
       .select(
-        'user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status',
+        'user_id, employee_id, username, first_name, middle_name, last_name, email, role_id, department_id, start_date, account_status, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url, emergency_contacts',
       )
       .eq('user_id', id)
       .eq('company_id', companyId)
@@ -834,9 +917,18 @@ export class UsersService {
     if (!data) return data;
 
     const lastLoginByUser = await this.getLastLoginMap([id]);
+
+    // If user_profile has no contacts yet, fall back to staging (covers pre-migration employees)
+    let emergency_contacts = Array.isArray((data as any).emergency_contacts) ? (data as any).emergency_contacts : [];
+    if (emergency_contacts.length === 0) {
+      const staging = await this.resolveOnboardingStaging(id, data.email);
+      emergency_contacts = this.extractEmergencyContacts(staging);
+    }
+
     return {
       ...data,
       last_login: lastLoginByUser[id] ?? null,
+      emergency_contacts,
     };
   }
 
@@ -1020,6 +1112,18 @@ export class UsersService {
       updates.start_date = normalizedStartDate;
     }
 
+    // Extended profile fields (System Admin only; HR can read but not write these via admin update)
+    const extendedFields = [
+      'middle_name', 'personal_email', 'date_of_birth', 'place_of_birth',
+      'nationality', 'civil_status', 'complete_address',
+      'bank_name', 'bank_account_number', 'bank_account_name',
+    ] as const;
+    for (const field of extendedFields) {
+      if (dto[field] !== undefined) {
+        updates[field] = dto[field] ?? null;
+      }
+    }
+
     if (Object.keys(updates).length === 0) {
       return { message: 'No fields to update' };
     }
@@ -1030,13 +1134,42 @@ export class UsersService {
       .eq('user_id', id)
       .eq('company_id', companyId)
       .select(
-        'user_id, employee_id, username, first_name, last_name, email, role_id, department_id, start_date, account_status',
+        'user_id, employee_id, username, first_name, middle_name, last_name, email, role_id, department_id, start_date, account_status, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url',
       )
       .maybeSingle();
 
     if (updateError) throw new BadRequestException(updateError.message);
     if (!updatedUser)
       throw new NotFoundException('User not found in your company');
+
+    if (normalizedDepartmentId !== undefined && updatedUser.employee_id) {
+      try {
+        const { data: updater } = await supabase
+          .from('user_profile')
+          .select('first_name, last_name')
+          .eq('user_id', adminUserId)
+          .maybeSingle();
+
+        const updaterName = updater
+          ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
+          : null;
+
+        if (normalizedDepartmentId) {
+          await this.inheritDepartmentScheduleForEmployee(
+            companyId,
+            normalizedDepartmentId,
+            updatedUser.employee_id,
+            updaterName,
+          );
+        }
+      } catch (scheduleError) {
+        this.logger.warn(
+          `Could not sync department schedule for user ${id}: ${
+            scheduleError instanceof Error ? scheduleError.message : String(scheduleError)
+          }`,
+        );
+      }
+    }
 
     const changes = Object.keys(updates)
       .map((field) => {
@@ -1241,15 +1374,164 @@ export class UsersService {
     return { message: `User reactivated successfully as ${nextStatus}` };
   }
 
+  private async resolveOnboardingStaging(userId: string, userEmail: string): Promise<any | null> {
+    const supabase = this.supabaseService.getClient();
+
+    // Primary: session already re-linked to userId
+    let { data: session } = await supabase
+      .from('onboarding_sessions')
+      .select('session_id')
+      .eq('account_id', userId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    // Fallback: pre-fix converted employees whose session still points to applicant_id
+    if (!session) {
+      const { data: applicant } = await supabase
+        .from('applicant_profile')
+        .select('applicant_id')
+        .eq('email', userEmail)
+        .eq('status', 'converted_employee')
+        .maybeSingle();
+
+      if (applicant) {
+        const { data: fallback } = await supabase
+          .from('onboarding_sessions')
+          .select('session_id')
+          .eq('account_id', applicant.applicant_id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (fallback) {
+          session = fallback;
+          // Auto-heal: re-link so future calls hit the primary path
+          await supabase
+            .from('onboarding_sessions')
+            .update({ account_id: userId })
+            .eq('session_id', fallback.session_id);
+        }
+      }
+    }
+
+    if (!session) return null;
+
+    const { data: staging } = await supabase
+      .from('employee_staging')
+      .select('*')
+      .eq('session_id', session.session_id)
+      .maybeSingle();
+
+    return staging ?? null;
+  }
+
+  private extractEmergencyContacts(staging: any): any[] {
+    if (!staging) return [];
+    if (Array.isArray(staging.emergency_contacts) && staging.emergency_contacts.length > 0) {
+      return staging.emergency_contacts;
+    }
+    if (staging.contact_name) {
+      return [{
+        contact_name: staging.contact_name,
+        relationship: staging.relationship ?? '',
+        emergency_phone_number: staging.emergency_phone_number ?? '',
+        emergency_email_address: staging.emergency_email_address ?? null,
+      }];
+    }
+    return [];
+  }
+
   async getMe(userId: string) {
     const supabase = this.supabaseService.getClient();
     const { data, error } = await supabase
       .from('user_profile')
-      .select('user_id, employee_id, first_name, middle_name, last_name, email, username, department_id, start_date, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url')
+      .select(
+        'user_id, employee_id, first_name, middle_name, last_name, email, username, department_id, department:department_id(department_name), start_date, personal_email, date_of_birth, place_of_birth, nationality, civil_status, complete_address, bank_name, bank_account_number, bank_account_name, avatar_url, emergency_contacts',
+      )
       .eq('user_id', userId)
       .maybeSingle();
     if (error || !data) throw new NotFoundException('Profile not found');
-    return data;
+
+    const patch: Record<string, any> = {};
+
+    // Auto-heal from staging: fill null profile fields + migrate contacts into user_profile
+    const staging = await this.resolveOnboardingStaging(userId, data.email);
+    if (staging) {
+      if (!data.middle_name      && staging.middle_name)       patch.middle_name      = staging.middle_name;
+      if (!data.personal_email   && staging.email_address)     patch.personal_email   = staging.email_address;
+      if (!data.date_of_birth    && staging.date_of_birth)     patch.date_of_birth    = staging.date_of_birth;
+      if (!data.place_of_birth   && staging.place_of_birth)    patch.place_of_birth   = staging.place_of_birth;
+      if (!data.nationality      && staging.nationality)        patch.nationality      = staging.nationality;
+      if (!data.civil_status     && staging.civil_status)       patch.civil_status     = staging.civil_status;
+      if (!data.complete_address && staging.complete_address)   patch.complete_address = staging.complete_address;
+
+      // Migrate emergency contacts from staging into user_profile if not yet stored there
+      const storedContacts = Array.isArray((data as any).emergency_contacts) ? (data as any).emergency_contacts : [];
+      if (storedContacts.length === 0) {
+        const fromStaging = this.extractEmergencyContacts(staging);
+        if (fromStaging.length > 0) patch.emergency_contacts = fromStaging;
+      }
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await supabase.from('user_profile').update(patch).eq('user_id', userId);
+      Object.assign(data, patch);
+    }
+
+    const departmentRelation = (data as any).department;
+    const rawDepartmentName = Array.isArray(departmentRelation)
+      ? departmentRelation[0]?.department_name
+      : departmentRelation?.department_name;
+    const department_name =
+      typeof rawDepartmentName === 'string' && rawDepartmentName.trim()
+        ? rawDepartmentName.trim()
+        : null;
+
+    return {
+      ...data,
+      department_name,
+    };
+  }
+
+  async updateEmergencyContacts(userId: string, contacts: Array<{
+    contact_name: string;
+    relationship: string;
+    emergency_phone_number: string;
+    emergency_email_address?: string;
+  }>) {
+    const supabase = this.supabaseService.getClient();
+
+    // Primary: write directly to user_profile (works for ALL employees)
+    const { error } = await supabase
+      .from('user_profile')
+      .update({ emergency_contacts: contacts })
+      .eq('user_id', userId);
+
+    if (error) throw new InternalServerErrorException('Failed to update emergency contacts');
+
+    // Also sync to employee_staging if a session exists (keeps staging consistent)
+    try {
+      const { data: userRow } = await supabase
+        .from('user_profile').select('email').eq('user_id', userId).maybeSingle();
+      if (userRow) {
+        const staging = await this.resolveOnboardingStaging(userId, userRow.email);
+        if (staging) {
+          const first = contacts[0];
+          await supabase.from('employee_staging').update({
+            emergency_contacts: contacts,
+            contact_name: first?.contact_name ?? '',
+            relationship: first?.relationship ?? '',
+            emergency_phone_number: first?.emergency_phone_number ?? '',
+            emergency_email_address: first?.emergency_email_address ?? null,
+          }).eq('session_id', staging.session_id);
+        }
+      }
+    } catch {
+      // non-fatal: staging sync failure doesn't block the save
+    }
+
+    return { message: 'Emergency contacts updated', emergency_contacts: contacts };
   }
 
   async updateMe(userId: string, body: {

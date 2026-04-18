@@ -580,7 +580,6 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
   const [localStatus, setLocalStatus]         = useState(detail.status);
   const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
   const [acceptingOffer, setAcceptingOffer]   = useState(false);
-  const cfg    = effectiveCfg;
   const job    = detail.job_postings;
   const sorted = [...detail.answers].sort((a, b) => a.application_questions.sort_order - b.application_questions.sort_order);
 
@@ -627,6 +626,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
   }
 
   const effectiveCfg = STATUS_CONFIG[localStatus] ?? STATUS_CONFIG["submitted"];
+  const cfg = effectiveCfg;
 
   return (
     <div role="presentation" className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
@@ -882,8 +882,8 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
                   <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/60 border border-border">Skills Framework for the Information Age</span>
                 </div>
                 <SfiaGradeCard
-                  grade={null /* TODO: detail.sfia_grade ?? null */}
-                  matchPct={null /* TODO: detail.sfia_match_percentage ?? null */}
+                  grade={detail.sfia_grade ?? null}
+                  matchPct={detail.sfia_match_percentage ?? null}
                 />
               </div>
             </>

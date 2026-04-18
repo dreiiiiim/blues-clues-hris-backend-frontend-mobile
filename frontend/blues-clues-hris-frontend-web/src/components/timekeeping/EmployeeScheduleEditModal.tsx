@@ -58,7 +58,7 @@ export function EmployeeScheduleEditModal({
     is_nightshift: boolean;
     updated_at?: string | null;
     updated_by_name?: string | null;
-    schedule_source?: "bulk" | "individual" | "default" | null;
+    schedule_source?: "bulk" | "department" | "individual" | "default" | null;
   } | null;
   readOnly?: boolean;
   effectiveLabel?: string;
@@ -99,7 +99,7 @@ export function EmployeeScheduleEditModal({
   const [hasAssignedSchedule, setHasAssignedSchedule] = useState(Boolean(currentSchedule));
   const [updatedAt, setUpdatedAt] = useState<string | null>(currentSchedule?.updated_at ?? null);
   const [updatedBy, setUpdatedBy] = useState<string | null>(currentSchedule?.updated_by_name ?? null);
-  const [scheduleSource, setScheduleSource] = useState<"bulk" | "individual" | "default" | null>(
+  const [scheduleSource, setScheduleSource] = useState<"bulk" | "department" | "individual" | "default" | null>(
     currentSchedule?.schedule_source ?? null
   );
 
@@ -112,7 +112,7 @@ export function EmployeeScheduleEditModal({
     is_nightshift?: boolean | null;
     updated_at?: string | null;
     updated_by_name?: string | null;
-    schedule_source?: "bulk" | "individual" | "default" | null;
+    schedule_source?: "bulk" | "department" | "individual" | "default" | null;
   } | null) => {
     setHasAssignedSchedule(Boolean(schedule));
     setStartTime(schedule?.start_time ?? "09:00");
@@ -304,6 +304,10 @@ export function EmployeeScheduleEditModal({
                   {scheduleSource === "individual" ? (
                     <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-violet-100 text-violet-700 border border-violet-200">
                       Custom (Individual)
+                    </span>
+                  ) : scheduleSource === "department" ? (
+                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-200">
+                      Department
                     </span>
                   ) : scheduleSource === "bulk" ? (
                     <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-sky-100 text-sky-700 border border-sky-200">

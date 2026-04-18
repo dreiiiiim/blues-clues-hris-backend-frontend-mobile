@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
+import { EmployeeProfileSheet, type EmployeeRecord } from "@/components/employees/EmployeeProfileSheet";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,6 +48,7 @@ interface Employee {
   account_status: "Active" | "Inactive" | "Pending";
   last_login: string | null;
   invite_expires_at: string | null;
+  avatar_url?: string | null;
 }
 
 interface Stats {
@@ -91,6 +93,34 @@ function formatDate(value: string | null) {
   const d = new Date(value);
   return Number.isNaN(d.getTime()) ? "Unknown"
     : d.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function DirectoryAvatar({
+  firstName,
+  lastName,
+  avatarUrl,
+}: Readonly<{
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string | null;
+}>) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const initial = ((firstName || lastName || "?").trim().charAt(0) || "?").toUpperCase();
+
+  return (
+    <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0 overflow-hidden">
+      {avatarUrl && !imageFailed ? (
+        <img
+          src={avatarUrl}
+          alt={`${firstName} ${lastName}`.trim() || "User avatar"}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        initial
+      )}
+    </div>
+  );
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -168,78 +198,6 @@ function RowMenu({
   );
 }
 
-// ── View Profile Sheet ────────────────────────────────────────────────────────
-
-function ViewProfileSheet({
-  employee, roles, departments, onClose,
-}: Readonly<{
-  employee: Employee;
-  roles: Role[];
-  departments: Department[];
-  onClose: () => void;
-}>) {
-  const name = `${employee.first_name} ${employee.last_name}`.trim() || employee.email;
-  const roleName = roles.find(r => r.role_id === employee.role_id)?.role_name ?? null;
-  const deptName = departments.find(d => d.department_id === employee.department_id)?.department_name ?? null;
-
-  return (
-    <div className="fixed inset-0 z-50 flex">
-      <button type="button" className="absolute inset-0 bg-black/40 backdrop-blur-sm cursor-default" aria-label="Close" onClick={onClose} />
-      <div className="relative ml-auto h-full w-full max-w-md bg-background shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
-        <div className="flex items-center justify-between px-6 py-5 border-b border-border shrink-0">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-primary mb-0.5">Employee Profile</p>
-            <h2 className="text-lg font-bold text-foreground">{name}</h2>
-          </div>
-          <button onClick={onClose}
-            className="p-2 rounded-lg hover:bg-muted/50 text-muted-foreground hover:text-foreground transition-colors">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          <div className="flex items-center gap-4">
-            <div className="h-16 w-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center font-bold text-2xl border border-primary/10 shrink-0">
-              {name.charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <p className="font-bold text-xl">{name}</p>
-              <p className="text-sm text-muted-foreground">{employee.email}</p>
-              <div className="mt-1.5"><StatusBadge status={employee.account_status} /></div>
-            </div>
-          </div>
-          <div className="space-y-3">
-            <ProfileField icon={Hash}      label="Employee ID"  value={employee.employee_id} />
-            <ProfileField icon={User}      label="Username"     value={employee.username} />
-            <ProfileField icon={Shield}    label="Role"         value={roleName} />
-            <ProfileField icon={Building2} label="Department"   value={deptName} />
-            <ProfileField icon={Calendar}  label="Start Date"   value={employee.start_date ? new Date(employee.start_date).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" }) : null} />
-            <ProfileField icon={Calendar}  label="Last Login"   value={formatDate(employee.last_login)} />
-          </div>
-          {employee.account_status === "Pending" && employee.invite_expires_at && (
-            <div className="rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-4 text-sm text-amber-800 dark:text-amber-300">
-              <p className="font-semibold mb-0.5">Invite pending</p>
-              <p className="text-xs opacity-80">Expires {formatDate(employee.invite_expires_at)}</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ProfileField({ icon: Icon, label, value }: Readonly<{ icon: React.ElementType; label: string; value?: string | null }>) {
-  return (
-    <div className="flex items-start gap-3 py-2 border-b border-border/50 last:border-0">
-      <div className="h-7 w-7 rounded-md bg-muted flex items-center justify-center shrink-0 mt-0.5">
-        <Icon className="h-3.5 w-3.5 text-muted-foreground" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{label}</p>
-        <p className="text-sm font-medium text-foreground truncate">{value ?? "—"}</p>
-      </div>
-    </div>
-  );
-}
 
 // ── Add User slide-over ───────────────────────────────────────────────────────
 
@@ -961,9 +919,7 @@ export default function AdminUsersPage() {
         <tr key={e.user_id} className="hover:bg-muted/20 transition-colors cursor-pointer" onClick={() => setViewEmployee(e)}>
           <td className="px-5 py-4">
             <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs border border-primary/10 shrink-0">
-                {e.first_name.charAt(0)}
-              </div>
+              <DirectoryAvatar firstName={e.first_name} lastName={e.last_name} avatarUrl={e.avatar_url} />
               <div>
                 <p className="font-semibold text-foreground leading-none">{e.first_name} {e.last_name}</p>
                 <p className="text-[11px] text-muted-foreground mt-0.5">{e.email}</p>
@@ -1215,7 +1171,16 @@ export default function AdminUsersPage() {
 
       {showAdd && <AddUserPanel roles={roles} onClose={() => setShowAdd(false)} onCreated={handleCreated} />}
       {viewEmployee && (
-        <ViewProfileSheet employee={viewEmployee} roles={roles} departments={departments} onClose={() => setViewEmployee(null)} />
+        <EmployeeProfileSheet
+          employee={viewEmployee as EmployeeRecord}
+          roles={roles}
+          departments={departments}
+          viewerRole="System Admin"
+          onClose={() => setViewEmployee(null)}
+          onUpdated={(updated) => {
+            setEmployees(prev => prev.map(e => e.user_id === updated.user_id ? { ...e, ...updated } : e));
+          }}
+        />
       )}
       {editEmployee && (
         <EditEmployeeModal employee={editEmployee} roles={roles} departments={departments}

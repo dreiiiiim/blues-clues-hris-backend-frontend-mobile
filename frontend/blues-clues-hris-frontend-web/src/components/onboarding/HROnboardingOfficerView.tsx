@@ -13,6 +13,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import type { OnboardingStatus, ItemStatus, OnboardingSessionSummary, OnboardingSession, Remark } from "@/types/onboarding.types";
 import { getAllSessions, getSessionById, updateItemStatus, addRemark, approveSession, updateSessionDeadline } from "@/lib/onboardingApi";
+import { toast } from "sonner";
 
 function RemarkSection({
   remarks,
@@ -28,45 +29,50 @@ function RemarkSection({
   inputId: string;
 }) {
   return (
-    <div className="mt-6 space-y-3">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-400">HR Remarks</p>
-      {remarks.length > 0 ? (
-        <div className="space-y-2">
-          {remarks.map((r) => (
-            <div key={r.remark_id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-slate-600">{r.author}</span>
-                <span className="text-xs text-slate-400">{new Date(r.created_at).toLocaleDateString()}</span>
+    <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50/60 overflow-hidden">
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-200 bg-white">
+        <MessageSquare className="size-3.5 text-slate-400 shrink-0" />
+        <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">HR Remarks</p>
+        {remarks.length > 0 && (
+          <span className="ml-auto text-[10px] font-medium bg-slate-200 text-slate-600 rounded-full px-2 py-0.5">{remarks.length}</span>
+        )}
+      </div>
+      <div className="p-4 space-y-2">
+        {remarks.length > 0 ? (
+          remarks.map((r) => (
+            <div key={r.remark_id} className="rounded-lg border border-slate-200 bg-white px-4 py-3 shadow-sm">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-semibold text-slate-700">{r.author}</span>
+                <span className="text-[10px] text-slate-400">{new Date(r.created_at).toLocaleDateString()}</span>
               </div>
-              <p className="text-sm text-slate-700">{r.remark_text}</p>
+              <p className="text-sm text-slate-600 leading-relaxed">{r.remark_text}</p>
             </div>
-          ))}
+          ))
+        ) : (
+          <p className="text-sm text-slate-400 italic py-1">No remarks yet.</p>
+        )}
+        <div className="flex gap-2 pt-2">
+          <Textarea
+            id={inputId}
+            placeholder="Add a remark..."
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            rows={2}
+            className="resize-none text-sm bg-white"
+          />
+          <Button
+            size="sm"
+            className="self-end shrink-0 bg-slate-800 hover:bg-slate-700 text-white"
+            onClick={onAdd}
+            disabled={!value.trim()}
+          >
+            <MessageSquare className="size-3.5 mr-1.5" />Add
+          </Button>
         </div>
-      ) : (
-        <p className="text-sm text-slate-400 italic">No remarks yet.</p>
-      )}
-      <div className="flex gap-2 pt-1">
-        <Textarea
-          id={inputId}
-          placeholder="Add a remark..."
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          rows={2}
-          className="resize-none text-sm"
-        />
-        <Button
-          size="sm"
-          className="self-end shrink-0"
-          onClick={onAdd}
-          disabled={!value.trim()}
-        >
-          <MessageSquare className="size-3.5 mr-1.5" />Add
-        </Button>
       </div>
     </div>
   );
 }
-
 export default function HROnboardingOfficerView() {
   const [sessions, setSessions] = useState<OnboardingSessionSummary[]>([]);
   const [selectedSession, setSelectedSession] = useState<OnboardingSession | null>(null);
@@ -78,21 +84,80 @@ export default function HROnboardingOfficerView() {
   const [editingDeadline, setEditingDeadline] = useState(false);
   const [deadlineInput, setDeadlineInput] = useState("");
   const [changingItems, setChangingItems] = useState<Set<string>>(new Set());
+  const [updatingItems, setUpdatingItems] = useState<Set<string>>(new Set());
 
   const enterChangeMode = (id: string) => setChangingItems(prev => new Set(prev).add(id));
   const exitChangeMode  = (id: string) => setChangingItems(prev => { const s = new Set(prev); s.delete(id); return s; });
+  const setItemUpdating = (id: string, isUpdating: boolean) =>
+    setUpdatingItems(prev => {
+      const next = new Set(prev);
+      if (isUpdating) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+
+  const mergeSessionIntoSummary = (session: OnboardingSession) => {
+    setSessions(prev =>
+      prev.map(s =>
+        s.session_id === session.session_id
+          ? {
+              ...s,
+              account_id: session.account_id,
+              template_id: session.template_id,
+              template_name: session.template_name,
+              employee_name: session.employee_name,
+              assigned_position: session.assigned_position,
+              assigned_department: session.assigned_department,
+              status: session.status,
+              progress_percentage: session.progress_percentage,
+              deadline_date: session.deadline_date,
+              completed_at: session.completed_at,
+            }
+          : s,
+      ),
+    );
+  };
+
+  const refreshSessionsList = async (silent = true) => {
+    try {
+      const updated = await getAllSessions();
+      setSessions(updated);
+    } catch (err) {
+      console.error(err);
+      if (!silent) toast.error("Failed to refresh onboarding sessions.");
+    }
+  };
 
   useEffect(() => {
-    getAllSessions().then(setSessions).catch(console.error);
+    void refreshSessionsList(false);
   }, []);
 
   const refreshSession = async (sessionId: string) => {
-    const [updatedSession, updatedSummaries] = await Promise.all([
-      getSessionById(sessionId),
-      getAllSessions(),
-    ]);
+    const updatedSession = await getSessionById(sessionId);
     setSelectedSession(updatedSession);
-    setSessions(updatedSummaries);
+    mergeSessionIntoSummary(updatedSession);
+    return updatedSession;
+  };
+
+  const applyLocalItemStatus = (onboardingItemId: string, status: ItemStatus) => {
+    setSelectedSession(prev => {
+      if (!prev) return prev;
+      const patch = <T extends { onboarding_item_id: string; status: ItemStatus }>(items: T[]) =>
+        items.map(item =>
+          item.onboarding_item_id === onboardingItemId
+            ? { ...item, status }
+            : item,
+        );
+
+      return {
+        ...prev,
+        profile_items: patch(prev.profile_items),
+        documents: patch(prev.documents),
+        hr_forms: patch(prev.hr_forms),
+        tasks: patch(prev.tasks),
+        equipment: patch(prev.equipment),
+      };
+    });
   };
 
   const handleViewSession = async (summary: OnboardingSessionSummary) => {
@@ -110,31 +175,58 @@ export default function HROnboardingOfficerView() {
 
   const handleApprove = async (onboardingItemId: string) => {
     if (!selectedSession) return;
+    if (updatingItems.has(onboardingItemId)) return;
+    const sessionId = selectedSession.session_id;
+    setItemUpdating(onboardingItemId, true);
+    applyLocalItemStatus(onboardingItemId, "approved");
     try {
       await updateItemStatus(onboardingItemId, "approved");
-      await refreshSession(selectedSession.session_id);
-    } catch (err) {
+      await refreshSession(sessionId);
+      toast.success("Item approved.");
+    } catch (err: any) {
       console.error(err);
+      toast.error(err?.message || "Failed to approve item.");
+      await refreshSession(sessionId);
+    } finally {
+      setItemUpdating(onboardingItemId, false);
     }
   };
 
   const handleReject = async (onboardingItemId: string) => {
     if (!selectedSession) return;
+    if (updatingItems.has(onboardingItemId)) return;
+    const sessionId = selectedSession.session_id;
+    setItemUpdating(onboardingItemId, true);
+    applyLocalItemStatus(onboardingItemId, "rejected");
     try {
       await updateItemStatus(onboardingItemId, "rejected");
-      await refreshSession(selectedSession.session_id);
-    } catch (err) {
+      await refreshSession(sessionId);
+      toast.success("Item rejected.");
+    } catch (err: any) {
       console.error(err);
+      toast.error(err?.message || "Failed to reject item.");
+      await refreshSession(sessionId);
+    } finally {
+      setItemUpdating(onboardingItemId, false);
     }
   };
 
   const handleIssue = async (onboardingItemId: string) => {
     if (!selectedSession) return;
+    if (updatingItems.has(onboardingItemId)) return;
+    const sessionId = selectedSession.session_id;
+    setItemUpdating(onboardingItemId, true);
+    applyLocalItemStatus(onboardingItemId, "issued");
     try {
       await updateItemStatus(onboardingItemId, "issued");
-      await refreshSession(selectedSession.session_id);
-    } catch (err) {
+      await refreshSession(sessionId);
+      toast.success("Item issued.");
+    } catch (err: any) {
       console.error(err);
+      toast.error(err?.message || "Failed to issue item.");
+      await refreshSession(sessionId);
+    } finally {
+      setItemUpdating(onboardingItemId, false);
     }
   };
 
@@ -144,8 +236,10 @@ export default function HROnboardingOfficerView() {
       await addRemark(selectedSession.session_id, tabTag, remarks[tabTag].trim());
       setRemarks(prev => ({ ...prev, [tabTag]: "" }));
       await refreshSession(selectedSession.session_id);
-    } catch (err) {
+      toast.success("Remark added.");
+    } catch (err: any) {
       console.error(err);
+      toast.error(err?.message || "Failed to add remark.");
     }
   };
 
@@ -155,18 +249,59 @@ export default function HROnboardingOfficerView() {
       await updateSessionDeadline(selectedSession.session_id, deadlineInput);
       setEditingDeadline(false);
       await refreshSession(selectedSession.session_id);
-    } catch (err) {
+      toast.success("Deadline updated.");
+      void refreshSessionsList(true);
+    } catch (err: any) {
       console.error(err);
+      toast.error(err?.message || "Failed to update deadline.");
     }
   };
 
+  const getSessionApprovalBlockReason = (session: OnboardingSession | null): string | null => {
+    if (!session) return "No session selected.";
+
+    const pendingTasks = (session.tasks ?? []).filter(
+      (task) => !["approved", "confirmed"].includes(task.status),
+    );
+    if (pendingTasks.length > 0) {
+      return `Approve all tasks first (${pendingTasks.length} pending).`;
+    }
+
+    const pendingEquipment = (session.equipment ?? []).filter(
+      (equip) => !["issued", "approved"].includes(equip.status),
+    );
+    if (pendingEquipment.length > 0) {
+      return `Issue/approve all equipment first (${pendingEquipment.length} pending).`;
+    }
+
+    return null;
+  };
+
+  const approvalBlockReason = getSessionApprovalBlockReason(selectedSession);
+  const canApproveSelectedSession =
+    !!selectedSession &&
+    selectedSession.status === "for-review" &&
+    !approvalBlockReason;
+
   const handleApproveSession = async () => {
     if (!selectedSession) return;
+    if (selectedSession.status !== "for-review") {
+      toast.error("Only sessions in For Review can be approved.");
+      return;
+    }
+    const blockReason = getSessionApprovalBlockReason(selectedSession);
+    if (blockReason) {
+      toast.error(blockReason);
+      return;
+    }
     try {
       await approveSession(selectedSession.session_id);
       await refreshSession(selectedSession.session_id);
-    } catch (err) {
+      toast.success("Onboarding session approved.");
+      void refreshSessionsList(true);
+    } catch (err: any) {
       console.error(err);
+      toast.error(err?.message || "Failed to approve onboarding session.");
     }
   };
 
@@ -180,6 +315,7 @@ export default function HROnboardingOfficerView() {
   ) => {
     const isDecided = status === "approved" || status === "rejected" || status === "issued";
     const inChangeMode = changingItems.has(itemId);
+    const isUpdating = updatingItems.has(itemId);
 
     if (status === "pending") return null;
 
@@ -215,18 +351,21 @@ export default function HROnboardingOfficerView() {
     return (
       <div className="flex items-center gap-2">
         <Button size="sm" variant="outline" className="h-7 border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 hover:text-red-700"
-          onClick={() => { onReject(); exitChangeMode(itemId); }}>
-          <XCircle className="size-3.5 mr-1" />Reject
+          onClick={() => { onReject(); exitChangeMode(itemId); }}
+          disabled={isUpdating}>
+          {isUpdating ? "Working..." : <><XCircle className="size-3.5 mr-1" />Reject</>}
         </Button>
         {issueMode ? (
           <Button size="sm" className="h-7 bg-purple-600 hover:bg-purple-700 text-white"
-            onClick={() => { issueMode.onIssue(); exitChangeMode(itemId); }}>
-            <CheckCircle className="size-3.5 mr-1" />{issueMode.issueLabel ?? "Issue"}
+            onClick={() => { issueMode.onIssue(); exitChangeMode(itemId); }}
+            disabled={isUpdating}>
+            {isUpdating ? "Working..." : <><CheckCircle className="size-3.5 mr-1" />{issueMode.issueLabel ?? "Issue"}</>}
           </Button>
         ) : (
           <Button size="sm" className="h-7 bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
-            onClick={() => { onApprove(); exitChangeMode(itemId); }}>
-            <CheckCircle className="size-3.5 mr-1" />Approve
+            onClick={() => { onApprove(); exitChangeMode(itemId); }}
+            disabled={isUpdating}>
+            {isUpdating ? "Working..." : <><CheckCircle className="size-3.5 mr-1" />Approve</>}
           </Button>
         )}
         {inChangeMode && (
@@ -252,15 +391,39 @@ export default function HROnboardingOfficerView() {
     return <Badge className={className}>{label}</Badge>;
   };
 
-  const getStatusBadge = (status: OnboardingStatus) => {
-    const variants: Record<OnboardingStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
+  const getItemCardClass = (status: ItemStatus) => {
+    const accent: Record<ItemStatus, string> = {
+      "pending": "border-l-slate-200",
+      "submitted": "border-l-slate-900",
+      "for-review": "border-l-amber-400",
+      "approved": "border-l-teal-500",
+      "rejected": "border-l-red-500",
+      "issued": "border-l-purple-500",
+      "confirmed": "border-l-green-500",
+    };
+    return `bg-white rounded-lg border border-slate-200 border-l-4 shadow-sm overflow-hidden ${accent[status] ?? "border-l-slate-200"}`;
+  };
+
+  const getStatusBadge = (status: OnboardingStatus, darkBg = false) => {
+    if (darkBg) {
+      const dark: Record<OnboardingStatus, { label: string; className: string }> = {
+        "not-started": { label: "Not Started", className: "bg-white/10 text-white/90 border-white/30" },
+        "in-progress": { label: "In Progress", className: "bg-blue-500/20 text-blue-100 border-blue-400/40" },
+        "for-review":  { label: "For Review",  className: "bg-amber-500/20 text-amber-100 border-amber-400/40" },
+        "approved":    { label: "Approved",    className: "bg-teal-500/20 text-teal-100 border-teal-400/40" },
+        "overdue":     { label: "Overdue",     className: "bg-red-500/20 text-red-100 border-red-400/40" },
+      };
+      const { label, className } = dark[status];
+      return <Badge variant="outline" className={className}>{label}</Badge>;
+    }
+    const light: Record<OnboardingStatus, { label: string; variant: "default" | "secondary" | "destructive" | "outline" }> = {
       "not-started": { label: "Not Started", variant: "outline" },
       "in-progress": { label: "In Progress", variant: "default" },
       "for-review":  { label: "For Review",  variant: "secondary" },
       "approved":    { label: "Approved",    variant: "secondary" },
       "overdue":     { label: "Overdue",     variant: "destructive" },
     };
-    const { label, variant } = variants[status];
+    const { label, variant } = light[status];
     return <Badge variant={variant}>{label}</Badge>;
   };
 
@@ -442,7 +605,7 @@ export default function HROnboardingOfficerView() {
                   const daysLeft = Math.ceil((new Date(session.deadline_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24));
                   return (
                     <TableRow key={session.session_id}>
-                      <TableCell className="font-medium">{session.employee_name ?? "—"}</TableCell>
+                      <TableCell className="font-medium">{session.employee_name ?? "-"}</TableCell>
                       <TableCell>{session.assigned_position}</TableCell>
                       <TableCell>{session.assigned_department}</TableCell>
                       <TableCell>
@@ -489,18 +652,18 @@ export default function HROnboardingOfficerView() {
           </CardContent>
         </Card>
 
-      {/* Employee Detail Modal — Redesigned */}
+      {/* Employee Detail Modal - Redesigned */}
       <Dialog open={!!selectedSession} onOpenChange={(open) => !open && setSelectedSession(null)}>
-        <DialogContent className="sm:max-w-2xl max-w-[96vw] w-full p-0 gap-0 overflow-hidden flex flex-col rounded-2xl">
+        <DialogContent className="sm:max-w-4xl lg:max-w-5xl max-w-[96vw] w-full p-0 gap-0 overflow-hidden flex flex-col rounded-2xl">
           <DialogHeader className="sr-only">
-            <DialogTitle>{selectedSession?.employee_name ?? "Onboarding"} — Onboarding Details</DialogTitle>
+            <DialogTitle>{selectedSession?.employee_name ?? "Onboarding"} - Onboarding Details</DialogTitle>
             <DialogDescription>Review and manage onboarding checklist items</DialogDescription>
           </DialogHeader>
 
           {selectedSession && (
             <div className="flex flex-col overflow-hidden" style={{ maxHeight: "88vh" }}>
 
-              {/* ── GRADIENT HERO HEADER ── */}
+              {/* -- GRADIENT HERO HEADER -- */}
               <div className="relative bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 pt-5 pb-5 shrink-0 overflow-hidden rounded-t-2xl">
                 <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-blue-400/10 blur-3xl pointer-events-none" />
                 <div className="absolute bottom-0 left-16 w-36 h-36 rounded-full bg-teal-400/10 blur-2xl pointer-events-none" />
@@ -511,15 +674,28 @@ export default function HROnboardingOfficerView() {
                       {selectedSession.employee_name?.charAt(0) ?? "?"}
                     </div>
                     <div className="min-w-0">
-                      <h2 className="text-white font-semibold text-base leading-tight truncate">{selectedSession.employee_name ?? "—"}</h2>
-                      <p className="text-blue-200/80 text-xs mt-0.5 truncate">{selectedSession.assigned_position} · {selectedSession.assigned_department}</p>
+                      <h2 className="text-white font-semibold text-base leading-tight truncate">{selectedSession.employee_name ?? "-"}</h2>
+                      <p className="text-blue-200/80 text-xs mt-0.5 truncate">{selectedSession.assigned_position} | {selectedSession.assigned_department}</p>
                     </div>
                   </div>
                   <div className="shrink-0 flex items-center gap-2">
                     {selectedSession.status === "for-review" && (
-                      <Button size="sm" className="bg-teal-600/80 hover:bg-teal-500 border border-teal-500/40 text-white h-8 text-xs" onClick={handleApproveSession}>
-                        <CheckCircle className="size-3.5 mr-1.5" />Approve Onboarding
-                      </Button>
+                      <div className="flex flex-col items-end gap-1">
+                        <Button
+                          size="sm"
+                          className="bg-teal-600/80 hover:bg-teal-500 border border-teal-500/40 text-white h-8 text-xs"
+                          onClick={handleApproveSession}
+                          disabled={!canApproveSelectedSession}
+                          title={!canApproveSelectedSession ? (approvalBlockReason ?? "Complete tasks and equipment first.") : undefined}
+                        >
+                          <CheckCircle className="size-3.5 mr-1.5" />Approve Onboarding
+                        </Button>
+                        {!canApproveSelectedSession && approvalBlockReason && (
+                          <span className="text-[10px] text-amber-200/90 max-w-[15rem] text-right leading-tight">
+                            {approvalBlockReason}
+                          </span>
+                        )}
+                      </div>
                     )}
                     {selectedSession.status === "approved" && (
                       <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-teal-300 bg-teal-900/30 border border-teal-700/40 rounded-full px-3 py-1">
@@ -530,7 +706,7 @@ export default function HROnboardingOfficerView() {
                 </div>
                 {/* Meta row: status + progress + deadline */}
                 <div className="flex items-center flex-wrap gap-x-4 gap-y-2 mt-4 relative">
-                  {getStatusBadge(selectedSession.status)}
+                  {getStatusBadge(selectedSession.status, true)}
                   <div className="flex items-center gap-2">
                     <div className="w-20 h-1 rounded-full bg-white/15 overflow-hidden">
                       <div className="h-full bg-blue-400 rounded-full transition-all duration-300" style={{ width: `${selectedSession.progress_percentage}%` }} />
@@ -550,7 +726,7 @@ export default function HROnboardingOfficerView() {
                       <span className="flex items-center gap-1.5">
                         <span className="text-white/70">{new Date(selectedSession.deadline_date).toLocaleDateString()}</span>
                         {selectedSession.status !== "approved" && (
-                          <button className="text-blue-400 hover:text-blue-300 text-xs underline-offset-2 hover:underline cursor-pointer"
+                          <button className="text-blue-300 hover:text-blue-200 text-xs underline-offset-2 hover:underline cursor-pointer"
                             onClick={() => { setDeadlineInput(selectedSession.deadline_date.slice(0, 10)); setEditingDeadline(true); }}>
                             Edit
                           </button>
@@ -566,7 +742,7 @@ export default function HROnboardingOfficerView() {
                 </div>
               </div>
 
-              {/* ── TABS ── */}
+              {/* -- TABS -- */}
               <Tabs defaultValue="profile" className="flex flex-col flex-1 overflow-hidden">
                 {/* Tab bar */}
                 <div className="bg-white border-b px-4 py-2 shrink-0">
@@ -592,12 +768,11 @@ export default function HROnboardingOfficerView() {
                   {/* Scrollable tab bodies */}
                   <div className="flex-1 overflow-y-auto">
 
-                    {/* ── PROFILE TAB ── */}
+                    {/* -- PROFILE TAB -- */}
                     <TabsContent value="profile" className="mt-0 p-6 space-y-4">
                       {selectedSession.profile ? (() => {
                         const profileItem = selectedSession.profile_items?.[0];
                         const profileItemStatus = profileItem?.status;
-                        const canAct = profileItem && profileItemStatus !== "pending";
                         const contacts = selectedSession.profile!.emergency_contacts?.length
                           ? selectedSession.profile!.emergency_contacts
                           : selectedSession.profile!.contact_name
@@ -639,7 +814,7 @@ export default function HROnboardingOfficerView() {
                                 ].map(({ label, value, breakAll, wide }) => (
                                   <div key={label} className={`min-w-0 ${wide ? "col-span-2 lg:col-span-1" : ""}`}>
                                     <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">{label}</p>
-                                    <p className={`text-sm text-slate-800 leading-snug ${breakAll ? "break-all" : ""}`}>{value || "—"}</p>
+                                    <p className={`text-sm text-slate-800 leading-snug ${breakAll ? "break-all" : ""}`}>{value || "-"}</p>
                                   </div>
                                 ))}
                               </div>
@@ -654,19 +829,19 @@ export default function HROnboardingOfficerView() {
                                     <div key={i} className="grid grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3 pb-4 border-b border-slate-100 last:border-0 last:pb-0">
                                       <div>
                                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Name</p>
-                                        <p className="text-sm text-slate-800">{c.contact_name || "—"}</p>
+                                        <p className="text-sm text-slate-800">{c.contact_name || "-"}</p>
                                       </div>
                                       <div>
                                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Relationship</p>
-                                        <p className="text-sm text-slate-800">{c.relationship || "—"}</p>
+                                        <p className="text-sm text-slate-800">{c.relationship || "-"}</p>
                                       </div>
                                       <div>
                                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Phone</p>
-                                        <p className="text-sm text-slate-800">{c.emergency_phone_number || "—"}</p>
+                                        <p className="text-sm text-slate-800">{c.emergency_phone_number || "-"}</p>
                                       </div>
                                       <div>
                                         <p className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 mb-1">Email</p>
-                                        <p className="text-sm text-slate-800 break-all">{c.emergency_email_address || "—"}</p>
+                                        <p className="text-sm text-slate-800 break-all">{c.emergency_email_address || "-"}</p>
                                       </div>
                                     </div>
                                   ))}
@@ -691,7 +866,7 @@ export default function HROnboardingOfficerView() {
                       />
                     </TabsContent>
 
-                    {/* ── DOCUMENTS TAB ── */}
+                    {/* -- DOCUMENTS TAB -- */}
                     <TabsContent value="documents" className="mt-0 p-6 space-y-3">
                       {selectedSession.documents.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
@@ -700,7 +875,7 @@ export default function HROnboardingOfficerView() {
                         </div>
                       )}
                       {selectedSession.documents.map((doc) => (
-                        <div key={doc.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <div key={doc.onboarding_item_id} className={getItemCardClass(doc.status)}>
                           <div className="flex items-center justify-between px-5 py-4">
                             <div className="min-w-0 pr-4">
                               <p className="font-semibold text-slate-800 text-sm">{doc.title}</p>
@@ -748,7 +923,7 @@ export default function HROnboardingOfficerView() {
                       />
                     </TabsContent>
 
-                    {/* ── HR FORMS TAB ── */}
+                    {/* -- HR FORMS TAB -- */}
                     <TabsContent value="forms" className="mt-0 p-6 space-y-3">
                       {selectedSession.hr_forms.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
@@ -757,7 +932,7 @@ export default function HROnboardingOfficerView() {
                         </div>
                       )}
                       {selectedSession.hr_forms.map((form) => (
-                        <div key={form.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <div key={form.onboarding_item_id} className={getItemCardClass(form.status)}>
                           <div className="flex items-center justify-between px-5 py-4">
                             <div className="min-w-0 pr-4">
                               <p className="font-semibold text-slate-800 text-sm">{form.title}</p>
@@ -787,7 +962,7 @@ export default function HROnboardingOfficerView() {
                       />
                     </TabsContent>
 
-                    {/* ── TASKS TAB ── */}
+                    {/* -- TASKS TAB -- */}
                     <TabsContent value="tasks" className="mt-0 p-6 space-y-3">
                       {selectedSession.tasks.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
@@ -796,7 +971,7 @@ export default function HROnboardingOfficerView() {
                         </div>
                       )}
                       {selectedSession.tasks.map((task) => (
-                        <div key={task.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <div key={task.onboarding_item_id} className={getItemCardClass(task.status)}>
                           <div className="flex items-center justify-between px-5 py-4">
                             <div className="min-w-0 pr-4">
                               <p className="font-semibold text-slate-800 text-sm">{task.title}</p>
@@ -826,7 +1001,7 @@ export default function HROnboardingOfficerView() {
                       />
                     </TabsContent>
 
-                    {/* ── EQUIPMENT TAB ── */}
+                    {/* -- EQUIPMENT TAB -- */}
                     <TabsContent value="equipment" className="mt-0 p-6 space-y-3">
                       {selectedSession.equipment.length === 0 && (
                         <div className="flex flex-col items-center justify-center py-16 text-slate-400">
@@ -835,14 +1010,14 @@ export default function HROnboardingOfficerView() {
                         </div>
                       )}
                       {selectedSession.equipment.map((equip) => (
-                        <div key={equip.onboarding_item_id} className="bg-white rounded-lg border border-slate-200 overflow-hidden">
+                        <div key={equip.onboarding_item_id} className={getItemCardClass(equip.status)}>
                           <div className="flex items-center justify-between px-5 py-4">
                             <div className="min-w-0 pr-4">
                               <p className="font-semibold text-slate-800 text-sm">{equip.title}</p>
                               {equip.description && <p className="text-xs text-slate-500 mt-0.5">{equip.description}</p>}
                               {equip.delivery_method && (
                                 <p className="text-xs text-purple-600 mt-0.5">
-                                  {equip.delivery_method === "office" ? "Office Pickup" : `Delivery${equip.delivery_address ? ` — ${equip.delivery_address}` : ""}`}
+                                  {equip.delivery_method === "office" ? "Office Pickup" : `Delivery${equip.delivery_address ? ` - ${equip.delivery_address}` : ""}`}
                                 </p>
                               )}
                             </div>
@@ -895,3 +1070,4 @@ export default function HROnboardingOfficerView() {
     </div>
   );
 }
+

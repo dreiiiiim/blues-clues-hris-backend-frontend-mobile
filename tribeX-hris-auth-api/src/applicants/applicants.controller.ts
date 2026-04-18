@@ -33,14 +33,14 @@ import { UploadSfiaResumeDto } from './dto/upload-sfia-resume.dto';
 
 const APPLICANT_COOKIE = 'applicant_refresh_token';
 
-function cookieOptions(rememberMe = false) {
+function cookieOptions(maxAgeMs: number) {
   const isProd = process.env.NODE_ENV === 'production';
   return {
     httpOnly: true,
     secure: isProd,
     sameSite: isProd ? 'none' : 'lax',
-    maxAge: (rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000,
-    path: '/',
+    maxAge: maxAgeMs,
+    path: '/api/tribeX/auth',
   } as const;
 }
 
@@ -65,19 +65,26 @@ export class ApplicantsController {
     @Body() dto: ApplicantLoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { access_token, refresh_token } = await this.applicantsService.login(dto);
-    res.cookie(APPLICANT_COOKIE, refresh_token, cookieOptions(dto.rememberMe));
-    return { access_token, refresh_token };
+    const { access_token, refresh_token, refresh_max_age_ms } =
+      await this.applicantsService.login(dto);
+    res.cookie(APPLICANT_COOKIE, refresh_token, cookieOptions(refresh_max_age_ms));
+    return { access_token };
   }
 
   @Post('refresh')
   @UseGuards(ThrottlerGuard)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Issue new access token from applicant refresh cookie' })
-  async refresh(@Req() req: Request) {
+  async refresh(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const token: string | undefined = (req.cookies as Record<string, string>)[APPLICANT_COOKIE];
     if (!token) throw new UnauthorizedException('No applicant refresh token cookie');
-    return this.applicantsService.refresh(token);
+    const { access_token, refresh_token, refresh_max_age_ms } =
+      await this.applicantsService.refresh(token);
+    res.cookie(APPLICANT_COOKIE, refresh_token, cookieOptions(refresh_max_age_ms));
+    return { access_token };
   }
 
   @Post('logout')
@@ -97,7 +104,7 @@ export class ApplicantsController {
 
     const isProd = process.env.NODE_ENV === 'production';
     res.clearCookie(APPLICANT_COOKIE, {
-      path: '/',
+      path: '/api/tribeX/auth',
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
     } as const);

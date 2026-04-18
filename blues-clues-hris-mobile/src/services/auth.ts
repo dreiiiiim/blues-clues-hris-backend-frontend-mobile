@@ -72,6 +72,19 @@ function getCookieName(isApplicant: boolean): string {
   return isApplicant ? "applicant_refresh_token" : "refresh_token";
 }
 
+function readRefreshTokenFromSetCookie(
+  response: Response,
+  isApplicant: boolean,
+): string | undefined {
+  const cookieHeader =
+    response.headers.get("set-cookie") ?? response.headers.get("Set-Cookie");
+  if (!cookieHeader) return undefined;
+
+  const cookieName = getCookieName(isApplicant);
+  const match = cookieHeader.match(new RegExp(`${cookieName}=([^;]+)`));
+  return match?.[1];
+}
+
 async function getRefreshInfo(): Promise<{
   refreshToken: string | null;
   isApplicant: boolean;
@@ -119,7 +132,8 @@ export async function login(identifier: string, password: string, rememberMe: bo
     }
 
     const access_token: string = data.access_token;
-    const refresh_token: string | undefined = data.refresh_token;
+    const refresh_token: string | undefined =
+      data.refresh_token ?? readRefreshTokenFromSetCookie(res, false);
 
     if (!access_token) {
       return { ok: false as const, error: "Invalid response from server." };
@@ -165,7 +179,7 @@ export async function applicantLogin(
       res = await fetch(`${API_BASE_URL}/applicants/login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, rememberMe }),
         signal: controller.signal,
       });
     } catch (e: any) {
@@ -184,7 +198,8 @@ export async function applicantLogin(
     }
 
     const access_token: string = data.access_token;
-    const refresh_token: string | undefined = data.refresh_token;
+    const refresh_token: string | undefined =
+      data.refresh_token ?? readRefreshTokenFromSetCookie(res, true);
 
     if (!access_token) {
       return { ok: false as const, error: "Invalid response from server." };
@@ -267,7 +282,11 @@ async function refreshExpiredSession(payload: Record<string, unknown>): Promise<
   const newPayload = parseJwt(data.access_token);
   if (!newPayload) return null;
 
-  await storeTokens(isPersistent, data.access_token, data.refresh_token);
+  await storeTokens(
+    isPersistent,
+    data.access_token,
+    data.refresh_token ?? readRefreshTokenFromSetCookie(res, isApplicant),
+  );
 
   const role = isApplicant
     ? ("applicant" as UserRole)
@@ -350,7 +369,11 @@ async function refreshAndRetry(url: string, options: RequestInit, isPersistent: 
     throw new Error("Session expired");
   }
 
-  await storeTokens(isPersistent, data.access_token, data.refresh_token);
+  await storeTokens(
+    isPersistent,
+    data.access_token,
+    data.refresh_token ?? readRefreshTokenFromSetCookie(refreshRes, isApplicant),
+  );
 
   return buildAuthRequest(url, options, data.access_token);
 }

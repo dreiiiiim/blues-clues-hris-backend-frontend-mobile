@@ -212,9 +212,10 @@ export class ApplicantsService {
       { expiresIn: '8h' },
     );
 
+    const refreshMaxAgeMs = (dto.rememberMe ? 30 : 7) * 24 * 60 * 60 * 1000;
     const refresh_token = await this.jwtService.signAsync(
       { type: 'refresh', sub_userid: applicant.applicant_id },
-      { expiresIn: '7d' },
+      { expiresIn: Math.floor(refreshMaxAgeMs / 1000) },
     );
 
     const decoded: any = this.jwtService.decode(refresh_token);
@@ -224,7 +225,11 @@ export class ApplicantsService {
       expires_at: new Date(decoded.exp * 1000).toISOString(),
     });
 
-    return { access_token, refresh_token };
+    return {
+      access_token,
+      refresh_token,
+      refresh_max_age_ms: refreshMaxAgeMs,
+    };
   }
 
   async refresh(refreshToken: string) {
@@ -275,7 +280,38 @@ export class ApplicantsService {
       { expiresIn: '15m' },
     );
 
-    return { access_token };
+    const refreshRemainingMs =
+      new Date(session.expires_at).getTime() - Date.now();
+    if (refreshRemainingMs <= 0) {
+      throw new UnauthorizedException('Session expired');
+    }
+
+    const rotatedRefreshToken = await this.jwtService.signAsync(
+      {
+        type: 'refresh',
+        sub_userid: applicant.applicant_id,
+      },
+      { expiresIn: Math.max(1, Math.floor(refreshRemainingMs / 1000)) },
+    );
+
+    const { data: rotatedSession, error: rotateErr } = await supabase
+      .from('applicant_refresh_session')
+      .update({ token_hash: sha256(rotatedRefreshToken) })
+      .eq('applicant_id', decoded.sub_userid)
+      .eq('token_hash', token_hash)
+      .is('revoked_at', null)
+      .select('applicant_id')
+      .maybeSingle();
+
+    if (rotateErr || !rotatedSession) {
+      throw new UnauthorizedException('Failed to rotate session');
+    }
+
+    return {
+      access_token,
+      refresh_token: rotatedRefreshToken,
+      refresh_max_age_ms: refreshRemainingMs,
+    };
   }
 
   async resendVerification(email: string) {
