@@ -612,10 +612,10 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
-    // Fetch SFIA values (when mirrored into job_application_sfia)
+    // Keep legacy survey score for manual-mode views
     const { data: sfiaApp } = await supabase
       .from('job_application_sfia')
-      .select('pre_screening_score, sfia_matching_percentage')
+      .select('pre_screening_score')
       .eq('application_id', applicationId)
       .maybeSingle();
 
@@ -625,13 +625,7 @@ export class JobsService {
           ['pre_screening_score'],
         )
       : null;
-    const sfiaMatchPercentage = sfiaApp
-      ? this.readNullableNumber(
-          sfiaApp as unknown as Record<string, unknown>,
-          ['sfia_matching_percentage'],
-        )
-      : null;
-    const sfiaGrade = this.deriveSfiaGrade(sfiaMatchPercentage, surveyScore);
+    const sfiaScore = await this.getSfiaScoreForApplication(applicationId);
 
     // Generate a signed URL for the resume if it's stored as a file path
     const profile = (app as any).applicant_profile as Record<string, any> | null;
@@ -652,8 +646,8 @@ export class JobsService {
       // Backward-compatible field for older frontend consumers.
       // In this schema, pre_screening_score stores screening score (0-100).
       survey_score: surveyScore,
-      sfia_grade: sfiaGrade,
-      sfia_match_percentage: sfiaMatchPercentage,
+      sfia_grade: sfiaScore.sfia_grade,
+      sfia_match_percentage: sfiaScore.sfia_match_percentage,
       resume_upload: await this.getLatestResumeUpload((app as any).applicant_id, (app as any).job_posting_id),
     };
   }
@@ -1611,10 +1605,10 @@ export class JobsService {
     }
     const latestSchedule = (schedules ?? [])[0] ?? null;
 
-    // Fetch SFIA values for applicant-side detail view
+    // Keep legacy survey score for manual-mode views
     const { data: sfiaApp } = await supabase
       .from('job_application_sfia')
-      .select('pre_screening_score, sfia_matching_percentage')
+      .select('pre_screening_score')
       .eq('application_id', applicationId)
       .maybeSingle();
 
@@ -1624,13 +1618,7 @@ export class JobsService {
           ['pre_screening_score'],
         )
       : null;
-    const sfiaMatchPercentage = sfiaApp
-      ? this.readNullableNumber(
-          sfiaApp as unknown as Record<string, unknown>,
-          ['sfia_matching_percentage'],
-        )
-      : null;
-    const sfiaGrade = this.deriveSfiaGrade(sfiaMatchPercentage, surveyScore);
+    const sfiaScore = await this.getSfiaScoreForApplication(applicationId);
 
     return {
       ...app,
@@ -1638,9 +1626,96 @@ export class JobsService {
       interview_schedule: latestSchedule,
       interview_schedules,
       survey_score: surveyScore,
-      sfia_grade: sfiaGrade,
-      sfia_match_percentage: sfiaMatchPercentage,
+      sfia_grade: sfiaScore.sfia_grade,
+      sfia_match_percentage: sfiaScore.sfia_match_percentage,
       resume_upload: await this.getLatestResumeUpload(app.applicant_id, app.job_posting_id),
+    };
+  }
+
+  private async getSfiaScoreForApplication(applicationId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('job_application_sfia')
+      .select('sfia_matching_percentage')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    const percentage = data?.sfia_matching_percentage == null
+      ? null
+      : normalizeNumber(data.sfia_matching_percentage);
+
+    if (percentage == null || !Number.isFinite(percentage)) {
+      const { data: application, error: applicationError } = await supabase
+        .from('job_applications')
+        .select('job_posting_id, applicant_id')
+        .eq('application_id', applicationId)
+        .maybeSingle();
+
+      if (applicationError) throw new InternalServerErrorException(applicationError.message);
+      if (!application) {
+        return {
+          sfia_match_percentage: null,
+          sfia_grade: null,
+          sfia_assessment_status: 'not_assessed' as const,
+        };
+      }
+
+      const demandSkills = await this.getJobDemandSkills(application.job_posting_id);
+      if (demandSkills.length === 0) {
+        return {
+          sfia_match_percentage: null,
+          sfia_grade: null,
+          sfia_assessment_status: 'not_configured' as const,
+        };
+      }
+
+      const supplySkills = await this.getCandidateSupplySkills([
+        {
+          application_id: applicationId,
+          job_posting_id: application.job_posting_id,
+          applicant_id: application.applicant_id,
+          status: 'submitted',
+          application_timestamp: new Date().toISOString(),
+          pre_screening_score: null,
+          sfia_matching_percentage: null,
+          manual_rank_position: null,
+          ranking_mode: 'sfia',
+        },
+      ]);
+
+      const computed = this.computeSfiaScore(demandSkills, supplySkills);
+      const computedPercentage = computed.relevancePercentage;
+
+      if (computed.maxPossiblePoints <= 0) {
+        return {
+          sfia_match_percentage: null,
+          sfia_grade: null,
+          sfia_assessment_status: 'not_configured' as const,
+        };
+      }
+
+      const fallbackGrade = computedPercentage <= 0
+        ? 1
+        : Math.max(1, Math.min(7, Math.ceil((computedPercentage / 100) * 7)));
+
+      return {
+        sfia_match_percentage: roundToTwo(computedPercentage),
+        sfia_grade: fallbackGrade,
+        sfia_assessment_status: 'assessed' as const,
+      };
+    }
+
+    const bounded = Math.max(0, Math.min(100, percentage));
+    const grade = bounded <= 0
+      ? 1
+      : Math.max(1, Math.min(7, Math.ceil((bounded / 100) * 7)));
+
+    return {
+      sfia_match_percentage: roundToTwo(bounded),
+      sfia_grade: grade,
+      sfia_assessment_status: 'assessed' as const,
     };
   }
 
@@ -1752,9 +1827,8 @@ export class JobsService {
       const supplyLevel = supplySkill?.candidate_level ?? 0;
 
       let points = 0;
-      if (supplyLevel >= demandSkill.required_level) points = 3;
-      else if (supplyLevel === demandSkill.required_level - 1) points = 1.5;
-      else if (supplyLevel === demandSkill.required_level - 2) points = 0.5;
+      if (supplyLevel === demandSkill.required_level) points = 3;
+      else if (supplyLevel > demandSkill.required_level) points = 1.5;
 
       return {
         sfia_skill_id: demandSkill.skill_id,
@@ -1967,30 +2041,6 @@ export class JobsService {
         `Unable to compute SFIA score for application ${applicationId}: ${message}`,
       );
     }
-  }
-
-  private mapPercentageToSfiaLevel(percentage: number): number {
-    const clamped = Math.max(0, Math.min(100, percentage));
-    const level = Math.round((clamped / 100) * 6 + 1);
-    return Math.max(1, Math.min(7, level));
-  }
-
-  private deriveSfiaGrade(
-    sfiaMatchPercentage: number | null,
-    surveyScore: number | null,
-  ): number | null {
-    if (sfiaMatchPercentage != null) {
-      return this.mapPercentageToSfiaLevel(sfiaMatchPercentage);
-    }
-
-    if (surveyScore == null) return null;
-
-    // Keep compatibility with historical records where 1-7 was stored directly.
-    if (surveyScore >= 1 && surveyScore <= 7) {
-      return Math.round(surveyScore);
-    }
-
-    return this.mapPercentageToSfiaLevel(surveyScore);
   }
 
   private async cacheSfiaScore(
