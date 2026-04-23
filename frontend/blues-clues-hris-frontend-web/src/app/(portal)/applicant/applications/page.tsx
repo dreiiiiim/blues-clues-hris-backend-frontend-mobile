@@ -16,6 +16,7 @@ import {
 import {
   getMyApplications, getMyApplicationDetail, respondToInterview, authFetch,
   type MyApplication, type ApplicationDetail, type InterviewSchedule, type InterviewAction,
+  type SfiaSkillBreakdown,
 } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
 import { SfiaGradeCard, SFIA_LEVELS } from "@/components/applicant/SfiaGradeCard";
@@ -873,9 +874,6 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
               </div>
 
               {/* SFIA Grade ─────────────────────────────────────────────── */}
-              {/* TODO: SFIA hook — replace the two `null` literals below with
-                    `detail.sfia_grade ?? null` and `detail.sfia_match_percentage ?? null`
-                    once the backend populates those fields.  No other changes needed. */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">SFIA Grade</p>
@@ -885,6 +883,44 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
                   grade={detail.sfia_grade ?? null}
                   matchPct={detail.sfia_match_percentage ?? null}
                 />
+
+                {/* Supply / Demand Skill Breakdown ────────────────────── */}
+                {detail.sfia_assessment_status === "not_configured" && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-950/20 dark:border-amber-800 px-4 py-3">
+                    <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">SFIA skills not configured for this job yet.</p>
+                    <p className="text-[11px] text-amber-600 dark:text-amber-500 mt-0.5">HR will add required skills soon. Your match score will appear once they do.</p>
+                  </div>
+                )}
+
+                {detail.skill_breakdown && detail.skill_breakdown.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">Supply vs Demand Breakdown</p>
+                    <div className="rounded-xl border border-border overflow-hidden">
+                      <div className="grid grid-cols-[1fr_auto_auto_auto] text-[9px] font-bold uppercase tracking-wider text-muted-foreground/70 px-3 py-2 border-b border-border bg-muted/20 gap-2">
+                        <span>Skill</span>
+                        <span className="text-center w-12">Required</span>
+                        <span className="text-center w-10">Yours</span>
+                        <span className="text-center w-10">Score</span>
+                      </div>
+                      {detail.skill_breakdown.map((row: SfiaSkillBreakdown) => (
+                        <div key={row.sfia_skill_id} className="grid grid-cols-[1fr_auto_auto_auto] items-center px-3 py-2 gap-2 border-b border-border last:border-0 text-xs">
+                          <span className="font-medium truncate">{row.skill_name}</span>
+                          <span className="w-12 text-center text-[10px] font-semibold text-muted-foreground">L{row.demand_level}</span>
+                          <span className={`w-10 text-center text-[10px] font-bold ${row.supply_level === 0 ? "text-muted-foreground/40" : row.supply_level >= row.demand_level ? "text-emerald-600 dark:text-emerald-400" : "text-amber-600 dark:text-amber-400"}`}>
+                            {row.supply_level === 0 ? "—" : `L${row.supply_level}`}
+                          </span>
+                          <span className={`w-10 text-center text-[10px] font-bold tabular-nums ${row.points === 3 ? "text-emerald-600 dark:text-emerald-400" : row.points === 1.5 ? "text-blue-600 dark:text-blue-400" : "text-muted-foreground/40"}`}>
+                            {row.points === 0 ? "0" : row.points}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[9px] text-muted-foreground/60 leading-relaxed">
+                      Scoring: exact match = 3 pts · above demand = 1.5 pts · below demand = 0 pts.
+                      Relevance % = total points ÷ (required skills × 3) × 100.
+                    </p>
+                  </div>
+                )}
               </div>
             </>
           )}

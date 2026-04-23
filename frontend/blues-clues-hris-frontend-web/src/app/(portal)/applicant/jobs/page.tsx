@@ -13,7 +13,8 @@ import {
 import {
   getApplicantJobs, applyToJob, getMyApplications, getJobQuestions, getApplicantProfile,
   uploadApplicantResume, deleteApplicantResume, uploadApplicantSfiaResume,
-  type JobPosting, type ApplicationQuestion, type ApplicantProfile,
+  getJobSfiaRequirementsForApplicant,
+  type JobPosting, type ApplicationQuestion, type ApplicantProfile, type JobSfiaRequirement,
 } from "@/lib/authApi";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
 
@@ -568,6 +569,8 @@ export default function ApplicantJobsPage() {
   const [detailVisible, setDetailVisible] = useState(false);
   const [applyingJob, setApplyingJob] = useState<JobPosting | null>(null);
   const [applicantProfile, setApplicantProfile] = useState<ApplicantProfile | null>(null);
+  const [jobSfiaRequirements, setJobSfiaRequirements] = useState<JobSfiaRequirement[]>([]);
+  const [sfiaReqLoading, setSfiaReqLoading] = useState(false);
 
   useEffect(() => {
     Promise.all([
@@ -624,6 +627,15 @@ export default function ApplicantJobsPage() {
       setTimeout(() => { setSelectedJob(null); setDisplayedJob(null); }, 150);
     }
   }, [filtered, selectedJob]);
+
+  useEffect(() => {
+    if (!displayedJob) { setJobSfiaRequirements([]); return; }
+    setSfiaReqLoading(true);
+    getJobSfiaRequirementsForApplicant(displayedJob.job_posting_id)
+      .then(setJobSfiaRequirements)
+      .catch(() => setJobSfiaRequirements([]))
+      .finally(() => setSfiaReqLoading(false));
+  }, [displayedJob?.job_posting_id]);
 
   const selectJob = (job: JobPosting) => {
     setSelectedJob(job);
@@ -1118,6 +1130,49 @@ export default function ApplicantJobsPage() {
                       />
                     </div>
                   </div>
+
+                  {/* SFIA Requirements */}
+                  {(sfiaReqLoading || jobSfiaRequirements.length > 0) && (
+                    <div className="p-6">
+                      <div className="flex items-center gap-2.5 mb-4">
+                        <div className="h-7 w-7 rounded-lg bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
+                          <Zap className="h-3.5 w-3.5 text-violet-500/70" />
+                        </div>
+                        <h3 className="text-sm font-bold text-foreground">SFIA Skill Requirements</h3>
+                        <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/60 border border-border">
+                          Skills Framework for the Information Age
+                        </span>
+                      </div>
+                      {sfiaReqLoading ? (
+                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading requirements…
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          <p className="text-xs text-muted-foreground/70">
+                            This role is evaluated using SFIA. Candidates are scored based on how their skill levels match these requirements.
+                          </p>
+                          <div className="rounded-xl border border-border overflow-hidden">
+                            <div className="grid grid-cols-[1fr_auto] text-[9px] font-bold uppercase tracking-wider text-muted-foreground/70 px-3 py-2 border-b border-border bg-muted/20 gap-2">
+                              <span>Skill</span>
+                              <span className="w-28 text-right">Required Level</span>
+                            </div>
+                            {jobSfiaRequirements.map((req) => (
+                              <div key={req.skill_id} className="grid grid-cols-[1fr_auto] items-center px-3 py-2 gap-2 border-b border-border last:border-0">
+                                <span className="text-xs font-medium">{req.skill_name || req.skill_id}</span>
+                                <span className="w-28 text-right text-[10px] font-semibold text-muted-foreground">
+                                  L{req.required_level} — {["Follow","Assist","Apply","Enable","Ensure & Advise","Initiate & Influence","Set Strategy"][req.required_level - 1] ?? `Level ${req.required_level}`}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[9px] text-muted-foreground/50 leading-relaxed">
+                            Scoring: exact level match = 3 pts · above requirement = 1.5 pts · below = 0 pts. Relevance % = total ÷ max possible × 100.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Bottom CTA strip */}
                   {!isApplied && (

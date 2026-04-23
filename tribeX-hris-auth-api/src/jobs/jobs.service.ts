@@ -196,6 +196,39 @@ export class JobsService {
     return data;
   }
 
+  async listSfiaSkills() {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('sfia_skills')
+      .select('skill_id, skill, category, level_1_desc, level_2_desc, level_3_desc, level_4_desc, level_5_desc, level_6_desc, level_7_desc')
+      .order('skill');
+    if (error) {
+      this.handleMissingSfiaSchema(error.message, 'sfia_skills');
+      return [];
+    }
+    return (data ?? []) as Array<{
+      skill_id: string;
+      skill: string;
+      category: string | null;
+      level_1_desc: string | null;
+      level_2_desc: string | null;
+      level_3_desc: string | null;
+      level_4_desc: string | null;
+      level_5_desc: string | null;
+      level_6_desc: string | null;
+      level_7_desc: string | null;
+    }>;
+  }
+
+  async getJobSfiaRequirementsForApplicant(jobPostingId: string) {
+    const demandSkills = await this.getJobDemandSkills(jobPostingId);
+    return demandSkills.map((s) => ({
+      skill_id: s.skill_id,
+      skill_name: s.skill_name,
+      required_level: s.required_level,
+    }));
+  }
+
   async getJobSfiaSkills(jobPostingId: string, companyId: string) {
     await this.findOnePosting(jobPostingId, companyId);
     const supabase = this.supabaseService.getClient();
@@ -1628,6 +1661,8 @@ export class JobsService {
       survey_score: surveyScore,
       sfia_grade: sfiaScore.sfia_grade,
       sfia_match_percentage: sfiaScore.sfia_match_percentage,
+      sfia_assessment_status: sfiaScore.sfia_assessment_status,
+      skill_breakdown: (sfiaScore as any).skill_breakdown ?? [],
       resume_upload: await this.getLatestResumeUpload(app.applicant_id, app.job_posting_id),
     };
   }
@@ -1704,6 +1739,7 @@ export class JobsService {
         sfia_match_percentage: roundToTwo(computedPercentage),
         sfia_grade: fallbackGrade,
         sfia_assessment_status: 'assessed' as const,
+        skill_breakdown: computed.breakdown,
       };
     }
 
@@ -1712,10 +1748,37 @@ export class JobsService {
       ? 1
       : Math.max(1, Math.min(7, Math.ceil((bounded / 100) * 7)));
 
+    // Recompute breakdown from live data even when cached percentage exists
+    const { data: appRow } = await supabase
+      .from('job_applications')
+      .select('job_posting_id, applicant_id')
+      .eq('application_id', applicationId)
+      .maybeSingle();
+
+    let liveBreakdown: SkillBreakdown[] = [];
+    if (appRow) {
+      const demandSkills = await this.getJobDemandSkills(appRow.job_posting_id);
+      const supplySkills = await this.getCandidateSupplySkills([
+        {
+          application_id: applicationId,
+          job_posting_id: appRow.job_posting_id,
+          applicant_id: appRow.applicant_id,
+          status: 'submitted',
+          application_timestamp: new Date().toISOString(),
+          pre_screening_score: null,
+          sfia_matching_percentage: null,
+          manual_rank_position: null,
+          ranking_mode: 'sfia',
+        },
+      ]);
+      liveBreakdown = this.computeSfiaScore(demandSkills, supplySkills).breakdown;
+    }
+
     return {
       sfia_match_percentage: roundToTwo(bounded),
       sfia_grade: grade,
       sfia_assessment_status: 'assessed' as const,
+      skill_breakdown: liveBreakdown,
     };
   }
 

@@ -410,6 +410,73 @@ export async function getMyInterviewSchedules(): Promise<MyInterviewSchedule[]> 
   return data as MyInterviewSchedule[];
 }
 
+export type SfiaSkill = {
+  skill_id: string;
+  skill: string;
+  category: string | null;
+  level_1_desc: string | null;
+  level_2_desc: string | null;
+  level_3_desc: string | null;
+  level_4_desc: string | null;
+  level_5_desc: string | null;
+  level_6_desc: string | null;
+  level_7_desc: string | null;
+};
+
+export type JobSfiaSkill = {
+  job_posting_skills_id?: string;
+  skill_id: string;
+  required_level: number;
+  weight?: number;
+};
+
+export type SfiaSkillBreakdown = {
+  sfia_skill_id: string;
+  skill_name: string;
+  demand_level: number;
+  supply_level: number;
+  points: number;
+  matched: boolean;
+};
+
+export type JobSfiaRequirement = {
+  skill_id: string;
+  skill_name: string;
+  required_level: number;
+};
+
+export async function listSfiaSkills(): Promise<SfiaSkill[]> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/sfia-skills`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to fetch SFIA skills");
+  return data as SfiaSkill[];
+}
+
+export async function getJobSfiaSkills(jobId: string): Promise<JobSfiaSkill[]> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/${jobId}/sfia-skills`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to fetch job SFIA skills");
+  return data as JobSfiaSkill[];
+}
+
+export async function updateJobSfiaSkills(jobId: string, skills: { skill_id: string; required_level: number }[]): Promise<JobSfiaSkill[]> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/${jobId}/sfia-skills`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ skills }),
+  });
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to save SFIA skills");
+  return data as JobSfiaSkill[];
+}
+
+export async function getJobSfiaRequirementsForApplicant(jobPostingId: string): Promise<JobSfiaRequirement[]> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/applicant/job-sfia-requirements/${jobPostingId}`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) return [];
+  return data as JobSfiaRequirement[];
+}
+
 export type ApplicationDetail = {
   application_id: string;
   status: string;
@@ -443,6 +510,8 @@ export type ApplicationDetail = {
   survey_score?: number | null;
   sfia_grade?: number | null;
   sfia_match_percentage?: number | null;
+  sfia_assessment_status?: "assessed" | "not_assessed" | "not_configured" | null;
+  skill_breakdown?: SfiaSkillBreakdown[];
   resume_upload?: {
     file_name: string;
     storage_path: string;

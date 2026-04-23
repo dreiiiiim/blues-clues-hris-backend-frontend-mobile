@@ -108,6 +108,13 @@ export class JobsController {
     return this.jobsService.respondToInterview(applicationId, req.user.sub_userid, dto);
   }
 
+  @Get('applicant/job-sfia-requirements/:jobPostingId')
+  @UseGuards(ApplicantJwtAuthGuard)
+  @ApiOperation({ summary: 'Applicant: Get required SFIA skills for a job posting (for supply/demand display)' })
+  getJobSfiaRequirementsForApplicant(@Param('jobPostingId') jobPostingId: string) {
+    return this.jobsService.getJobSfiaRequirementsForApplicant(jobPostingId);
+  }
+
   // ---------------------------------------------------------------------------
   // HR APPLICATION DETAIL — must be before /:id to avoid param collision
   // ---------------------------------------------------------------------------
@@ -209,6 +216,14 @@ export class JobsController {
   @ApiOperation({ summary: 'HR: List all job postings for this company' })
   findAllPostings(@Req() req: any) {
     return this.jobsService.findAllPostings(req.user.company_id);
+  }
+
+  @Get('sfia-skills')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: List master SFIA skills catalogue' })
+  listSfiaSkills() {
+    return this.jobsService.listSfiaSkills();
   }
 
   @Get(':id')

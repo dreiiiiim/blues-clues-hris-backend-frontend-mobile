@@ -22,7 +22,8 @@ import { PipelineKanbanView } from "./_components/PipelineKanbanView";
 import {
   getApplicationDetail, getMyCompany, sendInterviewSchedule, resendInterviewEmail,
   cancelInterviewSchedule,
-  type ApplicationDetail,
+  listSfiaSkills, getJobSfiaSkills, updateJobSfiaSkills,
+  type ApplicationDetail, type SfiaSkill, type JobSfiaSkill,
 } from "@/lib/authApi";
 import { updateApplicationStatus } from "@/lib/candidateApi";
 import { RejectionReasonModal } from "@/components/modals/RejectionReasonModal";
@@ -546,18 +547,191 @@ function CreateJobModal({
   );
 }
 
+// ─── Configure SFIA Skills Modal ─────────────────────────────────────────────
+
+const SFIA_LEVEL_LABELS = [
+  "L1 — Follow (Entry)",
+  "L2 — Assist (Junior)",
+  "L3 — Apply (Mid)",
+  "L4 — Enable (Senior)",
+  "L5 — Ensure & Advise (Lead)",
+  "L6 — Initiate & Influence (Principal)",
+  "L7 — Set Strategy (Director)",
+];
+
+function ConfigureSfiaSkillsModal({
+  jobId,
+  onClose,
+  onSaved,
+}: {
+  jobId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [masterSkills, setMasterSkills] = useState<SfiaSkill[]>([]);
+  const [selected, setSelected] = useState<Map<string, number>>(new Map());
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    Promise.all([listSfiaSkills(), getJobSfiaSkills(jobId)])
+      .then(([master, current]) => {
+        setMasterSkills(master);
+        const map = new Map<string, number>();
+        for (const s of current) map.set(s.skill_id, s.required_level);
+        setSelected(map);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [jobId]);
+
+  const filtered = masterSkills.filter((s) =>
+    s.skill.toLowerCase().includes(search.toLowerCase()) ||
+    (s.category ?? "").toLowerCase().includes(search.toLowerCase())
+  );
+
+  const toggle = (skillId: string) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(skillId)) next.delete(skillId);
+      else next.set(skillId, 3);
+      return next;
+    });
+  };
+
+  const setLevel = (skillId: string, level: number) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
+      next.set(skillId, level);
+      return next;
+    });
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const skills = Array.from(selected.entries()).map(([skill_id, required_level]) => ({ skill_id, required_level }));
+      await updateJobSfiaSkills(jobId, skills);
+      toast.success("SFIA skills saved.");
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      toast.error(e?.message ?? "Failed to save SFIA skills.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const getLevelDesc = (skill: SfiaSkill, level: number): string => {
+    const desc = (skill as Record<string, any>)[`level_${level}_desc`] as string | null;
+    if (!desc) return SFIA_LEVEL_LABELS[level - 1] ?? `Level ${level}`;
+    return `L${level} — ${desc.slice(0, 50)}${desc.length > 50 ? "…" : ""}`;
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div
+        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 flex flex-col max-h-[85vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 pt-5 pb-3">
+          <div>
+            <p className="font-semibold text-sm">Configure SFIA Skills</p>
+            <p className="text-[10px] text-muted-foreground mt-0.5">
+              {selected.size} skill{selected.size !== 1 ? "s" : ""} selected
+            </p>
+          </div>
+          <button onClick={onClose} className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-muted transition-colors">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="px-6 pb-3">
+          <Input
+            placeholder="Search skills…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 text-xs"
+          />
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-6 space-y-1 min-h-0">
+          {loading ? (
+            <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading skills…
+            </div>
+          ) : filtered.length === 0 ? (
+            <p className="text-center py-6 text-xs text-muted-foreground">No skills match your search.</p>
+          ) : (
+            filtered.map((skill) => {
+              const isChecked = selected.has(skill.skill_id);
+              const level = selected.get(skill.skill_id) ?? 3;
+              return (
+                <div key={skill.skill_id} className="rounded-lg border border-border bg-background p-2.5 space-y-2">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggle(skill.skill_id)}
+                      className="h-3.5 w-3.5 rounded accent-primary"
+                    />
+                    <span className="text-xs font-medium flex-1">{skill.skill}</span>
+                    {skill.category && (
+                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/70 border border-border">
+                        {skill.category}
+                      </span>
+                    )}
+                  </label>
+                  {isChecked && (
+                    <select
+                      value={level}
+                      onChange={(e) => setLevel(skill.skill_id, Number(e.target.value))}
+                      className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      {[1, 2, 3, 4, 5, 6, 7].map((l) => (
+                        <option key={l} value={l}>{getLevelDesc(skill, l)}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="flex gap-3 px-6 py-4 border-t border-border mt-2">
+          <Button variant="outline" className="flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button className="flex-1 gap-1.5" onClick={handleSave} disabled={saving || loading}>
+            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
+            Save Skills
+          </Button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ─── Edit Job Modal ────────────────────────────────────────────────────────────
 
 type SfiaSkillRow = { skill_id: string; required_level: number; weight: number };
 
 function SfiaSkillsSection({ jobId }: { jobId: string }) {
+  const [masterSkills, setMasterSkills] = useState<SfiaSkill[]>([]);
   const [skills, setSkills] = useState<SfiaSkillRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    apiFetch<SfiaSkillRow[]>(`/jobs/${jobId}/sfia-skills`)
-      .then(setSkills)
+    Promise.all([
+      listSfiaSkills(),
+      apiFetch<SfiaSkillRow[]>(`/jobs/${jobId}/sfia-skills`),
+    ])
+      .then(([master, current]) => {
+        setMasterSkills(master);
+        setSkills(current);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [jobId]);
@@ -618,12 +792,16 @@ function SfiaSkillsSection({ jobId }: { jobId: string }) {
         <div className="space-y-2">
           {skills.map((row, i) => (
             <div key={i} className="flex items-center gap-2">
-              <Input
+              <select
                 value={row.skill_id}
                 onChange={(e) => updateRow(i, "skill_id", e.target.value)}
-                placeholder="Skill code (e.g. PROG, DTAN)"
-                className="h-8 text-xs flex-1"
-              />
+                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring flex-1"
+              >
+                <option value="">Select skill…</option>
+                {masterSkills.map((s) => (
+                  <option key={s.skill_id} value={s.skill_id}>{s.skill}{s.category ? ` (${s.category})` : ""}</option>
+                ))}
+              </select>
               <select
                 value={row.required_level}
                 onChange={(e) => updateRow(i, "required_level", Number(e.target.value))}
@@ -1925,12 +2103,10 @@ function ApplicationDetailModal({
   const [updating, setUpdating]               = useState(false);
   const [rejectionReason, setRejectionReason] = useState(REJECTION_REASONS[0]);
   const [scheduleMode, setScheduleMode]             = useState<string | null>(initialScheduleStage ?? null);
-  // Per-stage confirmed schedules — each interview stage tracks its own schedule independently
   const [confirmedSchedules, setConfirmedSchedules] = useState<Record<string, InterviewSchedule | null>>({});
-  // Pending forward move — shows MoveConfirmDialog when set
   const [pendingMove, setPendingMove]               = useState<string | null>(null);
-  // Pending schedule — shows ScheduleSummaryDialog when set
   const [pendingSchedule, setPendingSchedule]       = useState<InterviewSchedule | null>(null);
+  const [sfiaConfigOpen, setSfiaConfigOpen]         = useState(false);
 
   useEffect(() => {
     getApplicationDetail(applicationId)
@@ -2443,7 +2619,17 @@ function ApplicationDetailModal({
 
             {/* SFIA Score */}
             <div className="space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Score</p>
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Score</p>
+                {detail?.job_posting_id && (
+                  <button
+                    onClick={() => setSfiaConfigOpen(true)}
+                    className="text-[9px] font-semibold text-primary hover:underline underline-offset-2 transition-colors cursor-pointer"
+                  >
+                    Configure
+                  </button>
+                )}
+              </div>
               {(() => {
                 const matchScore = typeof detail?.sfia_match_percentage === "number" && Number.isFinite(detail.sfia_match_percentage)
                   ? detail.sfia_match_percentage
@@ -2571,6 +2757,16 @@ function ApplicationDetailModal({
           }}
           onCancel={() => setPendingSchedule(null)}
           saving={updating}
+        />
+      )}
+
+      {sfiaConfigOpen && detail?.job_posting_id && (
+        <ConfigureSfiaSkillsModal
+          jobId={detail.job_posting_id}
+          onClose={() => setSfiaConfigOpen(false)}
+          onSaved={() => {
+            getApplicationDetail(applicationId).then(setDetail).catch(() => {});
+          }}
         />
       )}
 
