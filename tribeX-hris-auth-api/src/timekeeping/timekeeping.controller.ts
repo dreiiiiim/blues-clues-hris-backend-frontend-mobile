@@ -21,6 +21,7 @@ import { TimePunchDto } from './dto/time-punch.dto';
 import { ReportAbsenceDto } from './dto/report-absence.dto';
 import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
+import { ScheduleEffectiveDateDto } from './dto/schedule-effective-date.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -233,6 +234,27 @@ export class TimekeepingController {
     @Req() req: any,
   ) {
     return this.timekeepingService.upsertEmployeeSchedule(userId, dto, req.user.company_id, req.user.sub_userid);
+  }
+
+  @Post('employees/:userId/schedule/reset-department')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({
+    summary:
+      "HR/System Admin: Reset an employee's custom schedule back to the department's standard schedule",
+  })
+  @ApiParam({ name: 'userId', description: 'user_id of the target employee' })
+  resetScheduleToDepartment(
+    @Param('userId') userId: string,
+    @Body() dto: ScheduleEffectiveDateDto,
+    @Req() req: any,
+  ) {
+    return this.timekeepingService.resetEmployeeScheduleToDepartment(
+      userId,
+      dto,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
   }
 
   @Post('schedules/bulk')

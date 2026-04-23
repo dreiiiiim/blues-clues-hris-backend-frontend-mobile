@@ -65,6 +65,10 @@ function parseWorkdaysInput(value: string | null | undefined): string[] {
     .filter(day => WEEKDAYS.includes(day));
 }
 
+function getTodayInManila(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+}
+
 function resolveInitialTemplateId(
   schedule: ScheduleSeed | undefined,
   parsedDays: string[],
@@ -152,14 +156,13 @@ export function ScheduleManagementModal({
   const [selectedDeptId, setSelectedDeptId]   = useState(initialDeptId);
   const [skipIndividual, setSkipIndividual]   = useState(true); // default: skip individually-set schedules
   const [templateId, setTemplateId]           = useState(initialTemplateId);
-  const [effectiveDate, setEffectiveDate]     = useState(() => {
-    const d = new Date(); return d.toISOString().split("T")[0];
-  });
+  const [effectiveDate, setEffectiveDate]     = useState(() => getTodayInManila());
   const [confirmed, setConfirmed]             = useState(false);
   const [submitting, setSubmitting]           = useState(false);
   const [done, setDone]                       = useState(false);
   const [applyError, setApplyError]           = useState<string | null>(null);
   const [affectedResult, setAffectedResult]   = useState<number | null>(null);
+  const todayInManila = useMemo(() => getTodayInManila(), []);
 
   // Custom template overrides
   const [customStart,      setCustomStart]      = useState(normalizeTimeForInput(initialSchedule?.start_time) ?? "09:00");
@@ -244,6 +247,11 @@ export function ScheduleManagementModal({
 
   const handleApply = async () => {
     if (!confirmed) { setConfirmed(true); return; }
+    if (effectiveDate < todayInManila) {
+      setApplyError("Effectivity date cannot be in the past.");
+      setConfirmed(false);
+      return;
+    }
     setApplyError(null);
     setSubmitting(true);
     try {
@@ -322,6 +330,7 @@ export function ScheduleManagementModal({
 
   const applyDisabled =
     submitting ||
+    effectiveDate < todayInManila ||
     (scope === "department" && !selectedDeptId) ||
     (scope === "employees" && selectedEmployeeIds.size === 0);
 
@@ -620,6 +629,7 @@ export function ScheduleManagementModal({
             <Input
               type="date"
               value={effectiveDate}
+              min={todayInManila}
               onChange={e => setEffectiveDate(e.target.value)}
               className="h-9 text-sm w-full"
             />

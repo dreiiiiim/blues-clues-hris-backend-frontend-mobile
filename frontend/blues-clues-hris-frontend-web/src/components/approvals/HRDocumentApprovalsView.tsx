@@ -24,6 +24,7 @@ import {
   FilePen,
   AlertCircle,
   Clock,
+  RotateCcw,
 } from "lucide-react";
 import {
   getPendingEmployeeDocuments,
@@ -36,7 +37,12 @@ import { toast } from "sonner";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type PendingDoc = EmployeeDocument & {
-  user_profile: { first_name: string; last_name: string; employee_id: string };
+  user_profile: {
+    first_name: string;
+    last_name: string;
+    employee_id: string;
+    avatar_url?: string | null;
+  };
 };
 
 type EmployeeDocGroup = {
@@ -44,6 +50,7 @@ type EmployeeDocGroup = {
   first_name: string;
   last_name: string;
   employee_id: string;
+  avatar_url: string | null;
   docs: PendingDoc[];
   latest_upload: string;
 };
@@ -106,6 +113,41 @@ function avatarColor(name: string) {
   return AVATAR_COLORS[n % AVATAR_COLORS.length];
 }
 
+function UserAvatar({
+  firstName,
+  lastName,
+  avatarUrl,
+  className,
+  textClassName,
+}: {
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string | null;
+  className: string;
+  textClassName: string;
+}) {
+  const initials = employeeInitials(firstName, lastName);
+  const colorCls = avatarColor(`${firstName}${lastName}`);
+  const [imageFailed, setImageFailed] = useState(false);
+
+  return (
+    <div
+      className={`${className} ${!avatarUrl || imageFailed ? `${colorCls} ${textClassName}` : "bg-slate-100"} overflow-hidden`}
+    >
+      {avatarUrl && !imageFailed ? (
+        <img
+          src={avatarUrl}
+          alt={`${firstName} ${lastName}`.trim() || "Employee avatar"}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        initials
+      )}
+    </div>
+  );
+}
+
 function groupByEmployee(docs: PendingDoc[]): EmployeeDocGroup[] {
   const map = new Map<string, EmployeeDocGroup>();
   for (const doc of docs) {
@@ -116,6 +158,7 @@ function groupByEmployee(docs: PendingDoc[]): EmployeeDocGroup[] {
         first_name: doc.user_profile?.first_name ?? "",
         last_name: doc.user_profile?.last_name ?? "",
         employee_id: doc.user_profile?.employee_id ?? "",
+        avatar_url: doc.user_profile?.avatar_url ?? null,
         docs: [],
         latest_upload: doc.uploaded_at,
       });
@@ -138,9 +181,8 @@ function EmployeeCard({
   group: EmployeeDocGroup;
   onClick: () => void;
 }) {
-  const initials = employeeInitials(group.first_name, group.last_name);
-  const colorCls = avatarColor(`${group.first_name}${group.last_name}`);
   const fullName = `${group.first_name} ${group.last_name}`.trim();
+  const replacementCount = group.docs.filter((doc) => doc.is_replacement_request).length;
 
   return (
     <button
@@ -148,11 +190,13 @@ function EmployeeCard({
       className="w-full text-left rounded-2xl border border-gray-200 bg-white hover:border-indigo-300 hover:shadow-md transition-all duration-150 p-5 flex items-center gap-4 group cursor-pointer"
     >
       {/* Avatar */}
-      <div
-        className={`h-11 w-11 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${colorCls}`}
-      >
-        {initials}
-      </div>
+      <UserAvatar
+        firstName={group.first_name}
+        lastName={group.last_name}
+        avatarUrl={group.avatar_url}
+        className="h-11 w-11 rounded-xl flex items-center justify-center shrink-0"
+        textClassName="font-bold text-sm"
+      />
 
       {/* Info */}
       <div className="flex-1 min-w-0">
@@ -168,6 +212,11 @@ function EmployeeCard({
         <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-0 font-semibold">
           {group.docs.length} pending
         </Badge>
+        {replacementCount > 0 && (
+          <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 border-0 font-semibold">
+            {replacementCount} replacement
+          </Badge>
+        )}
         <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-indigo-500 transition-colors" />
       </div>
     </button>
@@ -189,12 +238,16 @@ function DocumentRow({
 }) {
   const [state, setState] = useState<DocRowState>("idle");
   const [notes, setNotes] = useState("");
+  const isReplacementRequest = doc.is_replacement_request === true;
+  const itemLabel = isReplacementRequest
+    ? `${docLabel(doc.document_type)} replacement request`
+    : docLabel(doc.document_type);
 
   const handleApprove = async () => {
     setState("processing");
     try {
       await approveEmployeeDocument(doc.id);
-      toast.success(`${docLabel(doc.document_type)} approved.`);
+      toast.success(`${itemLabel} approved.`);
       onApproved(doc.id);
     } catch (e: any) {
       toast.error(e?.message ?? "Approval failed.");
@@ -210,11 +263,11 @@ function DocumentRow({
     setState("processing");
     try {
       await rejectEmployeeDocument(doc.id, notes.trim());
-      toast.success(`${docLabel(doc.document_type)} rejected.`);
+      toast.success(`${itemLabel} rejected.`);
       onRejected(doc.id);
     } catch (e: any) {
       toast.error(e?.message ?? "Rejection failed.");
-      setState("processing");
+      setState("idle");
     }
   };
 
@@ -229,7 +282,15 @@ function DocumentRow({
             <DocTypeIcon type={doc.document_type} />
           </div>
           <div>
-            <p className="text-sm font-semibold text-gray-900">{docLabel(doc.document_type)}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-sm font-semibold text-gray-900">{docLabel(doc.document_type)}</p>
+              {isReplacementRequest && (
+                <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 border-0 text-[10px]">
+                  <RotateCcw className="h-3 w-3 mr-1" />
+                  Replacement Request
+                </Badge>
+              )}
+            </div>
             <p className="text-xs text-gray-500">
               {doc.file_name}
               {doc.file_size ? ` · ${formatBytes(doc.file_size)}` : ""}
@@ -251,6 +312,15 @@ function DocumentRow({
           )}
         </div>
       </div>
+
+      {isReplacementRequest && doc.replacement_reason && (
+        <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+            Replacement Reason
+          </p>
+          <p className="text-xs text-indigo-900 mt-1">{doc.replacement_reason}</p>
+        </div>
+      )}
 
       {/* Rejection notes input */}
       {state === "rejecting" && (
@@ -360,8 +430,6 @@ function EmployeeDocDetailDialog({
   if (!group) return null;
 
   const fullName = `${group.first_name} ${group.last_name}`.trim();
-  const initials = employeeInitials(group.first_name, group.last_name);
-  const colorCls = avatarColor(`${group.first_name}${group.last_name}`);
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
@@ -369,11 +437,13 @@ function EmployeeDocDetailDialog({
         {/* Header */}
         <DialogHeader className="px-6 py-5 border-b border-gray-100 shrink-0">
           <div className="flex items-center gap-3">
-            <div
-              className={`h-10 w-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0 ${colorCls}`}
-            >
-              {initials}
-            </div>
+            <UserAvatar
+              firstName={group.first_name}
+              lastName={group.last_name}
+              avatarUrl={group.avatar_url}
+              className="h-10 w-10 rounded-xl flex items-center justify-center shrink-0"
+              textClassName="font-bold text-sm"
+            />
             <div>
               <DialogTitle className="text-base font-semibold text-gray-900 leading-tight">
                 {fullName}

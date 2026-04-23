@@ -694,11 +694,18 @@ export class UsersService {
     updaterName: string | null,
   ): Promise<void> {
     const supabase = this.supabaseService.getClient();
+    const effectiveFrom = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Manila',
+    }).format(new Date());
 
     const { data: existingSchedule, error: existingScheduleError } = await supabase
       .from('schedules')
       .select('schedule_source')
       .eq('employee_id', employeeId)
+      .lte('effective_from', effectiveFrom)
+      .order('effective_from', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (existingScheduleError) {
@@ -734,6 +741,8 @@ export class UsersService {
       .select('start_time, end_time, break_start, break_end, workdays, is_nightshift')
       .in('employee_id', memberEmployeeIds)
       .neq('schedule_source', 'individual')
+      .lte('effective_from', effectiveFrom)
+      .order('effective_from', { ascending: false })
       .order('updated_at', { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -747,6 +756,7 @@ export class UsersService {
     const { error: upsertError } = await supabase.from('schedules').upsert(
       {
         employee_id: employeeId,
+        effective_from: effectiveFrom,
         start_time: departmentSchedule.start_time,
         end_time: departmentSchedule.end_time,
         break_start: departmentSchedule.break_start ?? '00:00',
@@ -758,7 +768,7 @@ export class UsersService {
         updated_by_name: updaterName,
         updated_at: new Date().toISOString(),
       },
-      { onConflict: 'employee_id' },
+      { onConflict: 'employee_id,effective_from' },
     );
 
     if (upsertError) {
@@ -1547,6 +1557,15 @@ export class UsersService {
     bank_account_name?: string;
     avatar_url?: string;
   }) {
+    if (
+      typeof body.avatar_url === 'string' &&
+      body.avatar_url.length > 2_500_000
+    ) {
+      throw new BadRequestException(
+        'Profile photo is too large. Please upload a smaller image.',
+      );
+    }
+
     const allowed = ['middle_name','personal_email','date_of_birth','place_of_birth','nationality','civil_status','complete_address','bank_name','bank_account_number','bank_account_name','avatar_url'];
     const patch: Record<string,any> = {};
     for (const key of allowed) {
@@ -1608,6 +1627,30 @@ export class UsersService {
   // EMPLOYEE DOCUMENTS
   // =========================================================
 
+  private async createEmployeeDocumentViewUrl(
+    supabase: ReturnType<SupabaseService['getClient']>,
+    filePath: string | null | undefined,
+    expiresInSeconds = 60 * 60 * 24 * 7,
+  ): Promise<string | null> {
+    if (!filePath) return null;
+    if (filePath.startsWith('http')) return filePath;
+
+    const { data } = await supabase.storage
+      .from('employee-documents')
+      .createSignedUrl(filePath, expiresInSeconds);
+
+    return data?.signedUrl || filePath;
+  }
+
+  private extractFileNameFromStoragePath(filePath: string | null | undefined): string | null {
+    if (!filePath) return null;
+    const leaf = filePath.split('/').pop();
+    if (!leaf) return null;
+
+    const decoded = decodeURIComponent(leaf);
+    return decoded.replace(/^proof_\d+_/, '').replace(/^\d+_/, '');
+  }
+
   async getMyDocuments(userId: string) {
     const supabase = this.supabaseService.getClient();
 
@@ -1619,17 +1662,39 @@ export class UsersService {
 
     if (error) throw new BadRequestException(error.message);
 
-    // Generate fresh signed URLs for file_path entries that look like storage paths
+    const docIds = (data || []).map((doc: any) => doc.id);
+    const pendingReplacementDocIds = new Set<string>();
+    if (docIds.length > 0) {
+      const { data: pendingReplacementRows, error: pendingReplacementError } = await supabase
+        .from('document_replacement_requests')
+        .select('document_id')
+        .in('document_id', docIds)
+        .eq('status', 'pending');
+
+      if (pendingReplacementError) {
+        throw new BadRequestException(pendingReplacementError.message);
+      }
+
+      for (const row of pendingReplacementRows || []) {
+        if ((row as any).document_id) {
+          pendingReplacementDocIds.add((row as any).document_id);
+        }
+      }
+    }
+
     const withUrls = await Promise.all(
       (data || []).map(async (doc: any) => {
-        if (doc.file_path && !doc.file_path.startsWith('http')) {
-          const { data: urlData } = await supabase.storage
-            .from('employee-documents')
-            .createSignedUrl(doc.file_path, 60 * 60 * 24 * 7);
-          return { ...doc, file_url: urlData?.signedUrl || null };
-        }
-        // Onboarding-seeded docs store the URL directly in file_path
-        return { ...doc, file_url: doc.file_path };
+        const fileUrl = await this.createEmployeeDocumentViewUrl(
+          supabase,
+          doc.file_path,
+          60 * 60 * 24 * 7,
+        );
+
+        return {
+          ...doc,
+          file_url: fileUrl,
+          pending_replacement_request: pendingReplacementDocIds.has(doc.id),
+        };
       }),
     );
 
@@ -1654,6 +1719,34 @@ export class UsersService {
     }
 
     const supabase = this.supabaseService.getClient();
+
+    const { data: existingDocsForType, error: existingDocsError } = await supabase
+      .from('employee_documents')
+      .select('id, status')
+      .eq('user_id', userId)
+      .eq('document_type', docType);
+
+    if (existingDocsError) throw new BadRequestException(existingDocsError.message);
+
+    const hasPendingDoc = (existingDocsForType || []).some(
+      (doc: any) => doc.status === 'pending',
+    );
+    const hasApprovedDoc = (existingDocsForType || []).some(
+      (doc: any) => doc.status === 'approved',
+    );
+
+    if (hasPendingDoc) {
+      throw new ConflictException(
+        'This document is still pending review. You can upload again after HR/System Admin/Manager reviews it.',
+      );
+    }
+
+    if (hasApprovedDoc) {
+      throw new BadRequestException(
+        'This document is already approved. Use the Replace action to submit a replacement request.',
+      );
+    }
+
     const filePath = `${userId}/${docType}/${Date.now()}_${file.originalname}`;
 
     const { error: uploadErr } = await supabase.storage
@@ -1699,6 +1792,11 @@ export class UsersService {
     if (doc.status === 'approved') {
       throw new BadRequestException('Cannot delete an approved document.');
     }
+    if (doc.status === 'pending') {
+      throw new BadRequestException(
+        'Cannot delete a document that is pending review.',
+      );
+    }
 
     // Only delete from storage if it's a real storage path (not a seeded URL)
     if (doc.file_path && !doc.file_path.startsWith('http')) {
@@ -1716,82 +1814,271 @@ export class UsersService {
 
   async approveEmployeeDocument(docId: string, reviewerId: string) {
     const supabase = this.supabaseService.getClient();
+    const reviewedAt = new Date().toISOString();
 
-    const { error } = await supabase
+    const { data: pendingDoc, error: pendingDocError } = await supabase
+      .from('employee_documents')
+      .select('id, status')
+      .eq('id', docId)
+      .maybeSingle();
+
+    if (pendingDocError) throw new BadRequestException(pendingDocError.message);
+
+    if (pendingDoc) {
+      if (pendingDoc.status !== 'pending') {
+        throw new BadRequestException('This document has already been reviewed.');
+      }
+
+      const { error } = await supabase
+        .from('employee_documents')
+        .update({
+          status: 'approved',
+          reviewed_by: reviewerId,
+          reviewed_at: reviewedAt,
+          hr_notes: null,
+        })
+        .eq('id', docId);
+
+      if (error) throw new BadRequestException(error.message);
+      return { message: 'Document approved', id: docId };
+    }
+
+    const { data: replacementRequest, error: replacementError } = await supabase
+      .from('document_replacement_requests')
+      .select('id, document_id, new_file_path, new_file_url, status')
+      .eq('id', docId)
+      .maybeSingle();
+
+    if (replacementError) throw new BadRequestException(replacementError.message);
+    if (!replacementRequest) throw new NotFoundException('Document not found.');
+    if (replacementRequest.status !== 'pending') {
+      throw new BadRequestException('This replacement request has already been reviewed.');
+    }
+
+    const replacementPath = replacementRequest.new_file_path || replacementRequest.new_file_url;
+    if (!replacementPath) {
+      throw new BadRequestException('Replacement request has no file to apply.');
+    }
+
+    const replacementFileName =
+      this.extractFileNameFromStoragePath(replacementPath) || 'replacement-document';
+
+    const { error: applyReplacementError } = await supabase
       .from('employee_documents')
       .update({
+        file_path: replacementPath,
+        file_name: replacementFileName,
+        file_size: null,
         status: 'approved',
         reviewed_by: reviewerId,
-        reviewed_at: new Date().toISOString(),
+        reviewed_at: reviewedAt,
         hr_notes: null,
+        uploaded_at: reviewedAt,
       })
-      .eq('id', docId);
+      .eq('id', replacementRequest.document_id);
 
-    if (error) throw new BadRequestException(error.message);
-    return { message: 'Document approved', id: docId };
+    if (applyReplacementError)
+      throw new BadRequestException(applyReplacementError.message);
+
+    const { error: markReplacementError } = await supabase
+      .from('document_replacement_requests')
+      .update({
+        status: 'approved',
+        hr_notes: null,
+        reviewed_by: reviewerId,
+        reviewed_at: reviewedAt,
+      })
+      .eq('id', replacementRequest.id);
+
+    if (markReplacementError)
+      throw new BadRequestException(markReplacementError.message);
+
+    return {
+      message: 'Replacement request approved',
+      id: replacementRequest.id,
+      document_id: replacementRequest.document_id,
+      is_replacement_request: true,
+    };
   }
 
   async rejectEmployeeDocument(docId: string, reviewerId: string, hrNotes: string) {
     const supabase = this.supabaseService.getClient();
+    const reviewedAt = new Date().toISOString();
+
+    const { data: pendingDoc, error: pendingDocError } = await supabase
+      .from('employee_documents')
+      .select('id, status')
+      .eq('id', docId)
+      .maybeSingle();
+
+    if (pendingDocError) throw new BadRequestException(pendingDocError.message);
+
+    if (pendingDoc) {
+      if (pendingDoc.status !== 'pending') {
+        throw new BadRequestException('This document has already been reviewed.');
+      }
+
+      const { error } = await supabase
+        .from('employee_documents')
+        .update({
+          status: 'rejected',
+          reviewed_by: reviewerId,
+          reviewed_at: reviewedAt,
+          hr_notes: hrNotes,
+        })
+        .eq('id', docId);
+
+      if (error) throw new BadRequestException(error.message);
+      return { message: 'Document rejected', id: docId };
+    }
+
+    const { data: replacementRequest, error: replacementError } = await supabase
+      .from('document_replacement_requests')
+      .select('id, status, document_id')
+      .eq('id', docId)
+      .maybeSingle();
+
+    if (replacementError) throw new BadRequestException(replacementError.message);
+    if (!replacementRequest) throw new NotFoundException('Document not found.');
+    if (replacementRequest.status !== 'pending') {
+      throw new BadRequestException('This replacement request has already been reviewed.');
+    }
 
     const { error } = await supabase
-      .from('employee_documents')
+      .from('document_replacement_requests')
       .update({
         status: 'rejected',
         reviewed_by: reviewerId,
-        reviewed_at: new Date().toISOString(),
+        reviewed_at: reviewedAt,
         hr_notes: hrNotes,
       })
       .eq('id', docId);
 
     if (error) throw new BadRequestException(error.message);
-    return { message: 'Document rejected', id: docId };
+    return {
+      message: 'Replacement request rejected',
+      id: replacementRequest.id,
+      document_id: replacementRequest.document_id,
+      is_replacement_request: true,
+    };
   }
 
   async getPendingEmployeeDocuments(companyId: string) {
     const supabase = this.supabaseService.getClient();
 
-    // Get all user_ids belonging to this company first, then filter documents directly
     const { data: companyUsers, error: usersError } = await supabase
       .from('user_profile')
-      .select('user_id')
+      .select('user_id, first_name, last_name, employee_id, avatar_url')
       .eq('company_id', companyId);
 
     if (usersError) throw new BadRequestException(usersError.message);
 
     const userIds = (companyUsers || []).map((u: any) => u.user_id);
     if (userIds.length === 0) return [];
+    const profileByUserId = new Map<string, any>(
+      (companyUsers || []).map((profile: any) => [profile.user_id, profile]),
+    );
 
-    const { data, error } = await supabase
+    const { data: pendingDocs, error: pendingDocsError } = await supabase
       .from('employee_documents')
       .select('*')
       .in('user_id', userIds)
       .eq('status', 'pending')
       .order('uploaded_at', { ascending: true });
 
-    if (error) throw new BadRequestException(error.message);
+    if (pendingDocsError) throw new BadRequestException(pendingDocsError.message);
 
-    // Enrich each doc with user_profile and signed URL
-    const withUrls = await Promise.all(
-      (data || []).map(async (doc: any) => {
-        const { data: profile } = await supabase
-          .from('user_profile')
-          .select('user_id, first_name, last_name, employee_id')
-          .eq('user_id', doc.user_id)
-          .single();
+    const mappedPendingDocs = await Promise.all(
+      (pendingDocs || []).map(async (doc: any) => {
+        const fileUrl = await this.createEmployeeDocumentViewUrl(
+          supabase,
+          doc.file_path,
+          60 * 60 * 24,
+        );
 
-        let fileUrl = doc.file_path;
-        if (doc.file_path && !doc.file_path.startsWith('http')) {
-          const { data: urlData } = await supabase.storage
-            .from('employee-documents')
-            .createSignedUrl(doc.file_path, 60 * 60 * 24);
-          fileUrl = urlData?.signedUrl || doc.file_path;
-        }
-        return { ...doc, user_profile: profile ?? null, file_url: fileUrl };
+        return {
+          ...doc,
+          file_url: fileUrl,
+          user_profile: profileByUserId.get(doc.user_id) ?? null,
+          is_replacement_request: false,
+          replacement_request_id: null,
+          replacement_reason: null,
+          original_document_id: doc.id,
+        };
       }),
     );
 
-    return withUrls;
+    const { data: pendingReplacementRequests, error: pendingReplacementError } = await supabase
+      .from('document_replacement_requests')
+      .select('id, document_id, employee_id, new_file_path, new_file_url, reason, created_at, status')
+      .in('employee_id', userIds)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: true });
+
+    if (pendingReplacementError)
+      throw new BadRequestException(pendingReplacementError.message);
+
+    const baseDocIds = [
+      ...new Set(
+        (pendingReplacementRequests || []).map((row: any) => row.document_id),
+      ),
+    ];
+
+    let baseDocsById = new Map<string, any>();
+    if (baseDocIds.length > 0) {
+      const { data: baseDocs, error: baseDocsError } = await supabase
+        .from('employee_documents')
+        .select('id, user_id, document_type, file_name')
+        .in('id', baseDocIds);
+
+      if (baseDocsError) throw new BadRequestException(baseDocsError.message);
+
+      baseDocsById = new Map<string, any>(
+        (baseDocs || []).map((doc: any) => [doc.id, doc]),
+      );
+    }
+
+    const mappedReplacementDocs = await Promise.all(
+      (pendingReplacementRequests || []).map(async (request: any) => {
+        const baseDoc = baseDocsById.get(request.document_id);
+        if (!baseDoc) return null;
+
+        const replacementPath = request.new_file_path || request.new_file_url;
+        const fileUrl = await this.createEmployeeDocumentViewUrl(
+          supabase,
+          replacementPath,
+          60 * 60 * 24,
+        );
+
+        return {
+          id: request.id,
+          user_id: request.employee_id,
+          document_type: baseDoc.document_type,
+          file_path: replacementPath,
+          file_name:
+            this.extractFileNameFromStoragePath(replacementPath) ||
+            baseDoc.file_name ||
+            'Replacement document',
+          file_size: null,
+          status: 'pending',
+          hr_notes: null,
+          uploaded_at: request.created_at,
+          reviewed_at: null,
+          reviewed_by: null,
+          file_url: fileUrl,
+          user_profile: profileByUserId.get(request.employee_id) ?? null,
+          is_replacement_request: true,
+          replacement_request_id: request.id,
+          replacement_reason: request.reason,
+          original_document_id: request.document_id,
+        };
+      }),
+    );
+
+    return [...mappedPendingDocs, ...mappedReplacementDocs.filter(Boolean)].sort(
+      (a: any, b: any) =>
+        new Date(a.uploaded_at).getTime() - new Date(b.uploaded_at).getTime(),
+    );
   }
 
   // ─── B3: Document replacement request ──────────────────────────────────────
@@ -1942,7 +2229,9 @@ export class UsersService {
     let query = this.supabaseService
       .getClient()
       .from('profile_change_requests')
-      .select('*, employee:employee_id(first_name, last_name, employee_id, email)')
+      .select(
+        '*, employee:employee_id(first_name, last_name, employee_id, email, avatar_url)',
+      )
       .eq('company_id', companyId)
       .order('created_at', { ascending: false });
 

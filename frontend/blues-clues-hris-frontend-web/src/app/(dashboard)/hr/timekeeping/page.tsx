@@ -25,6 +25,7 @@ type UserRow = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   department_id: string | null;
   department: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   department_name?: string | null;
@@ -49,6 +50,7 @@ type RosterEntry = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   department_id: string | null;
   department_name: string | null;
   time_in: string | null;
@@ -64,6 +66,7 @@ type PeriodEntry = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   department_id: string | null;
   department_name: string | null;
   days_present: number;
@@ -229,6 +232,41 @@ function getWorkDays(from: string, to: string): string[] {
   return days;
 }
 
+function EmployeeAvatar({
+  firstName,
+  lastName,
+  avatarUrl,
+  className = "h-9 w-9",
+  textClassName = "text-xs",
+}: Readonly<{
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string | null;
+  className?: string;
+  textClassName?: string;
+}>) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const initials = `${firstName?.charAt(0) ?? ""}${lastName?.charAt(0) ?? ""}`.toUpperCase() || "U";
+  const canShowImage = !!avatarUrl && !imageFailed;
+
+  return (
+    <div
+      className={`${className} bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold ${textClassName} border border-primary/10 shrink-0 overflow-hidden`}
+    >
+      {canShowImage ? (
+        <img
+          src={avatarUrl}
+          alt={`${firstName} ${lastName}`.trim() || "Employee avatar"}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        initials
+      )}
+    </div>
+  );
+}
+
 // ─── Roster builders ──────────────────────────────────────────────────────────
 
 function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
@@ -264,6 +302,7 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
     return {
       user_id: u.user_id, employee_id: u.employee_id,
       first_name: u.first_name, last_name: u.last_name,
+      avatar_url: u.avatar_url ?? null,
       department_id: u.department_id ?? null,
       department_name: departmentName,
       time_in, time_out, hours_worked: computeHoursDecimal(time_in, time_out),
@@ -322,6 +361,7 @@ function buildPeriodRoster(users: UserRow[], punches: PunchRow[], from: string, 
     return {
       user_id: u.user_id, employee_id: u.employee_id,
       first_name: u.first_name, last_name: u.last_name,
+      avatar_url: u.avatar_url ?? null,
       department_id: u.department_id ?? null,
       department_name: departmentName,
       days_present, days_late, days_absent,
@@ -741,6 +781,7 @@ function EmployeeSlideOver({
   name,
   employeeId,
   userId,
+  avatarUrl,
   dashboardFilter,
   dashboardFrom,
   dashboardTo,
@@ -751,6 +792,7 @@ function EmployeeSlideOver({
   name: string;
   employeeId: string;
   userId: string;
+  avatarUrl?: string | null;
   dashboardFilter: ViewMode;
   dashboardFrom: string;
   dashboardTo: string;
@@ -764,6 +806,7 @@ function EmployeeSlideOver({
   const [allPunches, setAllPunches] = useState<PunchRow[]>([]);
   const [fetching, setFetching] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
+  const [avatarFailed, setAvatarFailed] = useState(false);
 
   const summaryDate = dashboardFilter === "day" ? dashboardFrom : dashboardTo;
 
@@ -805,6 +848,7 @@ function EmployeeSlideOver({
     .join("")
     .toUpperCase()
     .slice(0, 2);
+  const canShowAvatar = !!avatarUrl && !avatarFailed;
 
   const TABS: { key: TabMode; label: string }[] = dashboardFilter === "day"
     ? [
@@ -970,8 +1014,17 @@ function EmployeeSlideOver({
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/20 shrink-0">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-sm border border-primary/10 shrink-0">
-              {initials}
+            <div className="h-10 w-10 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-sm border border-primary/10 shrink-0 overflow-hidden">
+              {canShowAvatar ? (
+                <img
+                  src={avatarUrl}
+                  alt={name || "Employee avatar"}
+                  className="h-full w-full object-cover"
+                  onError={() => setAvatarFailed(true)}
+                />
+              ) : (
+                initials
+              )}
             </div>
             <div>
               <p className="font-bold text-sm leading-tight">{name}</p>
@@ -1393,7 +1446,12 @@ export default function HRTimekeepingPage() {
   }, []);
 
   // Slide-over
-  const [drillUser, setDrillUser] = useState<{ userId: string; employeeId: string; name: string } | null>(null);
+  const [drillUser, setDrillUser] = useState<{
+    userId: string;
+    employeeId: string;
+    name: string;
+    avatarUrl?: string | null;
+  } | null>(null);
 
   // Schedule modals
   const [showScheduleModal, setShowScheduleModal]     = useState(false);
@@ -1459,8 +1517,13 @@ export default function HRTimekeepingPage() {
   }, [refreshTimekeepingData]);
 
   // Open drill-down panel — slide-over fetches its own data per selected period
-  const openDrill = useCallback((userId: string, employeeId: string, name: string) => {
-    setDrillUser({ userId, employeeId, name });
+  const openDrill = useCallback((
+    userId: string,
+    employeeId: string,
+    name: string,
+    avatarUrl?: string | null,
+  ) => {
+    setDrillUser({ userId, employeeId, name, avatarUrl: avatarUrl ?? null });
   }, []);
 
   const stats       = useMemo(() => computeStats(roster), [roster]);
@@ -1617,13 +1680,22 @@ export default function HRTimekeepingPage() {
       <tr
         key={row.employee_id}
         className="hover:bg-muted/30 transition-colors cursor-pointer"
-        onClick={() => openDrill(row.user_id, row.employee_id, `${row.first_name} ${row.last_name}`)}
+        onClick={() =>
+          openDrill(
+            row.user_id,
+            row.employee_id,
+            `${row.first_name} ${row.last_name}`,
+            row.avatar_url,
+          )
+        }
       >
         <td className="px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs border border-primary/5 shrink-0">
-              {row.first_name.charAt(0).toUpperCase()}
-            </div>
+            <EmployeeAvatar
+              firstName={row.first_name}
+              lastName={row.last_name}
+              avatarUrl={row.avatar_url}
+            />
             <div>
               <p className="font-semibold">{`${row.first_name} ${row.last_name}`.trim()}</p>
               <p className="text-[10px] text-muted-foreground font-mono">{row.employee_id}</p>
@@ -1666,13 +1738,22 @@ export default function HRTimekeepingPage() {
       <tr
         key={e.employee_id}
         className="hover:bg-muted/30 transition-colors cursor-pointer"
-        onClick={() => openDrill(e.user_id, e.employee_id, `${e.first_name} ${e.last_name}`)}
+        onClick={() =>
+          openDrill(
+            e.user_id,
+            e.employee_id,
+            `${e.first_name} ${e.last_name}`,
+            e.avatar_url,
+          )
+        }
       >
         <td className="px-6 py-4">
           <div className="flex items-center gap-3">
-            <div className="h-9 w-9 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs border border-primary/5 shrink-0">
-              {e.first_name.charAt(0).toUpperCase()}
-            </div>
+            <EmployeeAvatar
+              firstName={e.first_name}
+              lastName={e.last_name}
+              avatarUrl={e.avatar_url}
+            />
             <div>
               <p className="font-semibold">{`${e.first_name} ${e.last_name}`.trim()}</p>
               <p className="text-[10px] text-muted-foreground font-mono">{e.employee_id}</p>
@@ -1746,7 +1827,10 @@ export default function HRTimekeepingPage() {
           currentSchedule={editScheduleUser.schedule}
           effectiveLabel={editScheduleUser.effectiveLabel ?? effectiveLabel}
           onClose={() => setEditScheduleUser(null)}
-          onSaved={() => { /* can show a toast here */ }}
+          onSaved={() => {
+            setScheduleRosterRefreshKey(v => v + 1);
+            void refreshTimekeepingData(false);
+          }}
         />
       )}
 
@@ -1756,6 +1840,7 @@ export default function HRTimekeepingPage() {
           name={drillUser.name}
           employeeId={drillUser.employeeId}
           userId={drillUser.userId}
+          avatarUrl={drillUser.avatarUrl}
           dashboardFilter={viewMode}
           dashboardFrom={from}
           dashboardTo={to}

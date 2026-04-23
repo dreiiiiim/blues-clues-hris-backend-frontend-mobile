@@ -11,6 +11,7 @@ import { TimePunchDto } from './dto/time-punch.dto';
 import { ReportAbsenceDto } from './dto/report-absence.dto';
 import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
+import { ScheduleEffectiveDateDto } from './dto/schedule-effective-date.dto';
 
 type AttendanceLogType = 'time-in' | 'time-out' | 'break-start' | 'break-end' | 'absence';
 type ClockType = 'ON-TIME' | 'LATE' | 'EARLY' | 'OVERTIME';
@@ -35,6 +36,7 @@ type TimeLogRow = {
 type ScheduleRow = {
   sched_id: string;
   employee_id: string;
+  effective_from?: string | null;
   workdays: string | string[] | null;
   start_time: string | null;
   end_time: string | null;
@@ -57,6 +59,7 @@ type EmployeeUserRow = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   department_id: string | null;
   department?: EmployeeDepartmentRelation;
   department_name?: string | null;
@@ -68,6 +71,7 @@ function normalizeScheduleRow(
   if (!schedule) return null;
   return {
     ...schedule,
+    effective_from: schedule.effective_from ?? null,
     schedule_source: schedule.schedule_source ?? 'default',
   };
 }
@@ -121,6 +125,9 @@ function todayRange() {
   };
 }
 
+const SCHEDULE_SELECT_FIELDS =
+  'sched_id, employee_id, effective_from, workdays, start_time, end_time, break_start, break_end, is_nightshift, schedule_source, updated_by_name, updated_at';
+
 @Injectable()
 export class TimekeepingService {
   private readonly logger = new Logger(TimekeepingService.name);
@@ -140,10 +147,44 @@ export class TimekeepingService {
     return data?.employee_id ?? null;
   }
 
-  private getTodayWorkdayCode(date = new Date()): string {
-    const day = date.getDay();
-    const map = ['SUN', 'MON', 'TUES', 'WED', 'THURS', 'FRI', 'SAT'];
-    return map[day];
+  private getManilaDateString(date = new Date()): string {
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(date);
+  }
+
+  private getManilaWorkdayCode(asOfDate: string): string {
+    const safeDate = new Date(`${asOfDate}T00:00:00+08:00`);
+    const shortWeekday = new Intl.DateTimeFormat('en-US', {
+      weekday: 'short',
+      timeZone: 'Asia/Manila',
+    })
+      .format(safeDate)
+      .toUpperCase();
+
+    const dayCodeMap: Record<string, string> = {
+      SUN: 'SUN',
+      MON: 'MON',
+      TUE: 'TUE',
+      WED: 'WED',
+      THU: 'THU',
+      FRI: 'FRI',
+      SAT: 'SAT',
+    };
+
+    return dayCodeMap[shortWeekday] ?? 'MON';
+  }
+
+  private resolveEffectiveDate(rawDate?: string | null): string {
+    const todayInManila = this.getManilaDateString();
+    if (!rawDate) return todayInManila;
+
+    const normalized = String(rawDate).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      throw new BadRequestException('effective_date must be in YYYY-MM-DD format.');
+    }
+    if (normalized < todayInManila) {
+      throw new BadRequestException('effective_date cannot be in the past.');
+    }
+    return normalized;
   }
 
   private normalizeWorkdays(
@@ -152,20 +193,30 @@ export class TimekeepingService {
     if (!workdays) return [];
 
     if (Array.isArray(workdays)) {
-      return workdays.map((d) => String(d).trim().toUpperCase());
+      return workdays.map((d) => {
+        const day = String(d).trim().toUpperCase();
+        if (day === 'TUES') return 'TUE';
+        if (day === 'THURS') return 'THU';
+        return day;
+      });
     }
 
     return String(workdays)
       .split(',')
-      .map((d) => d.trim().toUpperCase())
+      .map((d) => {
+        const day = d.trim().toUpperCase();
+        if (day === 'TUES') return 'TUE';
+        if (day === 'THURS') return 'THU';
+        return day;
+      })
       .filter(Boolean);
   }
 
-  private isScheduledForToday(
+  private isScheduledForDate(
     workdays: string | string[] | null | undefined,
-    date = new Date(),
+    asOfDate: string,
   ): boolean {
-    const todayCode = this.getTodayWorkdayCode(date);
+    const todayCode = this.getManilaWorkdayCode(asOfDate);
     const normalized = this.normalizeWorkdays(workdays);
 
     return normalized.includes(todayCode);
@@ -253,15 +304,19 @@ export class TimekeepingService {
 
   private async getScheduleForEmployee(
     employeeId: string,
+    asOfDate?: string,
   ): Promise<ScheduleRow | null> {
     const supabase = this.supabaseService.getClient();
+    const effectiveDate = asOfDate ?? this.getManilaDateString();
 
     const { data, error } = await supabase
       .from('schedules')
-      .select(
-        'sched_id, employee_id, workdays, start_time, end_time, break_start, break_end, is_nightshift, schedule_source, updated_by_name, updated_at',
-      )
+      .select(SCHEDULE_SELECT_FIELDS)
       .eq('employee_id', employeeId)
+      .lte('effective_from', effectiveDate)
+      .order('effective_from', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(1)
       .maybeSingle<ScheduleRow>();
 
     if (error) throw new Error(error.message);
@@ -269,10 +324,38 @@ export class TimekeepingService {
     return normalizeScheduleRow(data ?? null);
   }
 
+  private async getScheduleMapForEmployeesAsOf(
+    employeeIds: string[],
+    asOfDate: string,
+  ): Promise<Map<string, ScheduleRow>> {
+    if (employeeIds.length === 0) return new Map();
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('schedules')
+      .select(SCHEDULE_SELECT_FIELDS)
+      .in('employee_id', employeeIds)
+      .lte('effective_from', asOfDate)
+      .order('employee_id', { ascending: true })
+      .order('effective_from', { ascending: false })
+      .order('updated_at', { ascending: false });
+
+    if (error) throw new Error(error.message);
+
+    const map = new Map<string, ScheduleRow>();
+    for (const row of (data ?? []) as ScheduleRow[]) {
+      if (!row.employee_id || map.has(row.employee_id)) continue;
+      const normalized = normalizeScheduleRow(row);
+      if (normalized) map.set(row.employee_id, normalized);
+    }
+    return map;
+  }
+
   private async getScheduleForToday(employeeId: string): Promise<ScheduleRow | null> {
-    const schedule = await this.getScheduleForEmployee(employeeId);
+    const manilaDate = this.getManilaDateString();
+    const schedule = await this.getScheduleForEmployee(employeeId, manilaDate);
     if (!schedule) return null;
-    if (!this.isScheduledForToday(schedule.workdays)) return null;
+    if (!this.isScheduledForDate(schedule.workdays, manilaDate)) return null;
     return schedule;
   }
 
@@ -494,9 +577,10 @@ export class TimekeepingService {
       };
     }
 
-    const schedule = await this.getScheduleForEmployee(employeeId).catch(
-      () => null,
-    );
+    const schedule = await this.getScheduleForEmployee(
+      employeeId,
+      this.getManilaDateString(),
+    ).catch(() => null);
 
     const { data, error } = await supabase
       .from('attendance_time_logs')
@@ -567,7 +651,9 @@ export class TimekeepingService {
 
     const { data, error } = await supabase
       .from('user_profile')
-      .select('user_id, employee_id, first_name, last_name, department_id, department:department_id(department_name)')
+      .select(
+        'user_id, employee_id, first_name, last_name, avatar_url, department_id, department:department_id(department_name)',
+      )
       .eq('company_id', companyId)
       .eq('account_status', 'Active')
       .not('employee_id', 'is', null)
@@ -637,6 +723,7 @@ export class TimekeepingService {
 
     const schedule = await this.getScheduleForEmployee(
       targetUser.employee_id,
+      date,
     ).catch(() => null);
 
     const { data: logs, error: logsError } = await supabase
@@ -742,7 +829,7 @@ export class TimekeepingService {
     const supabase = this.supabaseService.getClient();
 
     // Use Manila timezone for the workday date
-    const manilaDate  = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' }); // YYYY-MM-DD
+    const manilaDate = this.getManilaDateString(); // YYYY-MM-DD
     const manilaStart = `${manilaDate}T00:00:00.000+08:00`;
     const manilaEnd   = `${manilaDate}T23:59:59.999+08:00`;
 
@@ -769,21 +856,16 @@ export class TimekeepingService {
       return { date: manilaDate, marked: 0, skipped: 0 };
     }
 
-    // 2. Fetch schedules for these employees
-    const { data: schedules } = await supabase
-      .from('schedules')
-      .select('employee_id, workdays')
-      .in('employee_id', employeeIds);
-
-    const scheduleMap = new Map<string, string | string[] | null>();
-    for (const s of (schedules ?? []) as { employee_id: string; workdays: string | string[] | null }[]) {
-      scheduleMap.set(s.employee_id, s.workdays);
-    }
+    // 2. Resolve active schedules for this date
+    const scheduleMap = await this.getScheduleMapForEmployeesAsOf(
+      employeeIds,
+      manilaDate,
+    );
 
     // 3. Filter to employees scheduled for today's weekday
     const scheduledToday = employeeIds.filter(eid => {
-      const workdays = scheduleMap.get(eid);
-      return !!workdays && this.isScheduledForToday(workdays);
+      const workdays = scheduleMap.get(eid)?.workdays;
+      return !!workdays && this.isScheduledForDate(workdays, manilaDate);
     });
 
     if (!scheduledToday.length) {
@@ -872,9 +954,11 @@ export class TimekeepingService {
     const updatedByName = updater
       ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
       : null;
+    const effectiveFrom = this.resolveEffectiveDate(dto.effective_date);
 
     const row = {
       employee_id: profile.employee_id,
+      effective_from: effectiveFrom,
       start_time: dto.start_time,
       end_time: dto.end_time,
       break_start: dto.break_start ?? '00:00',
@@ -888,14 +972,126 @@ export class TimekeepingService {
 
     const { data, error } = await supabase
       .from('schedules')
-      .upsert(row, { onConflict: 'employee_id' })
-      .select()
+      .upsert(row, { onConflict: 'employee_id,effective_from' })
+      .select(SCHEDULE_SELECT_FIELDS)
       .single<ScheduleRow>();
 
     if (error) throw new Error(error.message);
 
     this.logger.log(`Schedule upserted — employee_id: ${profile.employee_id}, by: ${updatedByName}`);
-    return data;
+    return normalizeScheduleRow(data)!;
+  }
+
+  async resetEmployeeScheduleToDepartment(
+    targetUserId: string,
+    dto: ScheduleEffectiveDateDto,
+    companyId: string,
+    updaterUserId: string,
+  ): Promise<ScheduleRow> {
+    const supabase = this.supabaseService.getClient();
+    const effectiveFrom = this.resolveEffectiveDate(dto.effective_date);
+
+    const [{ data: profile, error: profileError }, { data: updater }] =
+      await Promise.all([
+        supabase
+          .from('user_profile')
+          .select('employee_id, company_id, department_id')
+          .eq('user_id', targetUserId)
+          .maybeSingle(),
+        supabase
+          .from('user_profile')
+          .select('first_name, last_name')
+          .eq('user_id', updaterUserId)
+          .maybeSingle(),
+      ]);
+
+    if (profileError) throw new Error(profileError.message);
+    if (!profile) throw new NotFoundException('Employee not found.');
+    if (profile.company_id !== companyId) {
+      throw new NotFoundException('Employee not found in your company.');
+    }
+    if (!profile.employee_id) {
+      throw new BadRequestException(
+        'Employee does not have an employee_id assigned.',
+      );
+    }
+    if (!profile.department_id) {
+      throw new BadRequestException('Employee is not assigned to any department.');
+    }
+
+    const { data: members, error: membersError } = await supabase
+      .from('user_profile')
+      .select('employee_id')
+      .eq('company_id', companyId)
+      .eq('department_id', profile.department_id)
+      .not('employee_id', 'is', null)
+      .limit(500);
+
+    if (membersError) throw new Error(membersError.message);
+
+    const memberEmployeeIds = (members ?? [])
+      .map((member: { employee_id?: string | null }) => member.employee_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    if (memberEmployeeIds.length === 0) {
+      throw new BadRequestException(
+        'No reusable department schedule found for this employee.',
+      );
+    }
+
+    const { data: departmentSchedule, error: departmentScheduleError } =
+      await supabase
+        .from('schedules')
+        .select(
+          'start_time, end_time, break_start, break_end, workdays, is_nightshift, effective_from, updated_at',
+        )
+        .in('employee_id', memberEmployeeIds)
+        .neq('schedule_source', 'individual')
+        .lte('effective_from', effectiveFrom)
+        .order('effective_from', { ascending: false })
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+    if (departmentScheduleError) throw new Error(departmentScheduleError.message);
+    if (!departmentSchedule) {
+      throw new BadRequestException(
+        'No department schedule is available on or before the selected effectivity date.',
+      );
+    }
+
+    const updatedByName = updater
+      ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
+      : null;
+    const now = new Date().toISOString();
+
+    const { data, error } = await supabase
+      .from('schedules')
+      .upsert(
+        {
+          employee_id: profile.employee_id,
+          effective_from: effectiveFrom,
+          start_time: departmentSchedule.start_time,
+          end_time: departmentSchedule.end_time,
+          break_start: departmentSchedule.break_start ?? '00:00',
+          break_end: departmentSchedule.break_end ?? '00:00',
+          workdays: departmentSchedule.workdays,
+          is_nightshift: departmentSchedule.is_nightshift ?? false,
+          schedule_source: 'bulk',
+          updated_by_name: updatedByName,
+          updated_at: now,
+        },
+        { onConflict: 'employee_id,effective_from' },
+      )
+      .select(SCHEDULE_SELECT_FIELDS)
+      .single<ScheduleRow>();
+
+    if (error) throw new Error(error.message);
+
+    this.logger.log(
+      `Schedule reset to department baseline - employee_id: ${profile.employee_id}, effective_from: ${effectiveFrom}, by: ${updatedByName}`,
+    );
+    return normalizeScheduleRow(data)!;
   }
 
   async bulkAssignSchedule(
@@ -942,6 +1138,7 @@ export class TimekeepingService {
     const updatedByName = updater
       ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
       : null;
+    const effectiveFrom = this.resolveEffectiveDate(dto.effective_date);
 
     let filtered = employees;
     if (dto.scope === 'department' && dto.department_id) {
@@ -964,14 +1161,19 @@ export class TimekeepingService {
 
     // Skip employees with individually-assigned schedules if requested
     if (dto.skip_individual) {
-      const candidateEmpIds = filtered.map(e => e.employee_id).filter(Boolean) as string[];
+      const candidateEmpIds = filtered
+        .map((e) => e.employee_id)
+        .filter(Boolean) as string[];
       if (candidateEmpIds.length > 0) {
-        const { data: individualSchedules } = await supabase
-          .from('schedules')
-          .select('employee_id')
-          .eq('schedule_source', 'individual')
-          .in('employee_id', candidateEmpIds);
-        const individualSet = new Set((individualSchedules ?? []).map((s: any) => s.employee_id as string));
+        const activeScheduleMap = await this.getScheduleMapForEmployeesAsOf(
+          candidateEmpIds,
+          effectiveFrom,
+        );
+        const individualSet = new Set(
+          Array.from(activeScheduleMap.entries())
+            .filter(([, schedule]) => schedule.schedule_source === 'individual')
+            .map(([employeeId]) => employeeId),
+        );
         filtered = filtered.filter(e => !individualSet.has(e.employee_id));
       }
     }
@@ -983,6 +1185,7 @@ export class TimekeepingService {
       .filter(e => !!e.employee_id)
       .map(e => ({
         employee_id: e.employee_id,
+        effective_from: effectiveFrom,
         start_time: dto.schedule.start_time,
         end_time: dto.schedule.end_time,
         break_start: dto.schedule.break_start ?? '00:00',
@@ -997,7 +1200,7 @@ export class TimekeepingService {
 
     const { error } = await supabase
       .from('schedules')
-      .upsert(rows, { onConflict: 'employee_id' });
+      .upsert(rows, { onConflict: 'employee_id,effective_from' });
 
     if (error) throw new Error(error.message);
 
@@ -1021,7 +1224,7 @@ export class TimekeepingService {
     if (!profile || profile.company_id !== companyId) return null;
     if (!profile.employee_id) return null;
 
-    return this.getScheduleForEmployee(profile.employee_id);
+    return this.getScheduleForEmployee(profile.employee_id, this.getManilaDateString());
   }
 
   async getAllSchedules(companyId: string): Promise<
@@ -1030,6 +1233,7 @@ export class TimekeepingService {
       employee_id: string;
       first_name: string;
       last_name: string;
+      avatar_url: string | null;
       department_id: string | null;
       department_name: string | null;
       schedule: ScheduleRow | null;
@@ -1041,18 +1245,9 @@ export class TimekeepingService {
     const employeeIds = employees.map(e => e.employee_id).filter(Boolean);
     if (employeeIds.length === 0) return [];
 
-    const { data: schedules, error } = await supabase
-      .from('schedules')
-      .select('sched_id, employee_id, workdays, start_time, end_time, break_start, break_end, is_nightshift, schedule_source, updated_by_name, updated_at')
-      .in('employee_id', employeeIds);
-
-    if (error) throw new Error(error.message);
-
-    const scheduleMap = new Map<string, ScheduleRow>(
-      (schedules ?? []).map((s) => [
-        s.employee_id,
-        normalizeScheduleRow(s as ScheduleRow)!,
-      ]),
+    const scheduleMap = await this.getScheduleMapForEmployeesAsOf(
+      employeeIds,
+      this.getManilaDateString(),
     );
 
     return employees.map(e => ({
@@ -1060,6 +1255,7 @@ export class TimekeepingService {
       employee_id: e.employee_id,
       first_name: e.first_name,
       last_name: e.last_name,
+      avatar_url: e.avatar_url ?? null,
       department_id: e.department_id ?? null,
       department_name: normalizeDepartmentName(
         (e as EmployeeUserRow).department_name,
@@ -1071,7 +1267,7 @@ export class TimekeepingService {
   async getMySchedule(userId: string): Promise<ScheduleRow | null> {
     const employeeId = await this.getEmployeeId(userId);
     if (!employeeId) return null;
-    return this.getScheduleForEmployee(employeeId);
+    return this.getScheduleForEmployee(employeeId, this.getManilaDateString());
   }
 
   async getMyStats(

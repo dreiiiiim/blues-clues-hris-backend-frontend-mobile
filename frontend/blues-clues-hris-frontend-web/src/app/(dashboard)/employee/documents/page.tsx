@@ -243,8 +243,6 @@ export default function EmployeeDocumentsPage() {
 
   // Replace-approved modal state
   const [replaceModal, setReplaceModal] = useState<{ docId: string; docTitle: string; docAccepted: string; docDbId: string } | null>(null);
-  // Track which doc types have a pending replacement request
-  const [pendingReplacements, setPendingReplacements] = useState<Set<string>>(new Set());
 
   const load = () => {
     setLoading(true);
@@ -290,12 +288,18 @@ export default function EmployeeDocumentsPage() {
     }
   };
 
-  const approvedCount = docs.filter((d) => d.status === "approved").length;
-  const pendingCount = docs.filter((d) => d.status === "pending").length + pendingReplacements.size;
-  const rejectedCount = docs.filter((d) => d.status === "rejected").length;
-
   const getDocForType = (docId: string) =>
     docs.find((d) => d.document_type === docId) ?? null;
+
+  const displayedDocs = REQUIRED_DOCUMENTS
+    .map((docDef) => getDocForType(docDef.id))
+    .filter((doc): doc is EmployeeDocument => !!doc);
+
+  const approvedCount = displayedDocs.filter((d) => d.status === "approved").length;
+  const pendingCount =
+    displayedDocs.filter((d) => d.status === "pending").length +
+    displayedDocs.filter((d) => d.status === "approved" && d.pending_replacement_request).length;
+  const rejectedCount = displayedDocs.filter((d) => d.status === "rejected").length;
 
   return (
     <>
@@ -307,8 +311,8 @@ export default function EmployeeDocumentsPage() {
           docId={replaceModal.docDbId}
           onClose={() => setReplaceModal(null)}
           onSubmitted={() => {
-            setPendingReplacements(prev => new Set([...prev, replaceModal.docId]));
             setReplaceModal(null);
+            load();
           }}
         />
       )}
@@ -396,6 +400,8 @@ export default function EmployeeDocumentsPage() {
               const Icon = docDef.icon;
               const isUploading = uploading[docDef.id];
               const isDeleting = uploaded ? deleting[uploaded.id] : false;
+              const pendingReplacementRequested = uploaded?.pending_replacement_request === true;
+              const canUploadOrReupload = !uploaded || uploaded.status === "rejected";
 
               return (
                 <div
@@ -434,6 +440,16 @@ export default function EmployeeDocumentsPage() {
                               HR Note: {uploaded.hr_notes}
                             </p>
                           )}
+                          {uploaded.status === "pending" && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              Awaiting review. Re-upload is disabled until HR/System Admin/Manager reviews this file.
+                            </p>
+                          )}
+                          {uploaded.status === "approved" && uploaded.pending_replacement_request && (
+                            <p className="text-xs text-amber-600 mt-1">
+                              Replacement request is pending review.
+                            </p>
+                          )}
                         </div>
                       )}
                     </div>
@@ -452,8 +468,7 @@ export default function EmployeeDocumentsPage() {
                       }}
                     />
 
-                    {/* Can't upload over an approved doc */}
-                    {uploaded?.status !== "approved" && (
+                    {canUploadOrReupload && (
                       <Button
                         onClick={() => inputRefs.current[docDef.id]?.click()}
                         disabled={isUploading}
@@ -464,7 +479,7 @@ export default function EmployeeDocumentsPage() {
                         ) : (
                           <Upload className="h-4 w-4 mr-2" />
                         )}
-                        {uploaded ? "Replace" : "Upload"}
+                        {uploaded ? "Re-upload" : "Upload"}
                       </Button>
                     )}
 
@@ -487,11 +502,11 @@ export default function EmployeeDocumentsPage() {
                       <Button
                         variant="outline"
                         onClick={() => setReplaceModal({ docId: docDef.id, docTitle: docDef.title, docAccepted: docDef.accepted, docDbId: uploaded.id })}
-                        disabled={pendingReplacements.has(docDef.id)}
-                        title={pendingReplacements.has(docDef.id) ? "Replacement already pending review" : undefined}
+                        disabled={pendingReplacementRequested}
+                        title={pendingReplacementRequested ? "Replacement already pending review" : undefined}
                         className="h-10 px-4 text-amber-600 border-amber-200 hover:bg-amber-50 disabled:opacity-60"
                       >
-                        {pendingReplacements.has(docDef.id) ? (
+                        {pendingReplacementRequested ? (
                           <><Clock3 className="h-4 w-4 mr-2" />Replacement Pending</>
                         ) : (
                           <><RotateCcw className="h-4 w-4 mr-2" />Replace</>
@@ -499,7 +514,7 @@ export default function EmployeeDocumentsPage() {
                       </Button>
                     )}
 
-                    {uploaded && uploaded.status !== "approved" && (
+                    {uploaded && uploaded.status === "rejected" && (
                       <Button
                         variant="outline"
                         onClick={() => handleDelete(uploaded)}

@@ -36,6 +36,10 @@ const QUICK_TEMPLATES: QuickTemplate[] = [
   { id: "custom",  label: "Custom",         startTime: "09:00", endTime: "18:00", breakStart: "12:00", breakEnd: "13:00", isNightShift: false },
 ];
 
+function getTodayInManila(): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function EmployeeScheduleEditModal({
@@ -80,6 +84,7 @@ export function EmployeeScheduleEditModal({
   };
 
   const weekdayFallback = ["MON","TUE","WED","THU","FRI"];
+  const todayInManila = useMemo(() => getTodayInManila(), []);
 
   const [templateId,   setTemplateId]   = useState("custom");
   const [startTime,    setStartTime]    = useState(currentSchedule?.start_time ?? "09:00");
@@ -92,7 +97,12 @@ export function EmployeeScheduleEditModal({
   const [isNightShift, setIsNightShift] = useState(currentSchedule?.is_nightshift ?? false);
   const [halfDay,      setHalfDay]      = useState<HalfDayMode>("none");
   const [submitting,   setSubmitting]   = useState(false);
+  const [resettingToDepartment, setResettingToDepartment] = useState(false);
   const [done,         setDone]         = useState(false);
+  const [doneTitle, setDoneTitle] = useState("Schedule Updated");
+  const [doneMessage, setDoneMessage] = useState<string>(
+    `${employeeName}'s schedule has been saved successfully.`,
+  );
   const [saveError,    setSaveError]    = useState<string | null>(null);
   const [loadingSchedule, setLoadingSchedule] = useState(!currentSchedule);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -102,6 +112,7 @@ export function EmployeeScheduleEditModal({
   const [scheduleSource, setScheduleSource] = useState<"bulk" | "department" | "individual" | "default" | null>(
     currentSchedule?.schedule_source ?? null
   );
+  const [effectiveDate, setEffectiveDate] = useState(todayInManila);
 
   const hydrateSchedule = (schedule: {
     start_time?: string | null;
@@ -131,6 +142,10 @@ export function EmployeeScheduleEditModal({
     setHalfDay("none");
     setTemplateId("custom");
   };
+
+  useEffect(() => {
+    setEffectiveDate(todayInManila);
+  }, [employeeId, todayInManila]);
 
   useEffect(() => {
     let cancelled = false;
@@ -222,6 +237,10 @@ export function EmployeeScheduleEditModal({
 
   const handleSave = async () => {
     if (readOnly) return;
+    if (effectiveDate < todayInManila) {
+      setSaveError("Effectivity date cannot be in the past.");
+      return;
+    }
     setSaveError(null);
     setSubmitting(true);
     try {
@@ -237,6 +256,7 @@ export function EmployeeScheduleEditModal({
             break_end: breakEnd,
             workdays: workdays.join(","),
             is_nightshift: isNightShift,
+            effective_date: effectiveDate,
           }),
         },
       );
@@ -244,12 +264,52 @@ export function EmployeeScheduleEditModal({
         const err = await res.json().catch(() => ({})) as { message?: string };
         throw new Error(err?.message || "Failed to save schedule.");
       }
+      setDoneTitle("Schedule Updated");
+      setDoneMessage(
+        `${employeeName}'s schedule has been saved successfully (effective ${effectiveDate}).`,
+      );
       setDone(true);
       onSaved?.();
     } catch (e: unknown) {
       setSaveError(e instanceof Error ? e.message : "An error occurred.");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleResetToDepartment = async () => {
+    if (readOnly) return;
+    if (effectiveDate < todayInManila) {
+      setSaveError("Effectivity date cannot be in the past.");
+      return;
+    }
+    setSaveError(null);
+    setResettingToDepartment(true);
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/timekeeping/employees/${employeeId}/schedule/reset-department`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ effective_date: effectiveDate }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(
+          err?.message || "Failed to reset schedule to department baseline.",
+        );
+      }
+      setDoneTitle("Department Schedule Applied");
+      setDoneMessage(
+        `${employeeName}'s schedule now follows the department schedule (effective ${effectiveDate}).`,
+      );
+      setDone(true);
+      onSaved?.();
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : "An error occurred.");
+    } finally {
+      setResettingToDepartment(false);
     }
   };
 
@@ -260,9 +320,9 @@ export function EmployeeScheduleEditModal({
           <div className="h-14 w-14 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <CheckCircle2 className="h-7 w-7 text-green-600" />
           </div>
-          <h3 className="text-lg font-bold mb-1">Schedule Updated</h3>
+          <h3 className="text-lg font-bold mb-1">{doneTitle}</h3>
           <p className="text-sm text-muted-foreground mb-6">
-            {employeeName}'s schedule has been saved successfully.
+            {doneMessage}
           </p>
           <Button onClick={onClose} className="w-full">Done</Button>
         </div>
@@ -295,7 +355,7 @@ export function EmployeeScheduleEditModal({
             <div className="p-3 rounded-lg border border-border bg-muted/20 space-y-1.5">
               {effectiveLabel && (
                 <p className="text-xs text-muted-foreground">
-                  Effective: <span className="font-semibold text-foreground">{effectiveLabel}</span>
+                  Viewing period: <span className="font-semibold text-foreground">{effectiveLabel}</span>
                 </p>
               )}
               {scheduleSource && (
@@ -328,6 +388,25 @@ export function EmployeeScheduleEditModal({
                   Last updated {formattedUpdatedAt ?? "recently"}{updatedBy ? ` by ${updatedBy}` : ""}
                 </p>
               )}
+            </div>
+          )}
+
+          {!readOnly && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">
+                Effectivity Date
+              </p>
+              <Input
+                type="date"
+                value={effectiveDate}
+                min={todayInManila}
+                disabled={loadingSchedule || submitting || resettingToDepartment}
+                onChange={(e) => setEffectiveDate(e.target.value)}
+                className="h-9 text-sm w-full"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Changes will apply on {effectiveDate}.
+              </p>
             </div>
           )}
 
@@ -504,13 +583,34 @@ export function EmployeeScheduleEditModal({
               <Button variant="outline" onClick={onClose} className="cursor-pointer">Close</Button>
             </div>
           ) : (
-            <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center justify-between gap-3 flex-wrap">
               <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
-              <Button onClick={handleSave} disabled={submitting || loadingSchedule || workdays.length === 0} className="gap-2 cursor-pointer">
-                {submitting ? (
-                  <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" /> Saving...</>
-                ) : "Save Schedule"}
-              </Button>
+              <div className="flex items-center gap-2 ml-auto">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  onClick={handleResetToDepartment}
+                  disabled={submitting || resettingToDepartment || loadingSchedule}
+                  className="cursor-pointer"
+                >
+                  {resettingToDepartment ? "Resetting..." : "Set Back to Department Schedule"}
+                </Button>
+                <Button
+                  onClick={handleSave}
+                  disabled={
+                    submitting ||
+                    resettingToDepartment ||
+                    loadingSchedule ||
+                    workdays.length === 0 ||
+                    !effectiveDate
+                  }
+                  className="gap-2 cursor-pointer"
+                >
+                  {submitting ? (
+                    <><div className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" /> Saving...</>
+                  ) : "Save Schedule"}
+                </Button>
+              </div>
             </div>
           )}
         </div>

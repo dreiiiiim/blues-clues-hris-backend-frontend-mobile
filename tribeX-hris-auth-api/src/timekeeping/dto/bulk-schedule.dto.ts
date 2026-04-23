@@ -1,4 +1,12 @@
-import { IsArray, IsBoolean, IsEnum, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsOptional,
+  IsString,
+  Matches,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UpsertScheduleDto } from './upsert-schedule.dto';
@@ -43,11 +51,14 @@ export class BulkScheduleDto {
   schedule: UpsertScheduleDto;
 
   @ApiPropertyOptional({
-    description: 'Effective date in YYYY-MM-DD format (informational only)',
+    description: 'Effective date in YYYY-MM-DD format',
     example: '2026-04-15',
   })
   @IsOptional()
   @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, {
+    message: 'effective_date must be in YYYY-MM-DD format',
+  })
   effective_date?: string;
 
   @ApiPropertyOptional({

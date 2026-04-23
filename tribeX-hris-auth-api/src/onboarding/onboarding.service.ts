@@ -927,6 +927,9 @@ export class OnboardingService {
             // Inherit department schedule if the department already has employees with a bulk/department schedule
             if (inheritedDepartmentId) {
               try {
+                const effectiveFrom = new Intl.DateTimeFormat('en-CA', {
+                  timeZone: 'Asia/Manila',
+                }).format(new Date());
                 const { data: deptMembers } = await supabase
                   .from('user_profile')
                   .select('employee_id')
@@ -941,6 +944,8 @@ export class OnboardingService {
                     .select('start_time, end_time, break_start, break_end, workdays, is_nightshift')
                     .in('employee_id', memberEmpIds)
                     .neq('schedule_source', 'individual')
+                    .lte('effective_from', effectiveFrom)
+                    .order('effective_from', { ascending: false })
                     .order('updated_at', { ascending: false })
                     .limit(1)
                     .maybeSingle();
@@ -948,6 +953,7 @@ export class OnboardingService {
                   if (deptSchedule) {
                     await supabase.from('schedules').upsert({
                       employee_id: employeeCode,
+                      effective_from: effectiveFrom,
                       start_time: deptSchedule.start_time,
                       end_time: deptSchedule.end_time,
                       break_start: deptSchedule.break_start ?? '00:00',
@@ -956,7 +962,7 @@ export class OnboardingService {
                       is_nightshift: deptSchedule.is_nightshift ?? false,
                       schedule_source: 'bulk',
                       updated_at: new Date().toISOString(),
-                    }, { onConflict: 'employee_id' });
+                    }, { onConflict: 'employee_id,effective_from' });
                     this.logger.log(`[approveSession] Inherited department schedule for new employee ${employeeCode}`);
                   }
                 }

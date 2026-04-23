@@ -17,6 +17,7 @@ type RosterEntry = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   department_id: string | null;
   department_name: string | null;
   department?: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
@@ -107,6 +108,35 @@ function normalizeRosterEntry(row: RosterEntry): RosterEntry {
       schedule_source: normalizeScheduleSource(row.schedule.schedule_source, true),
     },
   };
+}
+
+function EmployeeAvatar({
+  firstName,
+  lastName,
+  avatarUrl,
+}: Readonly<{
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string | null;
+}>) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const initials = `${firstName?.charAt(0) ?? ""}${lastName?.charAt(0) ?? ""}`.toUpperCase() || "U";
+  const canShowImage = !!avatarUrl && !imageFailed;
+
+  return (
+    <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/10 overflow-hidden">
+      {canShowImage ? (
+        <img
+          src={avatarUrl}
+          alt={`${firstName} ${lastName}`.trim() || "Employee avatar"}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        initials
+      )}
+    </div>
+  );
 }
 
 // ─── Source Badge ─────────────────────────────────────────────────────────────
@@ -380,7 +410,6 @@ export function ScheduleRosterTable({
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Department</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Coverage</th>
                   <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Shift</th>
                   <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Break</th>
                   <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Work Days</th>
@@ -398,9 +427,6 @@ export function ScheduleRosterTable({
                     <tr key={dept.department_id} className="hover:bg-muted/20 transition-colors">
                       <td className="px-4 py-3">
                         <p className="font-semibold">{dept.department_name}</p>
-                      </td>
-                      <td className="px-4 py-3 text-xs text-muted-foreground">
-                        {dept.withSchedule} / {dept.members} scheduled
                       </td>
                       <td className="px-4 py-3">
                         {sched ? (
@@ -489,9 +515,11 @@ export function ScheduleRosterTable({
                     {/* Employee */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2.5">
-                        <div className="h-8 w-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/10">
-                          {row.first_name.charAt(0).toUpperCase()}
-                        </div>
+                        <EmployeeAvatar
+                          firstName={row.first_name}
+                          lastName={row.last_name}
+                          avatarUrl={row.avatar_url}
+                        />
                         <div>
                           <p className="font-semibold leading-tight">{name}</p>
                           <p className="text-[10px] text-muted-foreground font-mono">{row.employee_id}</p>

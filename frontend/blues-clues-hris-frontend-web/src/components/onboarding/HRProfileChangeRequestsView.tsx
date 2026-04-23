@@ -13,6 +13,25 @@ import {
 } from "@/lib/changeRequestApi";
 import { toast } from "sonner";
 
+const AVATAR_COLORS = [
+  "bg-blue-100 text-blue-700",
+  "bg-violet-100 text-violet-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-amber-100 text-amber-700",
+  "bg-rose-100 text-rose-700",
+  "bg-cyan-100 text-cyan-700",
+];
+
+function employeeInitials(firstName?: string | null, lastName?: string | null) {
+  return `${firstName?.charAt(0) ?? ""}${lastName?.charAt(0) ?? ""}`.toUpperCase() || "U";
+}
+
+function avatarColor(name: string) {
+  let n = 0;
+  for (let i = 0; i < name.length; i++) n += name.charCodeAt(i);
+  return AVATAR_COLORS[n % AVATAR_COLORS.length];
+}
+
 function FieldDiff({ changes }: { changes: Record<string, string> }) {
   const labels: Record<string, string> = {
     first_name: "First Name",
@@ -40,6 +59,7 @@ export default function HRProfileChangeRequestsView() {
   const [rejectNote, setRejectNote] = useState<Record<string, string>>({});
   const [rejectOpen, setRejectOpen] = useState<Record<string, boolean>>({});
   const [processing, setProcessing] = useState<Record<string, boolean>>({});
+  const [avatarLoadError, setAvatarLoadError] = useState<Record<string, boolean>>({});
 
   const load = () => {
     setLoading(true);
@@ -125,18 +145,35 @@ export default function HRProfileChangeRequestsView() {
         const isLegalName = req.field_type === "legal_name";
         const Icon = isLegalName ? User : CreditCard;
         const isProcessing = processing[req.request_id];
+        const initials = employeeInitials(employee?.first_name, employee?.last_name);
+        const colorCls = avatarColor(`${employee?.first_name ?? ""}${employee?.last_name ?? ""}`);
+        const hasAvatar = !!employee?.avatar_url && !avatarLoadError[req.request_id];
 
         return (
           <Card key={req.request_id} className="border-border">
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-3">
-                  <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
-                    isLegalName
-                      ? "bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
-                      : "bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400"
-                  }`}>
-                    <Icon className="h-4 w-4" />
+                  <div
+                    className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 overflow-hidden ${
+                      hasAvatar ? "bg-slate-100" : `${colorCls} font-semibold text-xs`
+                    }`}
+                  >
+                    {hasAvatar ? (
+                      <img
+                        src={employee?.avatar_url ?? undefined}
+                        alt={name}
+                        className="h-full w-full object-cover"
+                        onError={() =>
+                          setAvatarLoadError((prev) => ({
+                            ...prev,
+                            [req.request_id]: true,
+                          }))
+                        }
+                      />
+                    ) : (
+                      initials
+                    )}
                   </div>
                   <div>
                     <CardTitle className="text-sm font-semibold">{name}</CardTitle>
@@ -145,12 +182,27 @@ export default function HRProfileChangeRequestsView() {
                     )}
                   </div>
                 </div>
-                <Badge variant="outline" className={isLegalName
-                  ? "border-blue-200 text-blue-700 bg-blue-50 dark:bg-blue-900/10 dark:text-blue-400 dark:border-blue-800"
-                  : "border-purple-200 text-purple-700 bg-purple-50 dark:bg-purple-900/10 dark:text-purple-400 dark:border-purple-800"
-                }>
-                  {isLegalName ? "Legal Name" : "Bank Account"}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`h-7 w-7 rounded-lg flex items-center justify-center shrink-0 ${
+                      isLegalName
+                        ? "bg-blue-100 text-blue-600 dark:bg-blue-900/20 dark:text-blue-400"
+                        : "bg-purple-100 text-purple-600 dark:bg-purple-900/20 dark:text-purple-400"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5" />
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={
+                      isLegalName
+                        ? "border-blue-200 text-blue-700 bg-blue-50 dark:bg-blue-900/10 dark:text-blue-400 dark:border-blue-800"
+                        : "border-purple-200 text-purple-700 bg-purple-50 dark:bg-purple-900/10 dark:text-purple-400 dark:border-purple-800"
+                    }
+                  >
+                    {isLegalName ? "Legal Name" : "Bank Account"}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
 

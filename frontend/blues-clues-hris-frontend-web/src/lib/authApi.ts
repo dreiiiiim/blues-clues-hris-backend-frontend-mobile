@@ -797,7 +797,7 @@ export type EmployeeDocument = {
   id: string;
   user_id: string;
   document_type: string;
-  file_path: string;
+  file_path: string | null;
   file_name: string;
   file_size: number | null;
   status: 'pending' | 'approved' | 'rejected';
@@ -806,6 +806,11 @@ export type EmployeeDocument = {
   reviewed_at: string | null;
   reviewed_by: string | null;
   file_url: string | null;
+  pending_replacement_request?: boolean;
+  is_replacement_request?: boolean;
+  replacement_request_id?: string | null;
+  replacement_reason?: string | null;
+  original_document_id?: string | null;
 };
 
 export async function getMyEmployeeDocuments(): Promise<EmployeeDocument[]> {
@@ -836,7 +841,14 @@ export async function deleteMyDocument(docId: string): Promise<void> {
   }
 }
 
-export async function getPendingEmployeeDocuments(): Promise<(EmployeeDocument & { user_profile: { first_name: string; last_name: string; employee_id: string } })[]> {
+export async function getPendingEmployeeDocuments(): Promise<(EmployeeDocument & {
+  user_profile: {
+    first_name: string;
+    last_name: string;
+    employee_id: string;
+    avatar_url?: string | null;
+  };
+})[]> {
   const res = await authFetch(`${API_BASE_URL}/users/documents/pending`);
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as any)?.message || 'Failed to fetch pending documents');

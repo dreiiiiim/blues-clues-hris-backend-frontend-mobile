@@ -2390,9 +2390,9 @@ export class JobsService {
     const dayCodeMap: Record<string, string> = {
       SUN: 'SUN',
       MON: 'MON',
-      TUE: 'TUES',
+      TUE: 'TUE',
       WED: 'WED',
-      THU: 'THURS',
+      THU: 'THU',
       FRI: 'FRI',
       SAT: 'SAT',
     };
@@ -2404,7 +2404,14 @@ export class JobsService {
     if (!rawWorkdays) return [];
 
     if (Array.isArray(rawWorkdays)) {
-      return rawWorkdays.map((d) => String(d).trim().toUpperCase()).filter(Boolean);
+      return rawWorkdays
+        .map((d) => {
+          const day = String(d).trim().toUpperCase();
+          if (day === 'TUES') return 'TUE';
+          if (day === 'THURS') return 'THU';
+          return day;
+        })
+        .filter(Boolean);
     }
 
     if (typeof rawWorkdays === 'string') {
@@ -2424,7 +2431,12 @@ export class JobsService {
 
       return trimmed
         .split(',')
-        .map((d) => d.trim().toUpperCase())
+        .map((d) => {
+          const day = d.trim().toUpperCase();
+          if (day === 'TUES') return 'TUE';
+          if (day === 'THURS') return 'THU';
+          return day;
+        })
         .filter(Boolean);
     }
 
@@ -2445,11 +2457,22 @@ export class JobsService {
 
     const { data: schedules, error: schedErr } = await supabase
       .from('schedules')
-      .select('employee_id, workdays');
+      .select('employee_id, workdays, effective_from, updated_at')
+      .lte('effective_from', manilaDate)
+      .order('employee_id', { ascending: true })
+      .order('effective_from', { ascending: false })
+      .order('updated_at', { ascending: false });
 
     if (schedErr) { cronLogger.error(`Failed to fetch schedules: ${schedErr.message}`); return; }
 
-    const scheduledToday = (schedules ?? []).filter((s: any) => {
+    const latestByEmployee = new Map<string, any>();
+    for (const schedule of schedules ?? []) {
+      const employeeId = (schedule as { employee_id?: string | null }).employee_id;
+      if (!employeeId || latestByEmployee.has(employeeId)) continue;
+      latestByEmployee.set(employeeId, schedule);
+    }
+
+    const scheduledToday = Array.from(latestByEmployee.values()).filter((s: any) => {
       const workdays = this.parseScheduleWorkdays(s.workdays);
       return workdays.includes(dayCode);
     });
@@ -2477,7 +2500,8 @@ export class JobsService {
         clock_type: 'ABSENT_NO_CLOCKIN',
         timestamp: `${manilaDate}T23:59:00.000+08:00`,
         log_status: 'APPROVED',
-        notes: 'Auto-marked by system — no clock-in recorded',
+        absence_reason: null,
+        absence_notes: 'Auto-marked by system - no clock-in recorded',
       }));
 
     if (absentRows.length === 0) { cronLogger.log(`All scheduled employees clocked in on ${manilaDate}`); return; }
@@ -2531,7 +2555,6 @@ export class JobsService {
         status: 'PRESENT',
         log_status: 'APPROVED',
         timestamp: `${yesterday}T23:59:00.000+08:00`,
-        notes: 'Auto clock-out — employee did not clock out',
       }));
 
     if (closeRows.length === 0) return;
@@ -2636,3 +2659,4 @@ export class JobsService {
     }
   }
 }
+

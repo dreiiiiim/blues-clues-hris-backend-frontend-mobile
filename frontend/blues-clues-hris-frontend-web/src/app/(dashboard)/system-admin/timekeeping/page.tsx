@@ -25,6 +25,7 @@ type UserRow = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   department_id: string | null;
   department: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   department_name?: string | null;
@@ -48,6 +49,7 @@ type RosterEntry = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   department_name: string | null;
   time_in: string | null;
   time_out: string | null;
@@ -166,6 +168,7 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
       employee_id: u.employee_id,
       first_name: u.first_name,
       last_name: u.last_name,
+      avatar_url: u.avatar_url ?? null,
       department_name: departmentName,
       time_in,
       time_out,
@@ -215,6 +218,35 @@ function StatCard({ icon: Icon, label, value, sub, colorClass }: {
       <p className="text-2xl font-bold">{value}</p>
       <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
     </Card>
+  );
+}
+
+function EmployeeAvatar({
+  firstName,
+  lastName,
+  avatarUrl,
+}: Readonly<{
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string | null;
+}>) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const initials = `${firstName?.charAt(0) ?? ""}${lastName?.charAt(0) ?? ""}`.toUpperCase() || "U";
+  const canShowImage = !!avatarUrl && !imageFailed;
+
+  return (
+    <div className="h-9 w-9 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs border border-primary/5 shrink-0 overflow-hidden">
+      {canShowImage ? (
+        <img
+          src={avatarUrl}
+          alt={`${firstName} ${lastName}`.trim() || "Employee avatar"}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        initials
+      )}
+    </div>
   );
 }
 
@@ -406,7 +438,9 @@ export default function SystemAdminTimekeepingPage() {
           currentSchedule={editScheduleFor.schedule ?? null}
           effectiveLabel={effectiveLabel}
           onClose={() => setEditScheduleFor(null)}
-          onSaved={() => {}}
+          onSaved={() => {
+            setScheduleRosterRefreshKey((v) => v + 1);
+          }}
         />
       )}
 
@@ -696,9 +730,11 @@ export default function SystemAdminTimekeepingPage() {
                 <tr key={r.employee_id} className="hover:bg-primary/5 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-3">
-                      <div className="h-9 w-9 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs border border-primary/5 shrink-0">
-                        {r.first_name.charAt(0).toUpperCase()}
-                      </div>
+                      <EmployeeAvatar
+                        firstName={r.first_name}
+                        lastName={r.last_name}
+                        avatarUrl={r.avatar_url}
+                      />
                       <div>
                         <p className="font-semibold">{`${r.first_name} ${r.last_name}`.trim()}</p>
                         <p className="text-[10px] text-muted-foreground font-mono">{r.employee_id}</p>

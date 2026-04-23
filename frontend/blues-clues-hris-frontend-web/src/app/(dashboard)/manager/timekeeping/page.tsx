@@ -20,6 +20,7 @@ type UserRow = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
 };
 
 type PunchRow = {
@@ -39,6 +40,7 @@ type RosterEntry = {
   employee_id: string;
   first_name: string;
   last_name: string;
+  avatar_url?: string | null;
   time_in: string | null;
   time_out: string | null;
   hours_worked: number | null;
@@ -133,6 +135,7 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
       employee_id: user.employee_id,
       first_name: user.first_name,
       last_name: user.last_name,
+      avatar_url: user.avatar_url ?? null,
       time_in,
       time_out,
       hours_worked: computeHoursDecimal(time_in, time_out),
@@ -140,6 +143,35 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
       gps_verified,
     };
   });
+}
+
+function EmployeeAvatar({
+  firstName,
+  lastName,
+  avatarUrl,
+}: Readonly<{
+  firstName: string;
+  lastName: string;
+  avatarUrl?: string | null;
+}>) {
+  const [imageFailed, setImageFailed] = useState(false);
+  const initials = `${firstName?.charAt(0) ?? ""}${lastName?.charAt(0) ?? ""}`.toUpperCase() || "U";
+  const canShowImage = !!avatarUrl && !imageFailed;
+
+  return (
+    <div className="h-9 w-9 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs border border-primary/5 shrink-0 overflow-hidden">
+      {canShowImage ? (
+        <img
+          src={avatarUrl}
+          alt={`${firstName} ${lastName}`.trim() || "Employee avatar"}
+          className="h-full w-full object-cover"
+          onError={() => setImageFailed(true)}
+        />
+      ) : (
+        initials
+      )}
+    </div>
+  );
 }
 
 function computeStats(roster: RosterEntry[]) {
@@ -295,9 +327,11 @@ export default function ManagerTimekeepingPage() {
     <tr key={log.employee_id} className="hover:bg-primary/5 transition-colors">
       <td className="px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 bg-primary/10 text-primary rounded-full flex items-center justify-center font-bold text-xs border border-primary/5 shrink-0">
-            {log.first_name.charAt(0).toUpperCase()}
-          </div>
+          <EmployeeAvatar
+            firstName={log.first_name}
+            lastName={log.last_name}
+            avatarUrl={log.avatar_url}
+          />
           <div>
             <p className="font-semibold">{`${log.first_name} ${log.last_name}`.trim()}</p>
             <p className="text-[10px] text-muted-foreground font-mono">{log.employee_id}</p>

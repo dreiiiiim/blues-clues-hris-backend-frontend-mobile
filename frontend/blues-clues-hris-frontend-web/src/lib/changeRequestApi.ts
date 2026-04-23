@@ -13,7 +13,13 @@ export type ChangeRequest = {
   review_reason: string | null;
   reviewed_at: string | null;
   created_at: string;
-  employee?: { first_name: string; last_name: string; employee_id: string; email: string };
+  employee?: {
+    first_name: string;
+    last_name: string;
+    employee_id: string;
+    email: string;
+    avatar_url?: string | null;
+  };
 };
 
 export async function submitChangeRequest(dto: {

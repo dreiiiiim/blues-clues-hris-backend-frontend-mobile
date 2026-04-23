@@ -75,6 +75,60 @@ interface ApprovalModalState {
   section: "legal-name" | "bank";
 }
 
+type SaveConfirmType = "photo" | "profile" | "emergency";
+
+interface SaveConfirmState {
+  open: boolean;
+  type: SaveConfirmType | null;
+  photoFile: File | null;
+}
+
+const MAX_PROFILE_PHOTO_INPUT_BYTES = 15 * 1024 * 1024;
+const MAX_PROFILE_PHOTO_DIMENSION = 640;
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(new Error("Failed to read image file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function loadImage(dataUrl: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to process the selected image."));
+    image.src = dataUrl;
+  });
+}
+
+async function compressProfilePhoto(file: File): Promise<string> {
+  const sourceDataUrl = await readFileAsDataUrl(file);
+  const image = await loadImage(sourceDataUrl);
+
+  const srcWidth = image.naturalWidth || image.width;
+  const srcHeight = image.naturalHeight || image.height;
+  const longestEdge = Math.max(srcWidth, srcHeight);
+  const scale = longestEdge > MAX_PROFILE_PHOTO_DIMENSION
+    ? MAX_PROFILE_PHOTO_DIMENSION / longestEdge
+    : 1;
+
+  const targetWidth = Math.max(1, Math.round(srcWidth * scale));
+  const targetHeight = Math.max(1, Math.round(srcHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = targetWidth;
+  canvas.height = targetHeight;
+
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("Image processing is not available in this browser.");
+
+  context.drawImage(image, 0, 0, targetWidth, targetHeight);
+  return canvas.toDataURL("image/jpeg", 0.8);
+}
+
 // ─── Permission Badge ──────────────────────────────────────────────────────────
 
 function PermBadge({ type }: { type: "self" | "approval" | "system" | "immutable" }) {
@@ -349,6 +403,73 @@ function ApprovalModal({
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
 
+function SaveConfirmModal({
+  open,
+  title,
+  description,
+  confirmLabel,
+  loading,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  title: string;
+  description: string;
+  confirmLabel: string;
+  loading: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen && !loading) onCancel();
+      }}
+    >
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle className="text-base font-bold tracking-tight">
+            {title}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-4 pt-1">
+          <div className="rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+            <p className="text-sm text-muted-foreground">{description}</p>
+          </div>
+
+          <div className="flex gap-2 pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              className="flex-1"
+              onClick={onCancel}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="flex-1"
+              onClick={onConfirm}
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Saving...
+                </>
+              ) : (
+                confirmLabel
+              )}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 export default function EmployeeProfilePage() {
   const [user, setUser] = useState<StoredUser | null>(null);
   const [jwtPayload, setJwtPayload] = useState<Record<string, string> | null>(null);
@@ -367,6 +488,7 @@ export default function EmployeeProfilePage() {
   const [ecEditing, setEcEditing] = useState(false);
   const [ecDraft, setEcDraft] = useState<EmergencyContact[]>([]);
   const [ecSaving, setEcSaving] = useState(false);
+  const [photoSaving, setPhotoSaving] = useState(false);
 
   // Bank state (read-only on page; editing happens in modal)
   const [bank, setBank] = useState<BankInfo>({ bankName: "", accountNumber: "", accountName: "" });
@@ -391,6 +513,12 @@ export default function EmployeeProfilePage() {
     phone_number?: string; complete_address?: string; date_of_birth?: string;
     place_of_birth?: string; nationality?: string; civil_status?: string; personal_email?: string;
   } | null>(null);
+
+  const [saveConfirm, setSaveConfirm] = useState<SaveConfirmState>({
+    open: false,
+    type: null,
+    photoFile: null,
+  });
 
   // ── Load from API on mount ────────────────────────────────────────────────
   useEffect(() => {
@@ -449,39 +577,102 @@ export default function EmployeeProfilePage() {
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = async (ev) => {
-      const b64 = ev.target?.result as string;
-      setProfilePhoto(b64);
-      try {
-        await updateEmployeeProfile({ avatar_url: b64 });
-        toast.success("Profile photo updated.");
-      } catch {
-        toast.error("Failed to save profile photo.");
-      }
-    };
-    reader.readAsDataURL(file);
+
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please upload an image file.");
+      e.target.value = "";
+      return;
+    }
+
+    if (file.size > MAX_PROFILE_PHOTO_INPUT_BYTES) {
+      toast.error("Image is too large. Maximum file size is 15 MB.");
+      e.target.value = "";
+      return;
+    }
+
+    setSaveConfirm({ open: true, type: "photo", photoFile: file });
+    e.target.value = "";
   };
 
   // ── Contact & Address save ────────────────────────────────────────────────
-  const handleExtendedSave = async () => {
+  const executeExtendedSave = async () => {
     setExtendedSaving(true);
     try {
       await updateEmployeeProfile({
-        personal_email:   extendedDraft.personalEmail.trim() || null as any,
-        date_of_birth:    extendedDraft.dob || null as any,
-        place_of_birth:   extendedDraft.placeOfBirth.trim() || null as any,
-        nationality:      extendedDraft.nationality.trim() || null as any,
-        civil_status:     extendedDraft.civilStatus || null as any,
-        complete_address: extendedDraft.address.trim() || null as any,
+        personal_email: extendedDraft.personalEmail.trim() || (null as any),
+        date_of_birth: extendedDraft.dob || (null as any),
+        place_of_birth: extendedDraft.placeOfBirth.trim() || (null as any),
+        nationality: extendedDraft.nationality.trim() || (null as any),
+        civil_status: extendedDraft.civilStatus || (null as any),
+        complete_address: extendedDraft.address.trim() || (null as any),
       });
       setExtended(extendedDraft);
       setExtendedEditing(false);
-      toast.success("Contact information saved.");
+      toast.success("Profile changes successfully saved.");
+      setSaveConfirm({ open: false, type: null, photoFile: null });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Save failed.");
     } finally {
       setExtendedSaving(false);
+    }
+  };
+
+  const executePhotoSave = async (file: File) => {
+    setPhotoSaving(true);
+    try {
+      const b64 = await compressProfilePhoto(file);
+      setProfilePhoto(b64);
+      await updateEmployeeProfile({ avatar_url: b64 });
+      toast.success("Profile photo successfully saved.");
+      setSaveConfirm({ open: false, type: null, photoFile: null });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to save profile photo.");
+    } finally {
+      setPhotoSaving(false);
+    }
+  };
+
+  const executeEmergencyContactsSave = async () => {
+    setEcSaving(true);
+    try {
+      await updateMyEmergencyContacts(ecDraft);
+      setEmergencyContacts(ecDraft);
+      setEcEditing(false);
+      toast.success("Emergency contacts successfully saved.");
+      setSaveConfirm({ open: false, type: null, photoFile: null });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Save failed.");
+    } finally {
+      setEcSaving(false);
+    }
+  };
+
+  const handleExtendedSave = () => {
+    setSaveConfirm({ open: true, type: "profile", photoFile: null });
+  };
+
+  const handleCloseSaveConfirm = () => {
+    if (photoSaving || extendedSaving || ecSaving) return;
+    setSaveConfirm({ open: false, type: null, photoFile: null });
+  };
+
+  const handleConfirmSave = async () => {
+    if (saveConfirm.type === "photo") {
+      if (!saveConfirm.photoFile) {
+        handleCloseSaveConfirm();
+        return;
+      }
+      await executePhotoSave(saveConfirm.photoFile);
+      return;
+    }
+
+    if (saveConfirm.type === "profile") {
+      await executeExtendedSave();
+      return;
+    }
+
+    if (saveConfirm.type === "emergency") {
+      await executeEmergencyContactsSave();
     }
   };
 
@@ -559,18 +750,8 @@ export default function EmployeeProfilePage() {
     }
   };
 
-  const handleEcSave = async () => {
-    setEcSaving(true);
-    try {
-      await updateMyEmergencyContacts(ecDraft);
-      setEmergencyContacts(ecDraft);
-      setEcEditing(false);
-      toast.success("Emergency contacts saved.");
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Save failed.");
-    } finally {
-      setEcSaving(false);
-    }
+  const handleEcSave = () => {
+    setSaveConfirm({ open: true, type: "emergency", photoFile: null });
   };
 
   const handleEcCancel = () => {
@@ -596,6 +777,36 @@ export default function EmployeeProfilePage() {
     user?.name ||
     "Employee";
   const initials = displayName.charAt(0).toUpperCase();
+
+  const saveConfirmLoading =
+    saveConfirm.type === "photo"
+      ? photoSaving
+      : saveConfirm.type === "profile"
+      ? extendedSaving
+      : saveConfirm.type === "emergency"
+      ? ecSaving
+      : false;
+
+  const saveConfirmTitle =
+    saveConfirm.type === "photo"
+      ? "Save New Profile Photo?"
+      : saveConfirm.type === "profile"
+      ? "Save Profile Changes?"
+      : "Save Emergency Contacts?";
+
+  const saveConfirmDescription =
+    saveConfirm.type === "photo"
+      ? "Your new photo will be compressed and updated on your employee profile."
+      : saveConfirm.type === "profile"
+      ? "This will update your contact and address information."
+      : "This will update your emergency contact details.";
+
+  const saveConfirmLabel =
+    saveConfirm.type === "photo"
+      ? "Save Photo"
+      : saveConfirm.type === "profile"
+      ? "Save Profile"
+      : "Save Contacts";
 
   if (loading || !user) {
     return (
@@ -1108,6 +1319,16 @@ export default function EmployeeProfilePage() {
         currentBank={bank}
         onClose={() => setApprovalModal({ ...approvalModal, open: false })}
         onSubmit={handleApprovalSubmit}
+      />
+
+      <SaveConfirmModal
+        open={saveConfirm.open}
+        title={saveConfirmTitle}
+        description={saveConfirmDescription}
+        confirmLabel={saveConfirmLabel}
+        loading={saveConfirmLoading}
+        onCancel={handleCloseSaveConfirm}
+        onConfirm={handleConfirmSave}
       />
     </div>
   );
