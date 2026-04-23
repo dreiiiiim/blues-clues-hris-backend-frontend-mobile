@@ -652,6 +652,14 @@ function CreateJobModal({
                 {suggestingSfia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
                 Auto-suggest from job description
               </Button>
+              <div className="rounded-lg bg-muted/30 border border-border px-3 py-2">
+                <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">How levels work</p>
+                <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                  Check a skill, then set <span className="font-semibold">how skilled the candidate must be</span> at it.
+                  L1 = total beginner · L3 = works independently · L5 = team lead · L7 = director level.
+                  Candidates who match or exceed your level score higher.
+                </p>
+              </div>
               <p className="text-[10px] text-muted-foreground/70">
                 {sfiaSelected.size} skill{sfiaSelected.size !== 1 ? "s" : ""} selected. Applicants scored against these requirements.
               </p>
@@ -717,13 +725,13 @@ function CreateJobModal({
 // ─── Configure SFIA Skills Modal ─────────────────────────────────────────────
 
 const SFIA_LEVEL_LABELS = [
-  "L1 — Follow (Entry)",
-  "L2 — Assist (Junior)",
-  "L3 — Apply (Mid)",
-  "L4 — Enable (Senior)",
-  "L5 — Ensure & Advise (Lead)",
-  "L6 — Initiate & Influence (Principal)",
-  "L7 — Set Strategy (Director)",
+  "L1 — Needs full supervision (Trainee / Intern)",
+  "L2 — Can assist with guidance (Entry-level)",
+  "L3 — Works independently (Junior / Mid)",
+  "L4 — Plans own work, mentors others (Senior)",
+  "L5 — Accountable for results, advises teams (Lead)",
+  "L6 — Drives org-wide initiatives (Principal)",
+  "L7 — Sets company direction (VP / Director)",
 ];
 
 function ConfigureSfiaSkillsModal({
@@ -856,6 +864,14 @@ function ConfigureSfiaSkillsModal({
             {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
             Auto-suggest from job description
           </Button>
+          <div className="mt-2 rounded-lg bg-muted/30 border border-border px-3 py-2">
+            <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">How levels work</p>
+            <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+              Check a skill, then set <span className="font-semibold">how skilled the candidate must be</span> at it.
+              L1 = total beginner · L3 = works independently · L5 = team lead · L7 = company director level.
+              Candidates who match or exceed your required level score higher.
+            </p>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 space-y-1 min-h-0">
@@ -961,13 +977,13 @@ function SfiaSkillsSection({ jobId }: { jobId: string }) {
   };
 
   const SFIA_LEVELS = [
-    { value: 1, label: "L1 — Follow (Entry)" },
-    { value: 2, label: "L2 — Assist (Junior)" },
-    { value: 3, label: "L3 — Apply (Mid)" },
-    { value: 4, label: "L4 — Enable (Senior)" },
-    { value: 5, label: "L5 — Ensure & Advise (Lead)" },
-    { value: 6, label: "L6 — Initiate & Influence (Principal)" },
-    { value: 7, label: "L7 — Set Strategy (Director)" },
+    { value: 1, label: "L1 — Needs full supervision (Trainee / Intern)" },
+    { value: 2, label: "L2 — Can assist with guidance (Entry-level)" },
+    { value: 3, label: "L3 — Works independently (Junior / Mid)" },
+    { value: 4, label: "L4 — Plans own work, mentors others (Senior)" },
+    { value: 5, label: "L5 — Accountable for results, advises teams (Lead)" },
+    { value: 6, label: "L6 — Drives org-wide initiatives (Principal)" },
+    { value: 7, label: "L7 — Sets company direction (VP / Director)" },
   ];
 
   return (
