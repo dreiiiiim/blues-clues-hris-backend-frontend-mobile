@@ -356,12 +356,17 @@ function CreateJobModal({
   onClose: () => void;
   onCreate: (job: JobPosting) => void;
 }>) {
-  const [step, setStep] = useState<1 | 2>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [createdJob, setCreatedJob] = useState<JobPosting | null>(null);
   const [questions, setQuestions] = useState<Question[]>([]);
   const [saving, setSaving] = useState(false);
   const [savingQuestions, setSavingQuestions] = useState(false);
   const [departments, setDepartments] = useState<{ department_id: string; department_name: string }[]>([]);
+  const [masterSkills, setMasterSkills] = useState<SfiaSkill[]>([]);
+  const [sfiaSelected, setSfiaSelected] = useState<Map<string, number>>(new Map());
+  const [sfiaSearch, setSfiaSearch] = useState("");
+  const [savingSfia, setSavingSfia] = useState(false);
+  const [sfiaLoading, setSfiaLoading] = useState(false);
 
   const [form, setForm] = useState({
     title: "", description: "", location: "",
@@ -413,8 +418,7 @@ function CreateJobModal({
         method: "PUT",
         body: JSON.stringify({ questions: payload }),
       });
-      toast.success("Job posting created!");
-      onCreate(createdJob);
+      goToSfiaStep();
     } catch (err: any) {
       toast.error(err.message || "Failed to save questions");
     } finally {
@@ -423,6 +427,53 @@ function CreateJobModal({
   };
 
   const handleSkipQuestions = () => {
+    if (!createdJob) return;
+    goToSfiaStep();
+  };
+
+  const goToSfiaStep = () => {
+    setSfiaLoading(true);
+    listSfiaSkills()
+      .then(setMasterSkills)
+      .catch(() => {})
+      .finally(() => setSfiaLoading(false));
+    setStep(3);
+  };
+
+  const sfiaFiltered = masterSkills.filter((s) =>
+    s.skill.toLowerCase().includes(sfiaSearch.toLowerCase()) ||
+    (s.category ?? "").toLowerCase().includes(sfiaSearch.toLowerCase())
+  );
+
+  const toggleSfiaSkill = (skillId: string) => {
+    setSfiaSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(skillId)) next.delete(skillId);
+      else next.set(skillId, 3);
+      return next;
+    });
+  };
+
+  const setSfiaLevel = (skillId: string, level: number) => {
+    setSfiaSelected((prev) => { const next = new Map(prev); next.set(skillId, level); return next; });
+  };
+
+  const handleSaveSfia = async () => {
+    if (!createdJob) return;
+    setSavingSfia(true);
+    try {
+      const skills = Array.from(sfiaSelected.entries()).map(([skill_id, required_level]) => ({ skill_id, required_level }));
+      await updateJobSfiaSkills(createdJob.job_posting_id, skills);
+      toast.success("Job posting created!");
+      onCreate(createdJob);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save SFIA skills");
+    } finally {
+      setSavingSfia(false);
+    }
+  };
+
+  const handleSkipSfia = () => {
     if (!createdJob) return;
     toast.success("Job posting created!");
     onCreate(createdJob);
@@ -438,13 +489,16 @@ function CreateJobModal({
               <span className="text-[10px] text-muted-foreground">Job Details</span>
               <span className="text-[10px] text-muted-foreground">›</span>
               <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${step === 2 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</span>
-              <span className="text-[10px] text-muted-foreground">Application Form</span>
+              <span className="text-[10px] text-muted-foreground">App Form</span>
+              <span className="text-[10px] text-muted-foreground">›</span>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${step === 3 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>3</span>
+              <span className="text-[10px] text-muted-foreground">SFIA Skills</span>
             </div>
             <h3 className="font-bold text-foreground text-lg">
-              {step === 1 ? "Create Job Posting" : "Build Application Form"}
+              {step === 1 ? "Create Job Posting" : step === 2 ? "Build Application Form" : "Configure SFIA Skills"}
             </h3>
             <p className="text-xs text-muted-foreground">
-              {step === 1 ? "Fill in the details for the new position" : "Add questions applicants must answer"}
+              {step === 1 ? "Fill in the details for the new position" : step === 2 ? "Add questions applicants must answer" : "Set required skill levels for SFIA matching"}
             </p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
@@ -528,7 +582,7 @@ function CreateJobModal({
                 </Button>
               </div>
             </form>
-          ) : (
+          ) : step === 2 ? (
             <div className="space-y-4">
               <QuestionBuilder questions={questions} onChange={setQuestions} />
               <div className="flex gap-3 pt-2">
@@ -536,7 +590,70 @@ function CreateJobModal({
                   Skip for now
                 </Button>
                 <Button className="flex-1 gap-1.5" onClick={handleSaveQuestions} disabled={savingQuestions}>
-                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Finish"}
+                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <Input
+                placeholder="Search skills…"
+                value={sfiaSearch}
+                onChange={(e) => setSfiaSearch(e.target.value)}
+                className="h-9 text-xs"
+              />
+              <p className="text-[10px] text-muted-foreground/70">
+                {sfiaSelected.size} skill{sfiaSelected.size !== 1 ? "s" : ""} selected. Applicants scored against these requirements.
+              </p>
+              <div className="space-y-1 max-h-[38vh] overflow-y-auto pr-1">
+                {sfiaLoading ? (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading skills…
+                  </div>
+                ) : sfiaFiltered.length === 0 ? (
+                  <p className="text-center py-4 text-xs text-muted-foreground">No skills match.</p>
+                ) : (
+                  sfiaFiltered.map((skill) => {
+                    const isChecked = sfiaSelected.has(skill.skill_id);
+                    const level = sfiaSelected.get(skill.skill_id) ?? 3;
+                    return (
+                      <div key={skill.skill_id} className="rounded-lg border border-border bg-background p-2.5 space-y-2">
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSfiaSkill(skill.skill_id)}
+                            className="h-3.5 w-3.5 rounded accent-primary"
+                          />
+                          <span className="text-xs font-medium flex-1">{skill.skill}</span>
+                          {skill.category && (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/70 border border-border">
+                              {skill.category}
+                            </span>
+                          )}
+                        </label>
+                        {isChecked && (
+                          <select
+                            value={level}
+                            onChange={(e) => setSfiaLevel(skill.skill_id, Number(e.target.value))}
+                            className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            {[1,2,3,4,5,6,7].map((l) => (
+                              <option key={l} value={l}>{SFIA_LEVEL_LABELS[l - 1]}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button type="button" variant="ghost" className="gap-1.5" onClick={handleSkipSfia} disabled={savingSfia}>
+                  Skip for now
+                </Button>
+                <Button className="flex-1 gap-1.5" onClick={handleSaveSfia} disabled={savingSfia || sfiaLoading}>
+                  {savingSfia ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Zap className="h-4 w-4" /><span>Save & Finish</span></>}
                 </Button>
               </div>
             </div>
