@@ -226,6 +226,14 @@ export class JobsController {
     return this.jobsService.listSfiaSkills();
   }
 
+  @Get(':id/sfia-skills/suggest')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Suggest SFIA skills based on job description text' })
+  suggestSfiaSkills(@Param('id') id: string, @Req() req: any) {
+    return this.jobsService.suggestSfiaSkillsFromJobDescription(id, req.user.company_id);
+  }
+
   @Get(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(...HR_AND_ABOVE)

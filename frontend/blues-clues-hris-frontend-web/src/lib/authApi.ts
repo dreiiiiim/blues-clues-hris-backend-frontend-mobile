@@ -470,6 +470,13 @@ export async function updateJobSfiaSkills(jobId: string, skills: { skill_id: str
   return data as JobSfiaSkill[];
 }
 
+export async function suggestJobSfiaSkills(jobId: string): Promise<Array<{ skill_id: string; skill_name: string; suggested_level: number }>> {
+  const res = await authFetch(`${API_BASE_URL}/jobs/${jobId}/sfia-skills/suggest`);
+  const data = await res.json().catch(() => ([]));
+  if (!res.ok) return [];
+  return data as Array<{ skill_id: string; skill_name: string; suggested_level: number }>;
+}
+
 export async function getJobSfiaRequirementsForApplicant(jobPostingId: string): Promise<JobSfiaRequirement[]> {
   const res = await authFetch(`${API_BASE_URL}/jobs/applicant/job-sfia-requirements/${jobPostingId}`);
   const data = await res.json().catch(() => ([]));

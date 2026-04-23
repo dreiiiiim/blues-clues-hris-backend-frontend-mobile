@@ -220,6 +220,33 @@ export class JobsService {
     }>;
   }
 
+  async suggestSfiaSkillsFromJobDescription(jobPostingId: string, companyId: string) {
+    const job = await this.findOnePosting(jobPostingId, companyId);
+    const text = [job.title ?? '', job.description ?? ''].join(' ');
+    if (!text.trim()) return [];
+
+    const sfiaSkills = await this.getAllSfiaSkills();
+    const lowerText = text.toLowerCase();
+
+    const highKeywords = ['lead', 'senior', 'principal', 'head of', 'architect', 'manager', 'director'];
+    const midHighKeywords = ['specialist', 'expert', 'advanced'];
+    const lowKeywords = ['junior', 'associate', 'entry', 'graduate', 'intern', 'trainee'];
+
+    let suggestedLevel = 3;
+    if (highKeywords.some(kw => lowerText.includes(kw))) suggestedLevel = 5;
+    else if (midHighKeywords.some(kw => lowerText.includes(kw))) suggestedLevel = 4;
+    else if (lowKeywords.some(kw => lowerText.includes(kw))) suggestedLevel = 2;
+
+    const matches: Array<{ skill_id: string; skill_name: string; suggested_level: number }> = [];
+    for (const skill of sfiaSkills) {
+      const term = skill.skill.toLowerCase();
+      const catTerm = (skill.category ?? '').toLowerCase();
+      if (!lowerText.includes(term) && (!catTerm || !lowerText.includes(catTerm))) continue;
+      matches.push({ skill_id: skill.skill_id, skill_name: skill.skill, suggested_level: suggestedLevel });
+    }
+    return matches;
+  }
+
   async getJobSfiaRequirementsForApplicant(jobPostingId: string) {
     const demandSkills = await this.getJobDemandSkills(jobPostingId);
     return demandSkills.map((s) => ({

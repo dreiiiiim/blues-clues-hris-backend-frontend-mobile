@@ -16,13 +16,13 @@ import {
   Briefcase, MapPin, Users, XCircle, Loader2, CheckCircle, Link2, Copy, Check,
   ArrowRight, GripVertical, Trash2, ChevronDown, Pencil, RefreshCw, FileText,
   KanbanSquare, List, Mail, Phone, Calendar, Clock, Mic, Cpu, Trophy, CheckCircle2,
-  LayoutGrid, Send, RotateCcw, Zap, BookOpen, Heart, Tag, Lightbulb,
+  LayoutGrid, Send, RotateCcw, Zap, BookOpen, Heart, Tag, Lightbulb, Sparkles,
 } from "lucide-react";
 import { PipelineKanbanView } from "./_components/PipelineKanbanView";
 import {
   getApplicationDetail, getMyCompany, sendInterviewSchedule, resendInterviewEmail,
   cancelInterviewSchedule,
-  listSfiaSkills, getJobSfiaSkills, updateJobSfiaSkills,
+  listSfiaSkills, getJobSfiaSkills, updateJobSfiaSkills, suggestJobSfiaSkills,
   type ApplicationDetail, type SfiaSkill, type JobSfiaSkill,
 } from "@/lib/authApi";
 import { updateApplicationStatus } from "@/lib/candidateApi";
@@ -367,6 +367,7 @@ function CreateJobModal({
   const [sfiaSearch, setSfiaSearch] = useState("");
   const [savingSfia, setSavingSfia] = useState(false);
   const [sfiaLoading, setSfiaLoading] = useState(false);
+  const [suggestingSfia, setSuggestingSfia] = useState(false);
 
   const [form, setForm] = useState({
     title: "", description: "", location: "",
@@ -438,6 +439,30 @@ function CreateJobModal({
       .catch(() => {})
       .finally(() => setSfiaLoading(false));
     setStep(3);
+  };
+
+  const handleSuggestSfia = async () => {
+    if (!createdJob) return;
+    setSuggestingSfia(true);
+    try {
+      const suggestions = await suggestJobSfiaSkills(createdJob.job_posting_id);
+      if (suggestions.length === 0) {
+        toast.info("No skill matches found in job description.");
+        return;
+      }
+      setSfiaSelected((prev) => {
+        const next = new Map(prev);
+        for (const s of suggestions) {
+          if (!next.has(s.skill_id)) next.set(s.skill_id, s.suggested_level);
+        }
+        return next;
+      });
+      toast.success(`${suggestions.length} skill${suggestions.length !== 1 ? "s" : ""} suggested from job description.`);
+    } catch {
+      toast.error("Failed to fetch suggestions.");
+    } finally {
+      setSuggestingSfia(false);
+    }
   };
 
   const sfiaFiltered = masterSkills.filter((s) =>
@@ -602,6 +627,17 @@ function CreateJobModal({
                 onChange={(e) => setSfiaSearch(e.target.value)}
                 className="h-9 text-xs"
               />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSuggestSfia}
+                disabled={suggestingSfia || sfiaLoading}
+                className="w-full h-8 gap-1.5 text-xs"
+              >
+                {suggestingSfia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
+                Auto-suggest from job description
+              </Button>
               <p className="text-[10px] text-muted-foreground/70">
                 {sfiaSelected.size} skill{sfiaSelected.size !== 1 ? "s" : ""} selected. Applicants scored against these requirements.
               </p>
@@ -690,6 +726,7 @@ function ConfigureSfiaSkillsModal({
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
 
   useEffect(() => {
     Promise.all([listSfiaSkills(), getJobSfiaSkills(jobId)])
@@ -723,6 +760,29 @@ function ConfigureSfiaSkillsModal({
       next.set(skillId, level);
       return next;
     });
+  };
+
+  const handleSuggest = async () => {
+    setSuggesting(true);
+    try {
+      const suggestions = await suggestJobSfiaSkills(jobId);
+      if (suggestions.length === 0) {
+        toast.info("No skill matches found in job description.");
+        return;
+      }
+      setSelected((prev) => {
+        const next = new Map(prev);
+        for (const s of suggestions) {
+          if (!next.has(s.skill_id)) next.set(s.skill_id, s.suggested_level);
+        }
+        return next;
+      });
+      toast.success(`${suggestions.length} skill${suggestions.length !== 1 ? "s" : ""} suggested from job description.`);
+    } catch {
+      toast.error("Failed to fetch suggestions.");
+    } finally {
+      setSuggesting(false);
+    }
   };
 
   const handleSave = async () => {
@@ -771,6 +831,17 @@ function ConfigureSfiaSkillsModal({
             onChange={(e) => setSearch(e.target.value)}
             className="h-9 text-xs"
           />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleSuggest}
+            disabled={suggesting || loading}
+            className="w-full h-8 gap-1.5 text-xs mt-2"
+          >
+            {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
+            Auto-suggest from job description
+          </Button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-6 space-y-1 min-h-0">
