@@ -240,8 +240,8 @@ export class JobsService {
     const matches: Array<{ skill_id: string; skill_name: string; suggested_level: number }> = [];
     for (const skill of sfiaSkills) {
       const term = skill.skill.toLowerCase();
-      const catTerm = (skill.category ?? '').toLowerCase();
-      if (!lowerText.includes(term) && (!catTerm || !lowerText.includes(catTerm))) continue;
+      const pattern = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+      if (!pattern.test(lowerText)) continue;
       matches.push({ skill_id: skill.skill_id, skill_name: skill.skill, suggested_level: suggestedLevel });
     }
     return matches;
@@ -2578,8 +2578,8 @@ export class JobsService {
 
     for (const skill of sfiaSkills) {
       const term = skill.skill.toLowerCase();
-      const catTerm = skill.category.toLowerCase();
-      if (!lowerText.includes(term) && !lowerText.includes(catTerm)) continue;
+      const pattern = new RegExp(`\\b${term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`);
+      if (!pattern.test(lowerText)) continue;
       results.push({ skill_id: skill.skill_id, candidate_level: globalLevel });
     }
 
