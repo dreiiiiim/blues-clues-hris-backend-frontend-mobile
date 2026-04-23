@@ -510,13 +510,27 @@ function CreateJobModal({
         <div className="flex items-center justify-between px-6 pt-6 pb-4 shrink-0">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${step === 1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>1</span>
+              <button
+                type="button"
+                onClick={() => setStep(1)}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${step === 1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-primary/20"}`}
+              >1</button>
               <span className="text-[10px] text-muted-foreground">Job Details</span>
               <span className="text-[10px] text-muted-foreground">›</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${step === 2 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>2</span>
+              <button
+                type="button"
+                onClick={() => { if (createdJob) setStep(2); }}
+                disabled={!createdJob}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${step === 2 ? "bg-primary text-primary-foreground" : createdJob ? "bg-muted text-muted-foreground hover:bg-primary/20 cursor-pointer" : "bg-muted text-muted-foreground/40 cursor-not-allowed"}`}
+              >2</button>
               <span className="text-[10px] text-muted-foreground">App Form</span>
               <span className="text-[10px] text-muted-foreground">›</span>
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${step === 3 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>3</span>
+              <button
+                type="button"
+                onClick={() => { if (createdJob) goToSfiaStep(); }}
+                disabled={!createdJob}
+                className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${step === 3 ? "bg-primary text-primary-foreground" : createdJob ? "bg-muted text-muted-foreground hover:bg-primary/20 cursor-pointer" : "bg-muted text-muted-foreground/40 cursor-not-allowed"}`}
+              >3</button>
               <span className="text-[10px] text-muted-foreground">SFIA Skills</span>
             </div>
             <h3 className="font-bold text-foreground text-lg">
