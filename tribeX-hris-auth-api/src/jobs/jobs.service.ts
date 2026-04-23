@@ -134,7 +134,7 @@ export class JobsService {
         salary_range: dto.salary_range ?? null,
         department_id: dto.department_id ?? null,
         closes_at: dto.closes_at ?? null,
-        status: 'open',
+        status: dto.status ?? 'open',
         posted_at: new Date().toISOString(),
       })
       .select()

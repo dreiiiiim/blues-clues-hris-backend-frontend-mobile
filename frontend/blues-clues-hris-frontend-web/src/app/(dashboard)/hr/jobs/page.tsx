@@ -380,11 +380,11 @@ function CreateJobModal({
       .catch(() => {});
   }, []);
 
-  const handleCreatePosting = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+  const handleCreatePosting = async (e: React.SyntheticEvent<HTMLFormElement>, asDraft = false) => {
     e.preventDefault();
     setSaving(true);
     try {
-      const payload: Record<string, string> = { title: form.title, description: form.description };
+      const payload: Record<string, string> = { title: form.title, description: form.description, status: asDraft ? "draft" : "open" };
       if (form.location.trim())     payload.location = form.location.trim();
       if (form.employment_type)     payload.employment_type = form.employment_type;
       if (form.salary_range.trim()) payload.salary_range = form.salary_range.trim();
@@ -393,7 +393,12 @@ function CreateJobModal({
 
       const job = await apiFetch<JobPosting>("/jobs", { method: "POST", body: JSON.stringify(payload) });
       setCreatedJob(job);
-      setStep(2);
+      if (asDraft) {
+        toast.success("Job saved as draft.");
+        onCreate(job);
+      } else {
+        setStep(2);
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to create job posting");
     } finally {
@@ -616,6 +621,15 @@ function CreateJobModal({
               </div>
               <div className="flex gap-3 pt-2">
                 <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1 gap-1.5 border-dashed text-muted-foreground hover:text-foreground"
+                  disabled={saving || !form.title.trim() || !form.description.trim()}
+                  onClick={() => handleCreatePosting({ preventDefault: () => {} } as any, true)}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save as Draft"}
+                </Button>
                 <Button type="submit" className="flex-1 gap-1.5" disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
                 </Button>

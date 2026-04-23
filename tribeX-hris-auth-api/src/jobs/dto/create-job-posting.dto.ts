@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateJobPostingDto {
   @IsString() @IsNotEmpty()
@@ -21,4 +21,7 @@ export class CreateJobPostingDto {
 
   @IsString() @IsOptional()
   closes_at?: string;
+
+  @IsString() @IsOptional() @IsIn(['open', 'draft'])
+  status?: 'open' | 'draft';
 }
