@@ -101,10 +101,10 @@ Monorepo, but each project has own `package.json` + `node_modules`. No workspace
 
 ## 3. Environment Setup (Quick)
 
-Full env values + walkthrough in main `README.md`. Summary:
+Safe env templates + walkthrough are in the main `README.md`. Real env values are not committed; get them from the private team setup document or password manager. Summary:
 
 1. `git clone` + `git pull origin main`
-2. Create `.env` files for backend, frontend, mobile (values in README §2)
+2. Create `.env` files for backend, frontend, mobile using README placeholders, then paste the private values locally
 3. Run **3 terminals**: backend (`npm run start:dev`), frontend (`npm run dev`), mobile (`npx expo start -c`)
 4. Default = `main` branch points frontend/mobile at **Railway** prod backend. Switch to localhost only if touching backend code.
 
@@ -220,7 +220,8 @@ Base path: `/api/tribeX/auth/v{major}/{resource}`
 ## 10. Secrets & Security
 
 - **Never commit `.env` files.** They're gitignored.
-- Don't paste real secrets in PRs, issues, or screenshots.
+- Don't paste real secrets in README/docs, PRs, issues, screenshots, or committed examples.
+- Private copy-paste env values belong only in the team password manager/private setup doc.
 - Service-role Supabase key = server-only. Never ship to frontend/mobile.
 - JWT secret rotation = coordinate with team; invalidates all sessions.
 - Brevo uses API key in `BREVO_API_KEY` (sent as `api-key` header). Rotate via Brevo dashboard. Sender domain must be verified.
@@ -269,7 +270,7 @@ A task is done only when:
 
 ## 14. Test Accounts
 
-See main `README.md` §Test Accounts. Default password (unless listed) = `password123`.
+See main `README.md` section Test Accounts for identifiers. Passwords stay in the private team setup document/password manager.
 
 ---
 
