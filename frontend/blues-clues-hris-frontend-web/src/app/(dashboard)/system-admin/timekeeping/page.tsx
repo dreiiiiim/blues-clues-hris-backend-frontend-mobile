@@ -18,6 +18,7 @@ import { ScheduleManagementModal, type DepartmentOption } from "@/components/tim
 import { EmployeeScheduleEditModal } from "@/components/timekeeping/EmployeeScheduleEditModal";
 import { AttendanceCalendarGrid, type CalendarDayData, type CalendarViewMode } from "@/components/timekeeping/AttendanceCalendarGrid";
 import { ScheduleRosterTable } from "@/components/timekeeping/ScheduleRosterTable";
+import { CompanyDefaultScheduleCard } from "@/components/timekeeping/CompanyDefaultScheduleCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ type UserRow = {
   department_id: string | null;
   department: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   department_name?: string | null;
-  schedule?: { workdays?: string | string[] | null } | null;
+  schedule?: { workdays?: string | string[] | null; start_time?: string | null } | null;
 };
 
 type PunchRow = {
@@ -43,6 +44,7 @@ type PunchRow = {
   location_name?: string | null;
   ip_address: string | null;
   is_mock_location: string;
+  clock_type?: string | null;
   log_status: string;
   absence_reason: string | null;
 };
@@ -119,7 +121,37 @@ function computeHoursDecimal(timeIn: string | null, timeOut: string | null): num
   return (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3600000;
 }
 
-function isLate(timeIn: string): boolean {
+function parseClockToMinutes(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const h = Number.parseInt(match[1], 10);
+  const m = Number.parseInt(match[2], 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function getClockInMinutesPHT(timestamp: string): number | null {
+  const clock = parseTs(timestamp).toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+  const [hour, minute] = clock.split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function isLate(timeIn: string, clockType?: string | null, schedule?: UserRow["schedule"]): boolean {
+  if (String(clockType ?? "").toUpperCase() === "LATE") return true;
+
+  const clockInMins = getClockInMinutesPHT(timeIn);
+  const scheduledStartMins = parseClockToMinutes(schedule?.start_time);
+  if (clockInMins != null && scheduledStartMins != null) {
+    return clockInMins > scheduledStartMins;
+  }
+
   return Number.parseInt(
     parseTs(timeIn).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Manila" }), 10
   ) >= 9;
@@ -162,7 +194,13 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): R
     if (!punchMap[p.employee_id]) punchMap[p.employee_id] = { clockIn: null, clockOut: null, absence: null };
     if (p.log_type === "time-in"  && !punchMap[p.employee_id].clockIn)  punchMap[p.employee_id].clockIn  = p;
     if (p.log_type === "time-out")                                       punchMap[p.employee_id].clockOut = p;
-    if (p.log_type === "absence"  && !punchMap[p.employee_id].absence)  punchMap[p.employee_id].absence  = p;
+    if (
+      p.log_type === "absence" &&
+      String(p.log_status ?? "").toUpperCase() !== "DENIED" &&
+      !punchMap[p.employee_id].absence
+    ) {
+      punchMap[p.employee_id].absence = p;
+    }
   }
   return users.map(u => {
     const e = punchMap[u.employee_id];
@@ -170,9 +208,9 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): R
     const time_out = e?.clockOut?.timestamp ?? null;
     const scheduleDayStatus = getScheduleDayStatus(u.schedule, date);
     let status: RosterEntry["status"] = scheduleDayStatus === "workday" ? "absent" : scheduleDayStatus;
-    if (e?.absence) status = "excused";
-    else if (time_in && time_out) status = isLate(time_in) ? "late" : "present";
-    else if (time_in) status = "clocked-in";
+    if (e?.absence?.absence_reason && String(e.absence.log_status ?? "").toUpperCase() === "APPROVED") status = "excused";
+    else if (time_in && time_out) status = isLate(time_in, e?.clockIn?.clock_type, u.schedule) ? "late" : "present";
+    else if (time_in) status = isLate(time_in, e?.clockIn?.clock_type, u.schedule) ? "late" : "clocked-in";
     const departmentName =
       (typeof u.department_name === "string" && u.department_name.trim()) ||
       (Array.isArray(u.department)
@@ -207,8 +245,9 @@ function computeStats(roster: RosterEntry[]) {
   const late    = roster.filter(r => r.status === "late").length;
   const absent  = roster.filter(r => r.status === "absent" || r.status === "excused").length;
   const totalHours = roster.reduce((s, r) => s + (r.hours_worked ?? 0), 0);
-  const avgHours   = present > 0 ? totalHours / present : 0;
-  const attendance_rate = scheduledTotal > 0 ? Math.round(((present + late) / scheduledTotal) * 100) : 0;
+  const attended = present + late;
+  const avgHours   = attended > 0 ? totalHours / attended : 0;
+  const attendance_rate = scheduledTotal > 0 ? Math.round((attended / scheduledTotal) * 100) : 0;
   return { total, present, late, absent, totalHours, avgHours, attendance_rate };
 }
 
@@ -226,7 +265,7 @@ const STATUS_CONFIG: Record<RosterEntry["status"], { label: string; className: s
 
 function StatusBadge({ status }: { readonly status: RosterEntry["status"] }) {
   const cfg = STATUS_CONFIG[status];
-  return <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${cfg.className}`}>{cfg.label}</span>;
+  return <span className={`inline-flex w-max shrink-0 whitespace-nowrap px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${cfg.className}`}>{cfg.label}</span>;
 }
 
 function StatCard({ icon: Icon, label, value, sub, colorClass }: {
@@ -402,13 +441,16 @@ export default function SystemAdminTimekeepingPage() {
 
   const calendarDays = useMemo<CalendarDayData[]>(() => {
     const today = toDateString(new Date());
+    const userMap = new Map(users.map((user) => [user.employee_id, user]));
     const dateMap: Record<string, { presentIds: Set<string>; lateIds: Set<string>; absentIds: Set<string> }> = {};
     for (const p of allPunches) {
       const d = p.timestamp.split("T")[0];
       if (!dateMap[d]) dateMap[d] = { presentIds: new Set(), lateIds: new Set(), absentIds: new Set() };
       if (p.log_type === "time-in") {
         dateMap[d].presentIds.add(p.employee_id);
-        if (isLate(p.timestamp)) dateMap[d].lateIds.add(p.employee_id);
+        if (isLate(p.timestamp, p.clock_type, userMap.get(p.employee_id)?.schedule)) {
+          dateMap[d].lateIds.add(p.employee_id);
+        }
       }
       if (p.log_type === "absence") dateMap[d].absentIds.add(p.employee_id);
     }
@@ -422,7 +464,7 @@ export default function SystemAdminTimekeepingPage() {
         summary: date > today ? undefined : { present: presentTotal - late, late, absent, total: users.length },
       };
     });
-  }, [allPunches, users.length]);
+  }, [allPunches, users]);
 
   const goToPrev  = useCallback(() => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; }), []);
   const goToNext  = useCallback(() => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; }), []);
@@ -515,7 +557,7 @@ export default function SystemAdminTimekeepingPage() {
             {!loading && (
               <div className="hidden sm:flex items-center gap-2 border-l border-white/15 pl-4">
                 <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-green-500/15 border border-green-400/20">
-                  <span className="text-lg font-bold text-green-300 leading-none">{stats.present}</span>
+                  <span className="text-lg font-bold text-green-300 leading-none">{stats.present + stats.late}</span>
                   <span className="text-[9px] text-green-300/70 uppercase tracking-widest font-bold">In</span>
                 </span>
                 <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-amber-500/15 border border-amber-400/20">
@@ -524,7 +566,7 @@ export default function SystemAdminTimekeepingPage() {
                 </span>
                 <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-red-500/15 border border-red-400/20">
                   <span className="text-lg font-bold text-red-300 leading-none">{stats.absent}</span>
-                  <span className="text-[9px] text-red-300/70 uppercase tracking-widest font-bold">Out</span>
+                  <span className="text-[9px] text-red-300/70 uppercase tracking-widest font-bold">Absent</span>
                 </span>
               </div>
             )}
@@ -662,30 +704,36 @@ export default function SystemAdminTimekeepingPage() {
 
       {/* ── Schedule Roster Panel ───────────────────────────────────────────────── */}
       {mainPanel === "schedules" && (
-        <ScheduleRosterTable
-          canEdit
-          refreshKey={scheduleRosterRefreshKey}
-          onEditEmployee={(userId, name, schedule) =>
-            setEditScheduleFor({ userId, name, schedule })
-          }
-          onEditDepartment={(departmentId, _departmentName, schedule) => {
-            setScheduleModalPreset({
-              scope: "department",
-              departmentId,
-              schedule: schedule
-                ? {
-                    start_time: schedule.start_time,
-                    end_time: schedule.end_time,
-                    break_start: schedule.break_start,
-                    break_end: schedule.break_end,
-                    workdays: schedule.workdays,
-                    is_nightshift: schedule.is_nightshift,
-                  }
-                : null,
-            });
-            setShowScheduleModal(true);
-          }}
-        />
+        <div className="space-y-4">
+          <CompanyDefaultScheduleCard
+            refreshKey={scheduleRosterRefreshKey}
+            onChanged={() => setScheduleRosterRefreshKey((v) => v + 1)}
+          />
+          <ScheduleRosterTable
+            canEdit
+            refreshKey={scheduleRosterRefreshKey}
+            onEditEmployee={(userId, name, schedule) =>
+              setEditScheduleFor({ userId, name, schedule })
+            }
+            onEditDepartment={(departmentId, _departmentName, schedule) => {
+              setScheduleModalPreset({
+                scope: "department",
+                departmentId,
+                schedule: schedule
+                  ? {
+                      start_time: schedule.start_time,
+                      end_time: schedule.end_time,
+                      break_start: schedule.break_start,
+                      break_end: schedule.break_end,
+                      workdays: schedule.workdays,
+                      is_nightshift: schedule.is_nightshift,
+                    }
+                  : null,
+              });
+              setShowScheduleModal(true);
+            }}
+          />
+        </div>
       )}
 
       {mainPanel === "attendance" && (<>
@@ -816,14 +864,14 @@ export default function SystemAdminTimekeepingPage() {
                   <td className="px-6 py-4 text-xs font-medium">{formatTime(r.time_in)}</td>
                   <td className="px-6 py-4 text-xs font-medium">{formatTime(r.time_out)}</td>
                   <td className="px-6 py-4 text-xs font-medium">{formatHours(r.time_in, r.time_out)}</td>
-                  <td className="px-6 py-4"><StatusBadge status={r.status} /></td>
-                  <td className="px-6 py-4">
+                  <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={r.status} /></td>
+                  <td className="px-6 py-4 max-w-[28rem]">
                     {r.status === "absent" || r.status === "excused" || r.status === "rest-day" || r.status === "no-schedule" ? (
                       <span className="text-muted-foreground text-xs">—</span>
                     ) : r.gps_verified ? (
-                      <div className="flex items-center gap-1.5 text-green-600">
-                        <MapPin className="h-3.5 w-3.5" />
-                        <span className="text-[10px] font-semibold leading-4">
+                      <div className="flex min-w-0 items-start gap-1.5 text-green-600">
+                        <MapPin className="h-3.5 w-3.5 shrink-0 translate-y-0.5" />
+                        <span className="min-w-0 whitespace-normal break-words text-[10px] font-semibold leading-4">
                           {formatGpsLocation(
                             r.clock_in_latitude,
                             r.clock_in_longitude,

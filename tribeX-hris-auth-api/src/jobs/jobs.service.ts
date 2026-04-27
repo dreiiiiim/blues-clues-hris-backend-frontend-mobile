@@ -11,6 +11,7 @@ import { Cron } from '@nestjs/schedule';
 import * as crypto from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
 import * as mammoth from 'mammoth';
+import WordExtractor from 'word-extractor';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
@@ -27,6 +28,8 @@ import { InterviewResponseDto } from './dto/interview-response.dto';
 import { OnboardingService } from '../onboarding/onboarding.service';
 
 type RankingMode = 'sfia' | 'manual';
+
+type ResumeDocumentType = 'pdf' | 'docx' | 'doc' | 'unknown';
 
 type SfiaDemandSkill = {
   skill_id: string;
@@ -1592,17 +1595,22 @@ export class JobsService {
       try {
         const resumeBuffer = await this.downloadResumeBuffer(dto.resume_storage_path);
         if (resumeBuffer) {
-          const lowerPath = dto.resume_storage_path.toLowerCase();
-          const mimeType = lowerPath.endsWith('.pdf')
-            ? 'application/pdf'
-            : lowerPath.endsWith('.docx')
-              ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-              : 'application/octet-stream';
-          const resumeText = await this.extractResumeText(resumeBuffer, mimeType);
+          const detectedResume = this.detectResumeDocumentType(
+            resumeBuffer,
+            dto.resume_storage_path,
+          );
+          const resumeText = await this.extractResumeText(
+            resumeBuffer,
+            detectedResume.mimeType,
+          );
           if (resumeText.trim().length > 0) {
             const allSkills = await this.getAllSfiaSkills();
             const matches = this.matchSkillsFromText(resumeText, allSkills);
             await this.populateCandidateSkillScores(application_id, matches);
+          } else {
+            this.logger.warn(
+              `SFIA resume extraction returned empty text for ${dto.resume_storage_path} (detected: ${detectedResume.type}, mime: ${detectedResume.mimeType})`,
+            );
           }
         }
       } catch (err) {
@@ -2447,9 +2455,9 @@ export class JobsService {
     return [];
   }
 
-  // ─── B7: Cron — Auto-mark absent at end of day (11:59 PM Manila) ──────────
+  // ─── B7: Cron — Auto-mark absent once shift has ended (runs hourly) ─────────
 
-  @Cron('59 23 * * *', { timeZone: 'Asia/Manila', name: 'autoMarkAbsent' })
+  @Cron('0 * * * *', { timeZone: 'Asia/Manila', name: 'autoMarkAbsent' })
   async autoMarkAbsent() {
     const supabase = this.supabaseService.getClient();
     const cronLogger = new Logger('autoMarkAbsent');
@@ -2459,9 +2467,20 @@ export class JobsService {
     const manilaEnd = `${manilaDate}T23:59:59.999+08:00`;
     const dayCode = this.getManilaDayCode();
 
+    // Current Manila time in minutes since midnight
+    const nowManila = new Date();
+    const nowHH = Number(
+      new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Manila' }).format(nowManila),
+    );
+    const nowMM = Number(
+      new Intl.DateTimeFormat('en-US', { minute: '2-digit', timeZone: 'Asia/Manila' }).format(nowManila),
+    );
+    const nowMins = nowHH * 60 + nowMM;
+    const GRACE = 30;
+
     const { data: schedules, error: schedErr } = await supabase
       .from('schedules')
-      .select('employee_id, workdays, effective_from, updated_at')
+      .select('employee_id, workdays, end_time, is_nightshift, effective_from, updated_at')
       .lte('effective_from', manilaDate)
       .order('employee_id', { ascending: true })
       .order('effective_from', { ascending: false })
@@ -2478,10 +2497,19 @@ export class JobsService {
 
     const scheduledToday = Array.from(latestByEmployee.values()).filter((s: any) => {
       const workdays = this.parseScheduleWorkdays(s.workdays);
-      return workdays.includes(dayCode);
+      if (!workdays.includes(dayCode)) return false;
+      // Only mark absent after their shift end + grace period
+      const endTime: string | null = s.end_time ?? null;
+      if (!endTime) return true;
+      const match = /^(\d{1,2}):(\d{2})/.exec(endTime);
+      if (!match) return true;
+      const endMins = Number(match[1]) * 60 + Number(match[2]);
+      // Night shift employees: only mark at end of calendar day
+      if (s.is_nightshift) return nowMins >= 23 * 60;
+      return nowMins >= endMins + GRACE;
     });
 
-    if (scheduledToday.length === 0) { cronLogger.log(`No employees scheduled for ${manilaDate}`); return; }
+    if (scheduledToday.length === 0) { cronLogger.log(`No employees with ended shifts for ${manilaDate}`); return; }
 
     const employeeIds = scheduledToday.map((s: any) => s.employee_id as string).filter(Boolean);
 
@@ -2494,6 +2522,8 @@ export class JobsService {
 
     const loggedSet = new Set((existingLogs ?? []).map((l: any) => l.employee_id as string));
 
+    const markTimestamp = `${manilaDate}T${String(nowHH).padStart(2, '0')}:${String(nowMM).padStart(2, '0')}:00.000+08:00`;
+
     const absentRows = scheduledToday
       .filter((s: any) => !loggedSet.has(s.employee_id as string))
       .map((s: any) => ({
@@ -2502,13 +2532,14 @@ export class JobsService {
         log_type: 'absence',
         status: 'ABSENT',
         clock_type: 'ABSENT_NO_CLOCKIN',
-        timestamp: `${manilaDate}T23:59:00.000+08:00`,
+        timestamp: markTimestamp,
         log_status: 'ABSENT',
         absence_reason: null,
         absence_notes: 'Auto-marked by system - no clock-in recorded',
+        is_mock_location: false,
       }));
 
-    if (absentRows.length === 0) { cronLogger.log(`All scheduled employees clocked in on ${manilaDate}`); return; }
+    if (absentRows.length === 0) { cronLogger.log(`All scheduled-and-ended employees clocked in on ${manilaDate}`); return; }
 
     const { error: insertErr } = await supabase.from('attendance_time_logs').insert(absentRows);
     if (insertErr) cronLogger.error(`Failed to insert absent records: ${insertErr.message}`);
@@ -2570,6 +2601,53 @@ export class JobsService {
 
   // ── SFIA Resume Skill Extraction ────────────────────────────────────────────
 
+  private detectResumeDocumentType(
+    buffer: Buffer,
+    storagePath: string,
+  ): { type: ResumeDocumentType; mimeType: string } {
+    const lowerPath = storagePath.toLowerCase();
+    const startsWithPdf = buffer.subarray(0, 4).toString('utf8') === '%PDF';
+    if (startsWithPdf) {
+      return { type: 'pdf', mimeType: 'application/pdf' };
+    }
+
+    const startsWithZip = buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4b;
+    const containsDocxDocument = buffer.includes(Buffer.from('word/document.xml'));
+    if (startsWithZip && containsDocxDocument) {
+      return {
+        type: 'docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      };
+    }
+
+    const startsWithCompoundFile =
+      buffer.length >= 8 &&
+      buffer[0] === 0xd0 &&
+      buffer[1] === 0xcf &&
+      buffer[2] === 0x11 &&
+      buffer[3] === 0xe0 &&
+      buffer[4] === 0xa1 &&
+      buffer[5] === 0xb1 &&
+      buffer[6] === 0x1a &&
+      buffer[7] === 0xe1;
+    if (startsWithCompoundFile || lowerPath.endsWith('.doc')) {
+      return { type: 'doc', mimeType: 'application/msword' };
+    }
+
+    if (lowerPath.endsWith('.pdf')) {
+      return { type: 'pdf', mimeType: 'application/pdf' };
+    }
+
+    if (lowerPath.endsWith('.docx')) {
+      return {
+        type: 'docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      };
+    }
+
+    return { type: 'unknown', mimeType: 'application/octet-stream' };
+  }
+
   private async extractResumeText(buffer: Buffer, mimeType: string): Promise<string> {
     try {
       if (mimeType === 'application/pdf') {
@@ -2584,6 +2662,12 @@ export class JobsService {
       ) {
         const { value } = await mammoth.extractRawText({ buffer });
         return value ?? '';
+      }
+      // DOC: legacy CFB binary — word-extractor handles it (pure JS, no native deps)
+      if (mimeType === 'application/msword') {
+        const extractor = new WordExtractor();
+        const doc = await extractor.extract(buffer);
+        return doc.getBody() ?? '';
       }
       return '';
     } catch {

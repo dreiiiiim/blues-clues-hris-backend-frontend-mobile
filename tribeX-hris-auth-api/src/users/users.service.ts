@@ -11,6 +11,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TimekeepingService } from '../timekeeping/timekeeping.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateChangeRequestDto } from './dto/create-change-request.dto';
@@ -176,6 +177,7 @@ export class UsersService {
     private readonly config: ConfigService,
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
+    private readonly timekeepingService: TimekeepingService,
   ) {}
 
   // All queries filter by company_id. company_id comes from req.user.
@@ -1011,6 +1013,22 @@ export class UsersService {
       this.throwInsertUserError(insertError);
     }
 
+    try {
+      await this.timekeepingService.assignInitialScheduleForEmployee({
+        companyId,
+        employeeId: employee_id,
+        departmentId: dto.department_id ?? null,
+        effectiveDate: dto.start_date ?? null,
+        updatedByName: null,
+      });
+    } catch (scheduleError) {
+      this.logger.warn(
+        `Could not assign initial schedule for user ${user_id}: ${
+          scheduleError instanceof Error ? scheduleError.message : String(scheduleError)
+        }`,
+      );
+    }
+
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
@@ -1164,14 +1182,13 @@ export class UsersService {
           ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
           : null;
 
-        if (normalizedDepartmentId) {
-          await this.inheritDepartmentScheduleForEmployee(
-            companyId,
-            normalizedDepartmentId,
-            updatedUser.employee_id,
-            updaterName,
-          );
-        }
+        await this.timekeepingService.assignInitialScheduleForEmployee({
+          companyId,
+          employeeId: updatedUser.employee_id,
+          departmentId: normalizedDepartmentId || null,
+          effectiveDate: updatedUser.start_date ?? null,
+          updatedByName: updaterName,
+        });
       } catch (scheduleError) {
         this.logger.warn(
           `Could not sync department schedule for user ${id}: ${

@@ -39,7 +39,15 @@ export default function SharedDashboardLayout({
       const needsRefresh = !payload?.exp || Date.now() / 1000 >= payload.exp - 30;
       if (needsRefresh) setIsAuthorized(false);
 
-      const res = await authFetch(`${API_BASE_URL}/me`);
+      let res: Response;
+      try {
+        res = await authFetch(`${API_BASE_URL}/me`);
+      } catch {
+        clearAuthStorage();
+        router.replace("/login");
+        return;
+      }
+
       if (!res.ok) {
         clearAuthStorage();
         router.replace("/login");

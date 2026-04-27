@@ -6,10 +6,11 @@ import { SupabaseModule } from '../supabase/supabase.module';
 import { MailModule } from '../mail/mail.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { TimekeepingModule } from '../timekeeping/timekeeping.module';
 
 @Module({
   controllers: [UsersController],
   providers: [UsersService],
-  imports: [AuthModule, SupabaseModule, MailModule, AuditModule, NotificationsModule],
+  imports: [AuthModule, SupabaseModule, MailModule, AuditModule, NotificationsModule, TimekeepingModule],
 })
 export class UsersModule {}

@@ -171,7 +171,7 @@ function SourceBadge({ source, startTime, endTime }: {
   if (source === "default") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
-        Default
+        Company Default
       </span>
     );
   }
@@ -473,7 +473,7 @@ export function ScheduleRosterTable({
           <option value="custom">Custom only</option>
           <option value="standard">Standard only</option>
           <option value="department">Department only</option>
-          <option value="default">Default only</option>
+          <option value="default">Company default only</option>
           <option value="unset">Unset only</option>
         </select>
 

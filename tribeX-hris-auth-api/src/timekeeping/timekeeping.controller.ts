@@ -23,6 +23,7 @@ import { ReportAbsenceDto } from './dto/report-absence.dto';
 import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { ScheduleEffectiveDateDto } from './dto/schedule-effective-date.dto';
+import { CompanyDefaultScheduleDto } from './dto/company-default-schedule.dto';
 import { ReviewAbsenceDto } from './dto/review-absence.dto';
 import { EditAttendanceDto } from './dto/edit-attendance.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -276,6 +277,40 @@ export class TimekeepingController {
   @ApiOperation({ summary: 'HR/Manager: Get all employees with their assigned schedules' })
   getAllSchedules(@Req() req: any) {
     return this.timekeepingService.getAllSchedules(req.user.company_id);
+  }
+
+  @Get('schedules/company-default')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR/System Admin: Get the company default schedule for new employees' })
+  getCompanyDefaultSchedule(@Req() req: any) {
+    return this.timekeepingService.getCompanyDefaultSchedule(req.user.company_id);
+  }
+
+  @Put('schedules/company-default')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({ summary: 'HR/System Admin: Create or update the company default schedule for new employees' })
+  upsertCompanyDefaultSchedule(
+    @Body() dto: CompanyDefaultScheduleDto,
+    @Req() req: any,
+  ) {
+    return this.timekeepingService.upsertCompanyDefaultSchedule(
+      dto,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
+  }
+
+  @Post('schedules/company-default/backfill')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({ summary: 'HR/System Admin: Apply company default schedule to unscheduled employees without a department' })
+  backfillCompanyDefaultSchedule(@Req() req: any) {
+    return this.timekeepingService.backfillCompanyDefaultSchedule(
+      req.user.company_id,
+      req.user.sub_userid,
+    );
   }
 
   @Get('employees/:userId/schedule')

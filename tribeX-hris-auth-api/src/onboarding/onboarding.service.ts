@@ -5,6 +5,7 @@ import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { TimekeepingService } from '../timekeeping/timekeeping.service';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { SaveProfileDto } from './dto/save-profile.dto';
@@ -21,6 +22,7 @@ export class OnboardingService {
     private readonly config: ConfigService,
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
+    private readonly timekeepingService: TimekeepingService,
   ) {}
 
   private normalizeDocType(title: string): string {
@@ -976,51 +978,16 @@ export class OnboardingService {
               ((createdProfile as any)?.department_id as string | null | undefined) ??
               null;
 
-            // Inherit department schedule if the department already has employees with a bulk/department schedule
-            if (inheritedDepartmentId) {
-              try {
-                const effectiveFrom = new Intl.DateTimeFormat('en-CA', {
-                  timeZone: 'Asia/Manila',
-                }).format(new Date());
-                const { data: deptMembers } = await supabase
-                  .from('user_profile')
-                  .select('employee_id')
-                  .eq('department_id', inheritedDepartmentId)
-                  .not('employee_id', 'is', null)
-                  .limit(50);
-
-                const memberEmpIds = (deptMembers ?? []).map((e: any) => e.employee_id as string).filter(Boolean);
-                if (memberEmpIds.length > 0) {
-                  const { data: deptSchedule } = await supabase
-                    .from('schedules')
-                    .select('start_time, end_time, break_start, break_end, workdays, is_nightshift')
-                    .in('employee_id', memberEmpIds)
-                    .neq('schedule_source', 'individual')
-                    .lte('effective_from', effectiveFrom)
-                    .order('effective_from', { ascending: false })
-                    .order('updated_at', { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-
-                  if (deptSchedule) {
-                    await supabase.from('schedules').upsert({
-                      employee_id: employeeCode,
-                      effective_from: effectiveFrom,
-                      start_time: deptSchedule.start_time,
-                      end_time: deptSchedule.end_time,
-                      break_start: deptSchedule.break_start ?? '00:00',
-                      break_end: deptSchedule.break_end ?? '00:00',
-                      workdays: deptSchedule.workdays,
-                      is_nightshift: deptSchedule.is_nightshift ?? false,
-                      schedule_source: 'bulk',
-                      updated_at: new Date().toISOString(),
-                    }, { onConflict: 'employee_id,effective_from' });
-                    this.logger.log(`[approveSession] Inherited department schedule for new employee ${employeeCode}`);
-                  }
-                }
-              } catch (schedErr) {
-                this.logger.warn(`[approveSession] Could not inherit department schedule: ${(schedErr as any)?.message}`);
-              }
+            try {
+              const assignment = await this.timekeepingService.assignInitialScheduleForEmployee({
+                companyId: applicant.company_id,
+                employeeId: employeeCode,
+                departmentId: inheritedDepartmentId,
+                updatedByName: null,
+              });
+              this.logger.log(`[approveSession] Initial schedule assignment for ${employeeCode}: ${assignment.source}`);
+            } catch (schedErr) {
+              this.logger.warn(`[approveSession] Could not assign initial schedule: ${(schedErr as any)?.message}`);
             }
 
             // Re-link session to the new user_id so getSessionContext works going forward
@@ -1779,6 +1746,21 @@ export class OnboardingService {
       ...(submission.start_date     ? { start_date:        submission.start_date }    : {}),
     });
     if (insertError) throw new InternalServerErrorException(insertError.message);
+
+    try {
+      const assignment = await this.timekeepingService.assignInitialScheduleForEmployee({
+        companyId,
+        employeeId: employeeCode,
+        departmentId: submission.department_id ?? null,
+        effectiveDate: submission.start_date ?? null,
+        updatedByName: null,
+      });
+      this.logger.log(`[approveOnboardingSubmission] Initial schedule assignment for ${employeeCode}: ${assignment.source}`);
+    } catch (scheduleError) {
+      this.logger.warn(
+        `[approveOnboardingSubmission] Could not assign initial schedule: ${(scheduleError as any)?.message}`,
+      );
+    }
 
     // Block applicant portal login — account is now an employee
     const { error: applicantStatusError } = await supabase

@@ -134,19 +134,46 @@ function formatLongDate(iso: string): string {
 
 type EntryStatus = "on-time" | "late" | "in-progress" | "absent" | "excused";
 
-function getEntryStatus(entry: TimesheetEntry): EntryStatus {
-  if (!entry.time_in) {
-    return String(entry.absence?.log_status ?? "").toUpperCase() === "APPROVED"
-      ? "excused"
-      : "absent";
+function getClockInMinutesPHT(timestamp: string): number | null {
+  const clock = parseTs(timestamp).toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+  const [hour, minute] = clock.split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function isLateClockIn(entry: TimesheetEntry, schedule?: ScheduleInfo): boolean {
+  if (!entry.time_in) return false;
+
+  const clockInMins = getClockInMinutesPHT(entry.time_in.timestamp);
+  if (clockInMins == null) return false;
+
+  const scheduledStartMins = parseClockToMinutes(schedule?.start_time);
+  if (scheduledStartMins != null) {
+    return clockInMins > scheduledStartMins;
   }
-  if (!entry.time_out) return "in-progress";
+
   const hourPST = Number.parseInt(
     parseTs(entry.time_in.timestamp).toLocaleString("en-US", {
       hour: "numeric", hour12: false, timeZone: "Asia/Manila",
     }), 10
   );
-  return hourPST >= 9 ? "late" : "on-time";
+  return hourPST >= 9;
+}
+
+function getEntryStatus(entry: TimesheetEntry, schedule?: ScheduleInfo): EntryStatus {
+  if (!entry.time_in) {
+    return String(entry.absence?.log_status ?? "").toUpperCase() === "APPROVED"
+      ? "excused"
+      : "absent";
+  }
+  if (isLateClockIn(entry, schedule)) return "late";
+  if (!entry.time_out) return "in-progress";
+  return "on-time";
 }
 
 const ENTRY_STATUS_CONFIG: Record<EntryStatus, { label: string; badge: string; dot: string; cell: string }> = {
@@ -343,7 +370,7 @@ function CalendarDayModal({
   schedule: ScheduleInfo;
   locationDisplayMode: LocationDisplayMode;
 }>) {
-  const status = entry ? getEntryStatus(entry) : null;
+  const status = entry ? getEntryStatus(entry, schedule) : null;
   const cfg    = status ? ENTRY_STATUS_CONFIG[status] : null;
   const isFuture = dateStr > todayPST();
   const absenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
@@ -931,15 +958,7 @@ export default function EmployeeTimekeepingPage() {
       .catch(() => setFetchError(true))
       .finally(() => setSheetLoading(false));
 
-    // Stats for current month
-    const now = new Date();
-    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-    authFetch(`${API_BASE_URL}/timekeeping/my-stats?from=${from}&to=${to}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setMyStats(data); })
-      .catch(() => {});
+    fetchMyStats();
 
     // My schedule
     authFetch(`${API_BASE_URL}/timekeeping/my-schedule`)
@@ -948,10 +967,22 @@ export default function EmployeeTimekeepingPage() {
       .catch(() => {});
   }, []);
 
+  async function fetchMyStats() {
+    const now = new Date();
+    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+    const data = await authFetch(`${API_BASE_URL}/timekeeping/my-stats?from=${from}&to=${to}`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null);
+    if (data) setMyStats(data);
+  }
+
   async function refreshData() {
     const [s, t] = await Promise.all([
       authFetch(`${API_BASE_URL}/timekeeping/my-status`).then(r => r.json()),
       authFetch(`${API_BASE_URL}/timekeeping/my-timesheet`).then(r => r.json()),
+      fetchMyStats(),
     ]);
     setStatus(s);
     setTimesheet(t);
@@ -1242,7 +1273,7 @@ export default function EmployeeTimekeepingPage() {
           const entry       = dateMap[dateStr];
           const isToday     = dateStr === today;
           const isFuture    = dateStr > today;
-          const entryStatus = entry ? getEntryStatus(entry) : null;
+          const entryStatus = entry ? getEntryStatus(entry, mySchedule) : null;
           const cfg         = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
           const entryAbsenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
           const isAbsent    = entryStatus === "absent" || entryStatus === "excused";
@@ -1253,7 +1284,8 @@ export default function EmployeeTimekeepingPage() {
           const isDayWork  = workdaySet.has(dayCode);
 
           let cellClass = "bg-background border-border hover:border-primary/30";
-          if (isToday)                   cellClass = "bg-primary/10 border-primary shadow-md";
+          if (isToday && cfg)            cellClass = `${cfg.cell} border-primary shadow-md ring-2 ring-primary/20`;
+          else if (isToday)              cellClass = "bg-primary/10 border-primary shadow-md";
           else if (cfg)                  cellClass = `${cfg.cell} border hover:opacity-90`;
           else if (isFuture && isDayWork) cellClass = "bg-blue-50/60 border-blue-200/70 opacity-70 hover:opacity-100";
           else if (isFuture)             cellClass = "bg-background border-border opacity-35 hover:opacity-60";
@@ -1310,7 +1342,7 @@ export default function EmployeeTimekeepingPage() {
               )}
 
               {/* Status dot */}
-              {!isToday && cfg && (
+              {cfg && (
                 <div className="mt-auto pt-1">
                   <span className={`inline-block h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
                 </div>
@@ -1733,7 +1765,7 @@ export default function EmployeeTimekeepingPage() {
         {timesheet.length === 0 ? (
           <p className="px-6 py-10 text-center text-muted-foreground text-sm">No attendance records found.</p>
         ) : paged.map(entry => {
-          const entryStatus = getEntryStatus(entry);
+          const entryStatus = getEntryStatus(entry, mySchedule);
           const cfg = ENTRY_STATUS_CONFIG[entryStatus];
           const entryAbsenceMeta = getAbsenceReviewMeta(entry.absence?.log_status);
           return (

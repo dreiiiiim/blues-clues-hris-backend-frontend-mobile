@@ -18,6 +18,7 @@ import { ScheduleManagementModal, type DepartmentOption } from "@/components/tim
 import { EmployeeScheduleEditModal } from "@/components/timekeeping/EmployeeScheduleEditModal";
 import { AttendanceCalendarGrid, type CalendarDayData, type CalendarViewMode } from "@/components/timekeeping/AttendanceCalendarGrid";
 import { ScheduleRosterTable } from "@/components/timekeeping/ScheduleRosterTable";
+import { CompanyDefaultScheduleCard } from "@/components/timekeeping/CompanyDefaultScheduleCard";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ type UserRow = {
   department_id: string | null;
   department: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   department_name?: string | null;
-  schedule?: { workdays?: string | string[] | null } | null;
+  schedule?: { workdays?: string | string[] | null; start_time?: string | null } | null;
 };
 
 type PunchRow = {
@@ -43,6 +44,7 @@ type PunchRow = {
   location_name?: string | null;
   ip_address: string | null;
   is_mock_location: string;
+  clock_type?: string | null;
   log_status: string;
   absence_reason: string | null;
   absence_notes: string | null;
@@ -230,7 +232,37 @@ function computeHoursDecimal(timeIn: string | null, timeOut: string | null): num
   return (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3600000;
 }
 
-function isLate(timeIn: string): boolean {
+function parseClockToMinutes(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const h = Number.parseInt(match[1], 10);
+  const m = Number.parseInt(match[2], 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function getClockInMinutesPHT(timestamp: string): number | null {
+  const clock = parseTs(timestamp).toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+  const [hour, minute] = clock.split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function isLate(timeIn: string, clockType?: string | null, schedule?: UserRow["schedule"]): boolean {
+  if (String(clockType ?? "").toUpperCase() === "LATE") return true;
+
+  const clockInMins = getClockInMinutesPHT(timeIn);
+  const scheduledStartMins = parseClockToMinutes(schedule?.start_time);
+  if (clockInMins != null && scheduledStartMins != null) {
+    return clockInMins > scheduledStartMins;
+  }
+
   const h = Number.parseInt(
     parseTs(timeIn).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Manila" }), 10
   );
@@ -375,8 +407,8 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): R
 
     const scheduleDayStatus = getScheduleDayStatus(u.schedule, date);
     let status: RosterEntry["status"] = scheduleDayStatus === "workday" ? "absent" : scheduleDayStatus;
-    if (time_in && time_out)     status = isLate(time_in) ? "late" : "present";
-    else if (time_in)            status = "clocked-in";
+    if (time_in && time_out)     status = isLate(time_in, ci?.clock_type, u.schedule) ? "late" : "present";
+    else if (time_in)            status = isLate(time_in, ci?.clock_type, u.schedule) ? "late" : "clocked-in";
     else if (ab?.absence_reason && String(ab.log_status ?? "").toUpperCase() === "APPROVED") status = "excused";
 
     const departmentName =
@@ -405,17 +437,17 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): R
 }
 
 function buildPeriodRoster(users: UserRow[], punches: PunchRow[], from: string, to: string): PeriodEntry[] {
-  type DayData = { ci: string | null; co: string | null; late: boolean };
+  type DayData = { ci: string | null; co: string | null; clockType: string | null };
   const empMap: Record<string, Record<string, DayData>> = {};
 
   for (const p of punches) {
     const d = p.timestamp.split("T")[0];
     if (!empMap[p.employee_id])    empMap[p.employee_id] = {};
-    if (!empMap[p.employee_id][d]) empMap[p.employee_id][d] = { ci: null, co: null, late: false };
+    if (!empMap[p.employee_id][d]) empMap[p.employee_id][d] = { ci: null, co: null, clockType: null };
 
     if (p.log_type === "time-in" && !empMap[p.employee_id][d].ci) {
       empMap[p.employee_id][d].ci   = p.timestamp;
-      empMap[p.employee_id][d].late = isLate(p.timestamp);
+      empMap[p.employee_id][d].clockType = p.clock_type ?? null;
     }
     if (p.log_type === "time-out") empMap[p.employee_id][d].co = p.timestamp;
   }
@@ -428,12 +460,14 @@ function buildPeriodRoster(users: UserRow[], punches: PunchRow[], from: string, 
 
     for (const day of workDays) {
       const d = dayMap[day];
-      if (d?.ci && d?.co) {
-        const h = computeHoursDecimal(d.ci, d.co) ?? 0;
-        total_hours   += h;
+      if (d?.ci) {
         days_present++;
-        if (d.late)  days_late++;
-        if (h > 8)   overtime_hours += h - 8;
+        if (isLate(d.ci, d.clockType, u.schedule))  days_late++;
+        if (d.co) {
+          const h = computeHoursDecimal(d.ci, d.co) ?? 0;
+          total_hours += h;
+          if (h > 8) overtime_hours += h - 8;
+        }
       }
     }
 
@@ -470,8 +504,9 @@ function computeStats(roster: RosterEntry[]) {
   const late    = roster.filter(r => r.status === "late").length;
   const absent  = roster.filter(r => r.status === "absent" || r.status === "excused").length;
   const totalHours = roster.reduce((s, r) => s + (r.hours_worked ?? 0), 0);
-  const avgHours   = present > 0 ? totalHours / present : 0;
-  const attendance_rate = scheduledTotal > 0 ? Math.round(((present + late) / scheduledTotal) * 100) : 0;
+  const attended = present + late;
+  const avgHours   = attended > 0 ? totalHours / attended : 0;
+  const attendance_rate = scheduledTotal > 0 ? Math.round((attended / scheduledTotal) * 100) : 0;
   return { total, present, late, absent, totalHours, avgHours, attendance_rate };
 }
 
@@ -546,7 +581,7 @@ const STATUS_CONFIG: Record<RosterEntry["status"], { label: string; className: s
 function StatusBadge({ status }: Readonly<{ status: RosterEntry["status"] }>) {
   const cfg = STATUS_CONFIG[status];
   return (
-    <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${cfg.className}`}>
+    <span className={`inline-flex w-max shrink-0 whitespace-nowrap px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${cfg.className}`}>
       {cfg.label}
     </span>
   );
@@ -646,7 +681,8 @@ function buildSliderDays(
   punches: PunchRow[],
   employeeId: string,
   from: string,
-  to: string
+  to: string,
+  schedule?: UserRow["schedule"],
 ): SliderDay[] {
   const emp = punches.filter((p) => p.employee_id === employeeId);
   const today = toDateString(new Date());
@@ -687,7 +723,7 @@ function buildSliderDays(
       absenceReason: ab?.absence_reason ?? null,
       isWeekend: dow === 0 || dow === 6,
       isFuture: date > today,
-      isLate: ci ? isLate(ci.timestamp) : false,
+      isLate: ci ? isLate(ci.timestamp, ci.clock_type, schedule) : false,
       isOutsideRange, // New flag for styling
     });
     cur.setDate(cur.getDate() + 1);
@@ -1068,7 +1104,7 @@ function EmployeeSlideOver({
 
   // Data for attendance tab
   const allSliderDays =
-    dashboardFilter !== "day" ? buildSliderDays(allPunches, employeeId, dashboardFrom, dashboardTo) : [];
+    dashboardFilter !== "day" ? buildSliderDays(allPunches, employeeId, dashboardFrom, dashboardTo, schedule) : [];
   
   // Mark non-working days based on schedule
   const sliderDays = schedule ? allSliderDays.map((day) => {
@@ -1997,6 +2033,7 @@ export default function HRTimekeepingPage() {
   const calendarDays = useMemo<CalendarDayData[]>(() => {
     const today = toDateString(new Date());
     const employeeIds = new Set(filteredUsersForCalendar.map((u) => u.employee_id));
+    const userMap = new Map(filteredUsersForCalendar.map((user) => [user.employee_id, user]));
     const dateMap: Record<string, { presentIds: Set<string>; lateIds: Set<string>; absentIds: Set<string> }> = {};
 
     for (const punch of calendarPunches) {
@@ -2005,7 +2042,9 @@ export default function HRTimekeepingPage() {
       if (!dateMap[date]) dateMap[date] = { presentIds: new Set(), lateIds: new Set(), absentIds: new Set() };
       if (punch.log_type === "time-in") {
         dateMap[date].presentIds.add(punch.employee_id);
-        if (isLate(punch.timestamp)) dateMap[date].lateIds.add(punch.employee_id);
+        if (isLate(punch.timestamp, punch.clock_type, userMap.get(punch.employee_id)?.schedule)) {
+          dateMap[date].lateIds.add(punch.employee_id);
+        }
       }
       if (punch.log_type === "absence") dateMap[date].absentIds.add(punch.employee_id);
     }
@@ -2101,8 +2140,8 @@ export default function HRTimekeepingPage() {
         <td className="px-6 py-4 text-xs font-medium">{formatTime(row.time_in)}</td>
         <td className="px-6 py-4 text-xs font-medium">{formatTime(row.time_out)}</td>
         <td className="px-6 py-4 text-xs font-medium">{formatHoursLabel(row.time_in, row.time_out)}</td>
-        <td className="px-6 py-4"><StatusBadge status={row.status} /></td>
-        <td className="px-6 py-4">
+        <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={row.status} /></td>
+        <td className="px-6 py-4 max-w-[28rem]">
           {row.absence_reason ? (
             <div className="flex items-center gap-1.5 text-purple-600">
               <FileX className="h-3.5 w-3.5 shrink-0" />
@@ -2131,9 +2170,9 @@ export default function HRTimekeepingPage() {
           {row.status === "absent" || row.status === "excused" || row.status === "rest-day" || row.status === "no-schedule" ? (
             <span className="text-muted-foreground text-xs">—</span>
           ) : row.gps_verified ? (
-            <div className="flex items-center gap-1.5 text-green-600">
-              <MapPin className="h-3.5 w-3.5" />
-              <span className="text-[10px] font-semibold leading-4">
+            <div className="flex min-w-0 items-start gap-1.5 text-green-600">
+              <MapPin className="h-3.5 w-3.5 shrink-0 translate-y-0.5" />
+              <span className="min-w-0 whitespace-normal break-words text-[10px] font-semibold leading-4">
                 {formatGpsForMode(
                   row.clock_in_latitude,
                   row.clock_in_longitude,
@@ -2363,7 +2402,7 @@ export default function HRTimekeepingPage() {
                     </span>
                     <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-red-500/15 border border-red-400/20">
                       <span className="text-lg font-bold text-red-300 leading-none">{stats.absent}</span>
-                      <span className="text-[9px] text-red-300/70 uppercase tracking-widest font-bold">Out</span>
+                      <span className="text-[9px] text-red-300/70 uppercase tracking-widest font-bold">Absent</span>
                     </span>
                   </>
                 ) : (
@@ -2583,30 +2622,39 @@ export default function HRTimekeepingPage() {
 
       {/* ── Schedule Roster ─────────────────────────────────────────────────── */}
       {mainPanel === "schedules" && (
-        <ScheduleRosterTable
-          canEdit
-          refreshKey={scheduleRosterRefreshKey}
-          onEditEmployee={(userId, name, schedule) =>
-            setEditScheduleUser({ employeeId: userId, name, schedule, effectiveLabel })
-          }
-          onEditDepartment={(departmentId, _departmentName, schedule) => {
-            setScheduleModalPreset({
-              scope: "department",
-              departmentId,
-              schedule: schedule
-                ? {
-                    start_time: schedule.start_time,
-                    end_time: schedule.end_time,
-                    break_start: schedule.break_start,
-                    break_end: schedule.break_end,
-                    workdays: schedule.workdays,
-                    is_nightshift: schedule.is_nightshift,
-                  }
-                : null,
-            });
-            setShowScheduleModal(true);
-          }}
-        />
+        <div className="space-y-4">
+          <CompanyDefaultScheduleCard
+            refreshKey={scheduleRosterRefreshKey}
+            onChanged={() => {
+              setScheduleRosterRefreshKey(v => v + 1);
+              void refreshTimekeepingData(false);
+            }}
+          />
+          <ScheduleRosterTable
+            canEdit
+            refreshKey={scheduleRosterRefreshKey}
+            onEditEmployee={(userId, name, schedule) =>
+              setEditScheduleUser({ employeeId: userId, name, schedule, effectiveLabel })
+            }
+            onEditDepartment={(departmentId, _departmentName, schedule) => {
+              setScheduleModalPreset({
+                scope: "department",
+                departmentId,
+                schedule: schedule
+                  ? {
+                      start_time: schedule.start_time,
+                      end_time: schedule.end_time,
+                      break_start: schedule.break_start,
+                      break_end: schedule.break_end,
+                      workdays: schedule.workdays,
+                      is_nightshift: schedule.is_nightshift,
+                    }
+                  : null,
+              });
+              setShowScheduleModal(true);
+            }}
+          />
+        </div>
       )}
 
       {/* ── Attendance panel (stat cards + calendar + table) ───────────────── */}

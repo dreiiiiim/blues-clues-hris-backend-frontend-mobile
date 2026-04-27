@@ -69,6 +69,13 @@ function getTodayInManila(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
 }
 
+async function readJsonOrNull<T>(res: Response): Promise<T | null> {
+  if (res.status === 204) return null;
+  const text = await res.text();
+  if (!text.trim()) return null;
+  return JSON.parse(text) as T;
+}
+
 function resolveInitialTemplateId(
   schedule: ScheduleSeed | undefined,
   parsedDays: string[],
@@ -170,7 +177,6 @@ export function ScheduleManagementModal({
   const [customBreakStart, setCustomBreakStart] = useState(normalizeTimeForInput(initialSchedule?.break_start) ?? "12:00");
   const [customBreakEnd,   setCustomBreakEnd]   = useState(normalizeTimeForInput(initialSchedule?.break_end) ?? "13:00");
   const [customDays,       setCustomDays]       = useState<string[]>(initialParsedDays);
-  const [customNight,      setCustomNight]      = useState(Boolean(initialSchedule?.is_nightshift));
 
   // Employees scope state
   const [empSearch,        setEmpSearch]        = useState("");
@@ -185,7 +191,7 @@ export function ScheduleManagementModal({
   const previewBreakStart = isCustom ? customBreakStart : template.breakStart;
   const previewBreakEnd   = isCustom ? customBreakEnd   : template.breakEnd;
   const previewDays       = isCustom ? customDays       : template.workdays;
-  const previewNight      = isCustom ? customNight      : template.isNightShift;
+  const previewNight      = isCustom ? customEnd < customStart : template.isNightShift;
 
   // Filtered employees for the employee picker
   const filteredEmployees = useMemo(() => {
@@ -285,8 +291,8 @@ export function ScheduleManagementModal({
         const err = await res.json().catch(() => ({})) as { message?: string };
         throw new Error(err?.message || "Failed to apply schedule.");
       }
-      const result = await res.json() as { affected: number };
-      setAffectedResult(result.affected);
+      const result = await readJsonOrNull<{ affected: number }>(res);
+      setAffectedResult(result?.affected ?? 0);
       onApplied?.();
       setDone(true);
     } catch (e: unknown) {
@@ -582,16 +588,6 @@ export function ScheduleManagementModal({
                 </div>
               </div>
 
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={customNight}
-                  onChange={e => setCustomNight(e.target.checked)}
-                  className="h-4 w-4 rounded border-border"
-                />
-                <span className="text-sm text-foreground">Night Shift</span>
-                <span className="text-xs text-muted-foreground">(crosses midnight)</span>
-              </label>
             </div>
           )}
 

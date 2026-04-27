@@ -1275,7 +1275,7 @@ export function EmployeeProfileSheet({
                                 )}
                                 {tkSchedule.schedule_source && (
                                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-muted text-muted-foreground border-border">
-                                    {({ bulk: "Company", department: "Department", individual: "Custom", default: "Default" } as Record<string, string>)[tkSchedule.schedule_source] ?? tkSchedule.schedule_source} Schedule
+                                    {({ bulk: "Company", department: "Department", individual: "Custom", default: "Company Default" } as Record<string, string>)[tkSchedule.schedule_source] ?? tkSchedule.schedule_source} Schedule
                                   </span>
                                 )}
                               </div>

@@ -10,9 +10,10 @@ import { SupabaseModule } from '../supabase/supabase.module';
 import { MailModule } from '../mail/mail.module';
 import { AuditModule } from '../audit/audit.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { TimekeepingModule } from '../timekeeping/timekeeping.module';
 
 @Module({
-  imports: [AuthModule, SupabaseModule, MailModule, AuditModule, NotificationsModule],
+  imports: [AuthModule, SupabaseModule, MailModule, AuditModule, NotificationsModule, TimekeepingModule],
   controllers: [
     ApplicantOnboardingController,
     ApplicantPortalOnboardingController,

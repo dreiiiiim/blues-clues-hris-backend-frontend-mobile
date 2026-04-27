@@ -3,7 +3,7 @@
 Team reference for tech stack, infrastructure, conventions, and workflow.
 Last updated: 2026-04-27.
 
-> **TL;DR for the AWS question:** We do **not** need AWS. Database, auth backbone, file storage, and realtime all run on **Supabase** (managed Postgres). Backend runs on **Railway**. Email via **Resend** (with Gmail SMTP fallback). All cloud needs are covered without AWS.
+> **TL;DR for the AWS question:** We do **not** need AWS. Database + auth backbone + file storage + realtime all on **Supabase** (managed Postgres). Backend on **Railway**. Email via **Brevo** (REST API, `POST /v3/smtp/email`). All cloud needs covered without AWS.
 
 ---
 
@@ -18,7 +18,8 @@ Last updated: 2026-04-27.
 | Runtime          | Node.js                                       | 20+     |
 | Auth             | `@nestjs/jwt` + `passport-jwt` + `bcryptjs`   | —       |
 | DB Client        | `@supabase/supabase-js`                       | 2.97    |
-| Email            | `resend` (primary) + Nodemailer/Gmail SMTP    | 6.9     |
+| Email            | **Brevo** REST API via native `fetch` (`POST /v3/smtp/email`, header `api-key`) | v3 |
+| File Upload      | `multer` + `@types/multer` (resume uploads)   | —       |
 | API Docs         | `@nestjs/swagger` + `swagger-ui-express`      | 11.x    |
 | Validation       | `class-validator` + `class-transformer`       | —       |
 | Rate Limiting    | `@nestjs/throttler`                           | 6.5     |
@@ -61,15 +62,27 @@ Last updated: 2026-04-27.
 | **Supabase**  | Postgres DB, auth tables, file storage, RLS    | Project: `xvofqboilmzlhrnkyyif` |
 | **Railway**   | Backend deploy (NestJS)                        | Prod URL in README       |
 | **Vercel**    | Frontend deploy (Next.js) — recommended target | —                        |
-| **Resend**    | Transactional email (primary)                  | API key in backend `.env` |
-| **Gmail SMTP**| Email fallback / legacy templates              | App password, not real PW |
+| **Brevo**     | Transactional email                            | `POST https://api.brevo.com/v3/smtp/email`. Header `api-key: <BREVO_API_KEY>`. Sender must be verified in Brevo dashboard. |
 | **Expo Go**   | Mobile dev + OTA preview                       | Same Wi-Fi for localhost |
 
 **Why no AWS:**
 Supabase = managed Postgres + Storage + Auth (replaces RDS + S3 + Cognito).
 Railway = container deploy with logs/env (replaces ECS/Elastic Beanstalk).
-Resend = transactional email (replaces SES).
-Adding AWS means more DevOps, more bills, more surface area. Stick with current stack unless we hit a real wall.
+Brevo = transactional email (replaces SES).
+Adding AWS = more DevOps, more bills, more surface area. Stick with current stack unless we hit real wall.
+
+**Brevo request shape** (per [Brevo docs](https://developers.brevo.com/reference/send-transac-email)):
+```json
+{
+  "sender":      { "name": "Blues Clues HRIS", "email": "verified@yourdomain.com" },
+  "to":          [{ "email": "user@example.com", "name": "User Name" }],
+  "subject":     "Subject line",
+  "htmlContent": "<html>...</html>"
+}
+```
+`201` → `{ "messageId": "<mid>" }`. Errors `400/401/403` → `{ code, message }`. Impl: `tribeX-hris-auth-api/src/mail/mail.service.ts`.
+
+> **Cleanup TODO:** `resend` pkg still in `package.json` deps but unused. Backend calls Brevo via plain `fetch`. Remove on next chore PR.
 
 ---
 
@@ -210,7 +223,7 @@ Base path: `/api/tribeX/auth/v{major}/{resource}`
 - Don't paste real secrets in PRs, issues, or screenshots.
 - Service-role Supabase key = server-only. Never ship to frontend/mobile.
 - JWT secret rotation = coordinate with team; invalidates all sessions.
-- Gmail uses App Password (not real password). Resend uses API key.
+- Brevo uses API key in `BREVO_API_KEY` (sent as `api-key` header). Rotate via Brevo dashboard. Sender domain must be verified.
 - Hash passwords with `bcryptjs` — never store plaintext.
 
 ---
@@ -249,7 +262,7 @@ A task is done only when:
 - **Expo cache:** always `npx expo start -c` after `.env` change.
 - **Next.js env:** restart dev server after editing `.env.local`. `NEXT_PUBLIC_*` only is exposed to browser.
 - **Supabase RLS:** if a query returns empty in prod but works locally — RLS policy mismatch.
-- **Email failures silent:** SMTP/Resend errors currently swallowed on applicant verification flow (open issue).
+- **Email failures silent:** Brevo HTTP errors (non-2xx, timeouts) currently swallowed on applicant verification flow (open issue). Check `mail.service.ts` `sendMail()` — only logs, doesn't propagate.
 - **`time_logs` table:** missing in some Supabase envs — check before timekeeping work.
 
 ---

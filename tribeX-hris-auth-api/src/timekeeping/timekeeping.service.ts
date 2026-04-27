@@ -13,6 +13,7 @@ import { ReportAbsenceDto } from './dto/report-absence.dto';
 import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { ScheduleEffectiveDateDto } from './dto/schedule-effective-date.dto';
+import { CompanyDefaultScheduleDto } from './dto/company-default-schedule.dto';
 import {
   ReviewAbsenceDto,
   AbsenceReviewAction,
@@ -67,6 +68,20 @@ type ScheduleRow = {
   updated_at?: string | null;
 };
 
+type CompanyDefaultScheduleRow = {
+  company_id: string;
+  workdays: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  break_start?: string | null;
+  break_end?: string | null;
+  is_nightshift: boolean | null;
+  effective_from?: string | null;
+  updated_by?: string | null;
+  updated_by_name?: string | null;
+  updated_at?: string | null;
+};
+
 type EmployeeDepartmentRelation =
   | { department_name?: string | null }
   | Array<{ department_name?: string | null }>
@@ -92,6 +107,19 @@ function normalizeScheduleRow(
     ...schedule,
     effective_from: schedule.effective_from ?? null,
     schedule_source: schedule.schedule_source ?? 'default',
+  };
+}
+
+function normalizeCompanyDefaultScheduleRow(
+  schedule: CompanyDefaultScheduleRow | null,
+): CompanyDefaultScheduleRow | null {
+  if (!schedule) return null;
+  return {
+    ...schedule,
+    effective_from: schedule.effective_from ?? null,
+    break_start: schedule.break_start ?? '00:00',
+    break_end: schedule.break_end ?? '00:00',
+    is_nightshift: schedule.is_nightshift ?? false,
   };
 }
 
@@ -144,6 +172,9 @@ function todayRange() {
 
 const SCHEDULE_SELECT_FIELDS =
   'sched_id, employee_id, effective_from, workdays, start_time, end_time, break_start, break_end, is_nightshift, schedule_source, updated_by_name, updated_at';
+
+const COMPANY_DEFAULT_SCHEDULE_SELECT_FIELDS =
+  'company_id, effective_from, workdays, start_time, end_time, break_start, break_end, is_nightshift, updated_by, updated_by_name, updated_at';
 
 const DEFAULT_GEOCODE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
 const DEFAULT_GEOCODE_TIMEOUT_MS = 2000;
@@ -352,6 +383,20 @@ export class TimekeepingService {
       throw new BadRequestException('effective_date cannot be in the past.');
     }
     return normalized;
+  }
+
+  private async getUpdaterName(userId?: string | null): Promise<string | null> {
+    if (!userId) return null;
+    const supabase = this.supabaseService.getClient();
+    const { data } = await supabase
+      .from('user_profile')
+      .select('first_name, last_name')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    return data
+      ? `${data.first_name ?? ''} ${data.last_name ?? ''}`.trim() || null
+      : null;
   }
 
   private normalizeWorkdays(
@@ -1614,11 +1659,30 @@ export class TimekeepingService {
 
   // ─── Auto-Absent Job ──────────────────────────────────────────────────────
 
+  private hasShiftEndedInManila(endTime: string | null, isNightShift: boolean | null): boolean {
+    if (!endTime) return true;
+    const match = /^(\d{1,2}):(\d{2})/.exec(endTime);
+    if (!match) return true;
+    const endMins = Number(match[1]) * 60 + Number(match[2]);
+    const now = new Date();
+    const hh = Number(
+      new Intl.DateTimeFormat('en-US', { hour: 'numeric', hour12: false, timeZone: 'Asia/Manila' }).format(now),
+    );
+    const mm = Number(
+      new Intl.DateTimeFormat('en-US', { minute: '2-digit', timeZone: 'Asia/Manila' }).format(now),
+    );
+    const nowMins = hh * 60 + mm;
+    const GRACE = 30;
+    // Night shifts end past midnight — only safe to mark absent at end of day.
+    if (isNightShift) return nowMins >= 23 * 60;
+    return nowMins >= endMins + GRACE;
+  }
+
   /**
    * Auto-marks employees as absent if they have a schedule for today but
-   * have no clock-in and did not self-report an absence.
+   * have no clock-in and did not self-report an absence, AND their scheduled
+   * shift end time + 30-minute grace has already passed.
    *
-   * Intended to run at 11:30 PM Manila time via @Cron or a manual trigger.
    * Safe to call multiple times — duplicate absences are skipped.
    */
   async autoMarkAbsentEmployees(): Promise<{ date: string; marked: number; skipped: number }> {
@@ -1658,10 +1722,12 @@ export class TimekeepingService {
       manilaDate,
     );
 
-    // 3. Filter to employees scheduled for today's weekday
+    // 3. Filter to employees scheduled for today's weekday whose shift has ended
     const scheduledToday = employeeIds.filter(eid => {
-      const workdays = scheduleMap.get(eid)?.workdays;
-      return !!workdays && this.isScheduledForDate(workdays, manilaDate);
+      const schedule = scheduleMap.get(eid);
+      if (!schedule?.workdays) return false;
+      if (!this.isScheduledForDate(schedule.workdays, manilaDate)) return false;
+      return this.hasShiftEndedInManila(schedule.end_time, schedule.is_nightshift);
     });
 
     if (!scheduledToday.length) {
@@ -1724,6 +1790,238 @@ export class TimekeepingService {
   }
 
   // ─── Schedule CRUD ────────────────────────────────────────────────────────
+
+  async getCompanyDefaultSchedule(
+    companyId: string,
+  ): Promise<CompanyDefaultScheduleRow | null> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data, error } = await supabase
+      .from('timekeeping_company_default_schedules')
+      .select(COMPANY_DEFAULT_SCHEDULE_SELECT_FIELDS)
+      .eq('company_id', companyId)
+      .maybeSingle<CompanyDefaultScheduleRow>();
+
+    if (error) throw new Error(error.message);
+    return normalizeCompanyDefaultScheduleRow(data ?? null);
+  }
+
+  async upsertCompanyDefaultSchedule(
+    dto: CompanyDefaultScheduleDto,
+    companyId: string,
+    updaterUserId: string,
+  ): Promise<CompanyDefaultScheduleRow> {
+    const supabase = this.supabaseService.getClient();
+    const effectiveFrom = this.resolveEffectiveDate(dto.effective_date);
+    const updatedByName = await this.getUpdaterName(updaterUserId);
+
+    const row = {
+      company_id: companyId,
+      effective_from: effectiveFrom,
+      start_time: dto.start_time,
+      end_time: dto.end_time,
+      break_start: dto.break_start ?? '00:00',
+      break_end: dto.break_end ?? '00:00',
+      workdays: dto.workdays,
+      is_nightshift: dto.is_nightshift,
+      updated_by: updaterUserId,
+      updated_by_name: updatedByName,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .from('timekeeping_company_default_schedules')
+      .upsert(row, { onConflict: 'company_id' })
+      .select(COMPANY_DEFAULT_SCHEDULE_SELECT_FIELDS)
+      .single<CompanyDefaultScheduleRow>();
+
+    if (error) throw new Error(error.message);
+
+    this.logger.log(
+      `Company default schedule saved - company_id: ${companyId}, effective_from: ${effectiveFrom}, by: ${updatedByName}`,
+    );
+    return normalizeCompanyDefaultScheduleRow(data)!;
+  }
+
+  private async findDepartmentBaselineSchedule(
+    companyId: string,
+    departmentId: string,
+    employeeId: string,
+    effectiveFrom: string,
+  ): Promise<ScheduleRow | null> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: departmentMembers, error: departmentMembersError } = await supabase
+      .from('user_profile')
+      .select('employee_id')
+      .eq('company_id', companyId)
+      .eq('department_id', departmentId)
+      .not('employee_id', 'is', null)
+      .neq('employee_id', employeeId)
+      .limit(500);
+
+    if (departmentMembersError) {
+      throw new Error(departmentMembersError.message);
+    }
+
+    const memberEmployeeIds = (departmentMembers ?? [])
+      .map((member: { employee_id?: string | null }) => member.employee_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    if (memberEmployeeIds.length === 0) return null;
+
+    const { data: departmentSchedule, error: departmentScheduleError } =
+      await supabase
+        .from('schedules')
+        .select(SCHEDULE_SELECT_FIELDS)
+        .in('employee_id', memberEmployeeIds)
+        .neq('schedule_source', 'individual')
+        .lte('effective_from', effectiveFrom)
+        .order('effective_from', { ascending: false })
+        .order('updated_at', { ascending: false })
+        .limit(1)
+        .maybeSingle<ScheduleRow>();
+
+    if (departmentScheduleError) throw new Error(departmentScheduleError.message);
+    return normalizeScheduleRow(departmentSchedule ?? null);
+  }
+
+  private async upsertInheritedSchedule(params: {
+    employeeId: string;
+    effectiveFrom: string;
+    schedule: {
+      start_time: string | null;
+      end_time: string | null;
+      break_start?: string | null;
+      break_end?: string | null;
+      workdays: string | string[] | null;
+      is_nightshift: boolean | null;
+    };
+    scheduleSource: 'bulk' | 'default';
+    updatedByName: string | null;
+  }): Promise<void> {
+    const supabase = this.supabaseService.getClient();
+
+    if (!params.schedule.start_time || !params.schedule.end_time || !params.schedule.workdays) {
+      throw new BadRequestException('Inherited schedule is incomplete.');
+    }
+
+    const workdays = Array.isArray(params.schedule.workdays)
+      ? params.schedule.workdays.join(',')
+      : params.schedule.workdays;
+
+    const { error } = await supabase.from('schedules').upsert(
+      {
+        employee_id: params.employeeId,
+        effective_from: params.effectiveFrom,
+        start_time: params.schedule.start_time,
+        end_time: params.schedule.end_time,
+        break_start: params.schedule.break_start ?? '00:00',
+        break_end: params.schedule.break_end ?? '00:00',
+        workdays,
+        is_nightshift: params.schedule.is_nightshift ?? false,
+        schedule_source: params.scheduleSource,
+        updated_by_name: params.updatedByName,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: 'employee_id,effective_from' },
+    );
+
+    if (error) throw new Error(error.message);
+  }
+
+  async assignInitialScheduleForEmployee(params: {
+    companyId: string;
+    employeeId: string;
+    departmentId?: string | null;
+    effectiveDate?: string | null;
+    updatedByName?: string | null;
+  }): Promise<{ source: 'department' | 'company-default' | 'preserved-individual' | 'none' }> {
+    const effectiveFrom = params.effectiveDate
+      ? this.ensureIsoDate(params.effectiveDate)
+      : this.getManilaDateString();
+    const existing = await this.getScheduleForEmployee(params.employeeId, effectiveFrom);
+
+    if (existing?.schedule_source === 'individual') {
+      return { source: 'preserved-individual' };
+    }
+
+    if (params.departmentId) {
+      const departmentSchedule = await this.findDepartmentBaselineSchedule(
+        params.companyId,
+        params.departmentId,
+        params.employeeId,
+        effectiveFrom,
+      );
+      if (departmentSchedule) {
+        await this.upsertInheritedSchedule({
+          employeeId: params.employeeId,
+          effectiveFrom,
+          schedule: departmentSchedule,
+          scheduleSource: 'bulk',
+          updatedByName: params.updatedByName ?? null,
+        });
+        return { source: 'department' };
+      }
+    }
+
+    const companyDefault = await this.getCompanyDefaultSchedule(params.companyId);
+    if (!companyDefault) return { source: 'none' };
+    const defaultEffectiveFrom =
+      companyDefault.effective_from && companyDefault.effective_from > effectiveFrom
+        ? companyDefault.effective_from
+        : effectiveFrom;
+
+    await this.upsertInheritedSchedule({
+      employeeId: params.employeeId,
+      effectiveFrom: defaultEffectiveFrom,
+      schedule: companyDefault,
+      scheduleSource: 'default',
+      updatedByName: params.updatedByName ?? null,
+    });
+    return { source: 'company-default' };
+  }
+
+  async backfillCompanyDefaultSchedule(
+    companyId: string,
+    updaterUserId: string,
+  ): Promise<{ affected: number }> {
+    const companyDefault = await this.getCompanyDefaultSchedule(companyId);
+    if (!companyDefault) {
+      throw new BadRequestException('No company default schedule has been configured.');
+    }
+
+    const updatedByName = await this.getUpdaterName(updaterUserId);
+    const effectiveFrom =
+      companyDefault.effective_from && companyDefault.effective_from >= this.getManilaDateString()
+        ? companyDefault.effective_from
+        : this.getManilaDateString();
+    const employees = (await this.getEmployeeUsers(companyId)).filter(
+      (employee) => !employee.department_id && !!employee.employee_id,
+    );
+
+    if (employees.length === 0) return { affected: 0 };
+
+    const scheduleMap = await this.getScheduleMapForEmployeesAsOf(
+      employees.map((employee) => employee.employee_id),
+      effectiveFrom,
+    );
+    let affected = 0;
+
+    for (const employee of employees) {
+      if (scheduleMap.has(employee.employee_id)) continue;
+      await this.upsertInheritedSchedule({
+        employeeId: employee.employee_id,
+        effectiveFrom,
+        schedule: companyDefault,
+        scheduleSource: 'default',
+        updatedByName,
+      });
+      affected++;
+    }
+
+    return { affected };
+  }
 
   async upsertEmployeeSchedule(
     targetUserId: string,
@@ -2089,13 +2387,30 @@ export class TimekeepingService {
     let days_late = 0;
     let days_absent = 0;
     let hours_ms = 0;
+    const employeeId = await this.getEmployeeId(userId);
+    const scheduleCache = new Map<string, ScheduleRow | null>();
 
     for (const entry of entries) {
       if (entry.absence) {
         days_absent++;
       } else if (entry.time_in) {
         days_present++;
-        if (entry.time_in.clock_type === 'LATE') days_late++;
+        let isLate = entry.time_in.clock_type === 'LATE';
+        if (!isLate && employeeId) {
+          let schedule = scheduleCache.get(entry.date);
+          if (!scheduleCache.has(entry.date)) {
+            schedule = await this.getScheduleForEmployee(employeeId, entry.date);
+            scheduleCache.set(entry.date, schedule ?? null);
+          }
+          if (schedule) {
+            isLate =
+              this.computeClockTypeForTimeIn(
+                new Date(entry.time_in.timestamp),
+                schedule,
+              ) === 'LATE';
+          }
+        }
+        if (isLate) days_late++;
         if (entry.time_in && entry.time_out) {
           const diff =
             new Date(entry.time_out.timestamp).getTime() -

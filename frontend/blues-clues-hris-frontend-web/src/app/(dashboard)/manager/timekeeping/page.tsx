@@ -22,7 +22,7 @@ type UserRow = {
   first_name: string;
   last_name: string;
   avatar_url?: string | null;
-  schedule?: { workdays?: string | string[] | null } | null;
+  schedule?: { workdays?: string | string[] | null; start_time?: string | null } | null;
 };
 
 type PunchRow = {
@@ -35,6 +35,7 @@ type PunchRow = {
   location_name?: string | null;
   ip_address: string | null;
   is_mock_location: string;
+  clock_type?: string | null;
   log_status: string;
 };
 
@@ -96,7 +97,37 @@ function computeHoursDecimal(timeIn: string | null, timeOut: string | null): num
   return (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3600000;
 }
 
-function isLate(timeIn: string): boolean {
+function parseClockToMinutes(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const h = Number.parseInt(match[1], 10);
+  const m = Number.parseInt(match[2], 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function getClockInMinutesPHT(timestamp: string): number | null {
+  const clock = parseTs(timestamp).toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+  const [hour, minute] = clock.split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return null;
+  return hour * 60 + minute;
+}
+
+function isLate(timeIn: string, clockType?: string | null, schedule?: UserRow["schedule"]): boolean {
+  if (String(clockType ?? "").toUpperCase() === "LATE") return true;
+
+  const clockInMins = getClockInMinutesPHT(timeIn);
+  const scheduledStartMins = parseClockToMinutes(schedule?.start_time);
+  if (clockInMins != null && scheduledStartMins != null) {
+    return clockInMins > scheduledStartMins;
+  }
+
   const hourPST = Number.parseInt(
     parseTs(timeIn).toLocaleString("en-US", {
       hour: "numeric", hour12: false, timeZone: "Asia/Manila",
@@ -142,9 +173,9 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): R
     const scheduleDayStatus = getScheduleDayStatus(user.schedule, date);
     let status: RosterEntry["status"] = scheduleDayStatus === "workday" ? "absent" : scheduleDayStatus;
     if (time_in && time_out) {
-      status = isLate(time_in) ? "late" : "present";
+      status = isLate(time_in, clockIn?.clock_type, user.schedule) ? "late" : "present";
     } else if (time_in && !time_out) {
-      status = "clocked-in";
+      status = isLate(time_in, clockIn?.clock_type, user.schedule) ? "late" : "clocked-in";
     }
 
     return {
@@ -201,8 +232,9 @@ function computeStats(roster: RosterEntry[]) {
   const late     = roster.filter(r => r.status === "late").length;
   const absent   = roster.filter(r => r.status === "absent").length;
   const totalHours = roster.reduce((sum, r) => sum + (r.hours_worked ?? 0), 0);
-  const avg_hours  = present > 0 ? totalHours / present : 0;
-  const attendance_rate = scheduledTotal > 0 ? Math.round((present / scheduledTotal) * 100) : 0;
+  const attended = present + late;
+  const avg_hours  = attended > 0 ? totalHours / attended : 0;
+  const attendance_rate = scheduledTotal > 0 ? Math.round((attended / scheduledTotal) * 100) : 0;
   return { total, present, late, absent, totalHours, avg_hours, attendance_rate };
 }
 
@@ -220,7 +252,7 @@ const STATUS_CONFIG: Record<RosterEntry["status"], { label: string; className: s
 function StatusBadge({ status }: Readonly<{ status: RosterEntry["status"] }>) {
   const cfg = STATUS_CONFIG[status];
   return (
-    <span className={`px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${cfg.className}`}>
+    <span className={`inline-flex w-max shrink-0 whitespace-nowrap px-2.5 py-1 rounded-md text-[10px] font-bold uppercase tracking-wide ${cfg.className}`}>
       {cfg.label}
     </span>
   );
@@ -341,13 +373,16 @@ export default function ManagerTimekeepingPage() {
 
   const calendarDays = useMemo<CalendarDayData[]>(() => {
     const today = toDateString(new Date());
+    const userMap = new Map(users.map((user) => [user.employee_id, user]));
     const dateMap: Record<string, { presentIds: Set<string>; lateIds: Set<string> }> = {};
     for (const p of allPunches) {
       const d = p.timestamp.split("T")[0];
       if (!dateMap[d]) dateMap[d] = { presentIds: new Set(), lateIds: new Set() };
       if (p.log_type === "time-in") {
         dateMap[d].presentIds.add(p.employee_id);
-        if (isLate(p.timestamp)) dateMap[d].lateIds.add(p.employee_id);
+        if (isLate(p.timestamp, p.clock_type, userMap.get(p.employee_id)?.schedule)) {
+          dateMap[d].lateIds.add(p.employee_id);
+        }
       }
       if (p.log_type === "time-out") {/* skip */}
     }
@@ -361,7 +396,7 @@ export default function ManagerTimekeepingPage() {
         summary: date > today ? undefined : { present: presentTotal - late, late, absent, total: users.length },
       };
     });
-  }, [allPunches, users.length]);
+  }, [allPunches, users]);
 
   const emptyMessage = (search || statusFilter !== "all") ? "No records match your search." : "No entries found for this date.";
   const tableBodyPlaceholder = loading ? (
@@ -389,15 +424,15 @@ export default function ManagerTimekeepingPage() {
       <td className="px-6 py-4 text-xs font-medium">{formatTime(log.time_in)}</td>
       <td className="px-6 py-4 text-xs font-medium">{formatTime(log.time_out)}</td>
       <td className="px-6 py-4 text-xs font-medium">{formatHours(log.time_in, log.time_out)}</td>
-      <td className="px-6 py-4"><StatusBadge status={log.status} /></td>
-      <td className="px-6 py-4">
+      <td className="px-6 py-4 whitespace-nowrap"><StatusBadge status={log.status} /></td>
+      <td className="px-6 py-4 max-w-[28rem]">
         {log.status === "absent" || log.status === "rest-day" || log.status === "no-schedule" ? (
           <span className="text-muted-foreground text-xs">—</span>
         ) : (
           log.gps_verified ? (
-            <div className="flex items-center gap-1.5 text-green-600">
-              <MapPin className="h-3.5 w-3.5" />
-              <span className="text-[10px] font-semibold leading-4">
+            <div className="flex min-w-0 items-start gap-1.5 text-green-600">
+              <MapPin className="h-3.5 w-3.5 shrink-0 translate-y-0.5" />
+              <span className="min-w-0 whitespace-normal break-words text-[10px] font-semibold leading-4">
                 {formatGpsLocation(
                   log.clock_in_latitude,
                   log.clock_in_longitude,
@@ -491,7 +526,7 @@ export default function ManagerTimekeepingPage() {
       {/* Manager stat cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <StatCard icon={Users}        label="Total Team"    value={String(stats.total)}              sub="employees"                              colorClass="bg-primary/10 text-primary" />
-        <StatCard icon={CheckCircle2} label="Present Today" value={String(stats.present)}            sub={`${stats.attendance_rate}% attendance`} colorClass="bg-green-50 text-green-600" />
+        <StatCard icon={CheckCircle2} label="Present Today" value={String(stats.present + stats.late)} sub={`${stats.attendance_rate}% attendance`} colorClass="bg-green-50 text-green-600" />
         <StatCard icon={Timer}        label="Late Arrivals" value={String(stats.late)}               sub="needs follow-up"                        colorClass="bg-amber-50 text-amber-600" />
         <StatCard icon={Clock}        label="Avg Hours"     value={`${stats.avg_hours.toFixed(1)}h`} sub="per employee"                           colorClass="bg-blue-50 text-blue-600" />
       </div>
