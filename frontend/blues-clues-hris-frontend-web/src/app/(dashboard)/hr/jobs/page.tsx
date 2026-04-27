@@ -27,6 +27,7 @@ import {
 } from "@/lib/authApi";
 import { updateApplicationStatus } from "@/lib/candidateApi";
 import { RejectionReasonModal } from "@/components/modals/RejectionReasonModal";
+import { SFIA_LEVELS } from "@/components/applicant/SfiaGradeCard";
 import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -70,6 +71,16 @@ interface Question {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const ITEMS_PER_PAGE = 8;
+
+const SFIA_BAR_HEX: Record<string, string> = {
+  "bg-slate-400": "#94a3b8",
+  "bg-slate-500": "#64748b",
+  "bg-blue-500": "#3b82f6",
+  "bg-blue-600": "#2563eb",
+  "bg-violet-500": "#8b5cf6",
+  "bg-violet-700": "#6d28d9",
+  "bg-amber-500": "#f59e0b",
+};
 
 const JOB_STATUS_STYLES: Record<string, string> = {
   open:   "bg-green-100 text-green-700 border-green-200",
@@ -146,6 +157,18 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString("en-PH", {
     year: "numeric", month: "short", day: "numeric",
   });
+}
+
+function getResumeViewerUrl(url: string, fileName?: string | null): string {
+  const sourceName = (fileName || url.split("?")[0] || "").toLowerCase();
+  if (/\.(doc|docx)$/i.test(sourceName)) {
+    return `https://view.officeapps.live.com/op/view.aspx?src=${encodeURIComponent(url)}`;
+  }
+  return url;
+}
+
+function openResumeInNewTab(url: string, fileName?: string | null) {
+  window.open(getResumeViewerUrl(url, fileName), "_blank", "noopener,noreferrer");
 }
 
 function timeAgo(dateStr: string): string {
@@ -3050,19 +3073,55 @@ function ApplicationDetailModal({
             {/* Documents */}
             <div className="space-y-2">
               <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Documents</p>
-              {detail?.applicant_profile.resume_url ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full h-8 gap-1.5 justify-start text-xs font-medium"
-                  onClick={() => window.open(detail.applicant_profile.resume_url!, "_blank")}
-                >
-                  <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                  View Resume
-                </Button>
+              {detail?.resume_upload?.signed_url || detail?.applicant_profile.resume_url ? (
+                <div className="space-y-2">
+                  {detail?.resume_upload?.signed_url ? (
+                    <div className="rounded-lg border border-border bg-background p-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-8 gap-1.5 justify-start text-xs font-medium"
+                        onClick={() => openResumeInNewTab(detail.resume_upload!.signed_url, detail.resume_upload!.file_name)}
+                      >
+                        <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
+                        View SFIA Resume
+                      </Button>
+                      <p className="mt-1.5 truncate px-1 text-[9px] text-muted-foreground" title={detail.resume_upload.file_name}>
+                        {detail.resume_upload.file_name}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border px-3 py-2 text-center">
+                      <p className="text-[10px] text-muted-foreground">No SFIA resume uploaded</p>
+                    </div>
+                  )}
+
+                  {detail?.applicant_profile.resume_url ? (
+                    <div className="rounded-lg border border-border bg-background p-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="w-full h-8 gap-1.5 justify-start text-xs font-medium"
+                        onClick={() => openResumeInNewTab(detail.applicant_profile.resume_url!, detail.applicant_profile.resume_name)}
+                      >
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                        View Profile Resume
+                      </Button>
+                      {detail.applicant_profile.resume_name && (
+                        <p className="mt-1.5 truncate px-1 text-[9px] text-muted-foreground" title={detail.applicant_profile.resume_name}>
+                          {detail.applicant_profile.resume_name}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border px-3 py-2 text-center">
+                      <p className="text-[10px] text-muted-foreground">No profile resume uploaded</p>
+                    </div>
+                  )}
+                </div>
               ) : (
                 <div className="rounded-lg border border-dashed border-border px-3 py-2 text-center">
-                  <p className="text-[10px] text-muted-foreground">No resume uploaded</p>
+                  <p className="text-[10px] text-muted-foreground">No resumes uploaded</p>
                 </div>
               )}
             </div>
@@ -3092,15 +3151,26 @@ function ApplicationDetailModal({
                 const sfiaLevel = typeof detail?.sfia_grade === "number" && Number.isFinite(detail.sfia_grade)
                   ? Math.max(1, Math.min(7, Math.round(detail.sfia_grade)))
                   : null;
-                const accent = score == null
-                  ? "#94a3b8"
+                const levelCfg = sfiaLevel != null
+                  ? SFIA_LEVELS.find((level) => level.level === sfiaLevel) ?? null
+                  : null;
+                const accent = levelCfg ? SFIA_BAR_HEX[levelCfg.barColor] ?? "#2563eb" : "#94a3b8";
+                const scoreLabel = score == null
+                  ? "Not assessed"
                   : score >= 80
-                    ? "#16a34a"
+                    ? "Excellent match"
                     : score >= 60
-                      ? "#2563eb"
+                      ? "Strong match"
                       : score >= 40
-                        ? "#d97706"
-                        : "#dc2626";
+                        ? "Partial match"
+                        : "Needs review";
+                const levelLabel = sfiaLevel == null
+                  ? "Level pending"
+                  : sfiaLevel >= 6
+                    ? "Leadership capability"
+                    : sfiaLevel >= 4
+                      ? "Practitioner capability"
+                      : "Developing capability";
 
                 if (score == null) {
                   return (
@@ -3116,20 +3186,32 @@ function ApplicationDetailModal({
                 }
 
                 return (
-                  <div className="rounded-xl border border-border bg-card p-4 flex flex-col items-center gap-2 shadow-sm">
-                    <div className="h-14 w-14 rounded-full p-[3px]" style={{ background: `conic-gradient(${accent} ${score}%, #e5e7eb ${score}% 100%)` }}>
-                      <div className="h-full w-full rounded-full bg-card flex items-center justify-center">
-                        <span className="text-sm font-bold tabular-nums" style={{ color: accent }}>{score}%</span>
+                  <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+                    <div className="flex items-center gap-3">
+                      <div className="h-14 w-14 rounded-full p-[3px] shrink-0" style={{ background: `conic-gradient(${accent} ${score}%, #e5e7eb ${score}% 100%)` }}>
+                        <div className="h-full w-full rounded-full bg-card flex items-center justify-center">
+                          <span className="text-sm font-bold tabular-nums" style={{ color: accent }}>{score}%</span>
+                        </div>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className={`text-[10px] font-bold leading-tight ${levelCfg?.color ?? "text-foreground"}`}>{scoreLabel}</p>
+                        <p className="mt-0.5 text-[9px] text-muted-foreground leading-snug">
+                          {matchScore != null ? "SFIA resume match" : "Screening score"}
+                        </p>
+                        {sfiaLevel != null && (
+                          <span className={`mt-1.5 inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] font-bold ${levelCfg?.bgColor ?? "bg-muted/20"} ${levelCfg?.ringColor ?? "border-border"} ${levelCfg?.color ?? "text-muted-foreground"}`}>
+                            SFIA L{sfiaLevel}
+                          </span>
+                        )}
                       </div>
                     </div>
-                    <p className="text-[10px] text-center text-muted-foreground leading-snug">
-                      {matchScore != null ? "SFIA match" : "Screening score"}
-                    </p>
-                    {sfiaLevel != null && (
-                      <span className="inline-flex items-center rounded-full border border-border bg-muted/20 px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                        SFIA L{sfiaLevel}
-                      </span>
-                    )}
+                    <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div className={`h-full rounded-full transition-all ${levelCfg?.barColor ?? ""}`} style={{ width: `${score}%`, backgroundColor: levelCfg ? undefined : accent }} />
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2 text-[9px] text-muted-foreground">
+                      <span className="truncate">{levelLabel}</span>
+                      <span className="shrink-0 font-semibold tabular-nums">{score}/100</span>
+                    </div>
                   </div>
                 );
               })()}

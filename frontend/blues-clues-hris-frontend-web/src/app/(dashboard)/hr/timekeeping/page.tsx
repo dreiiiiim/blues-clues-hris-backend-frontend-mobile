@@ -115,6 +115,7 @@ type DetailPunch = {
 type AttendanceAudit = {
   audit_id: string;
   edited_by: string;
+  edited_by_name?: string | null;
   edited_at: string;
   edit_reason: string;
 };
@@ -154,6 +155,7 @@ type AbsenceRequest = {
 type ViewMode = "day" | "week" | "month" | "custom";
 type StatusFilter = RosterEntry["status"] | "all";
 type TabMode = "today" | "schedule" | "attendance";
+type AttendanceQuickAction = "custom" | "clocked-in" | "present" | "excused" | "absent";
 
 type ScheduleModalPreset = {
   scope: "company" | "department" | "employees";
@@ -176,6 +178,18 @@ function parseTs(ts: string): Date {
 
 function toDateString(date: Date): string {
   return date.toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+}
+
+function getCurrentManilaTimeInput(): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Manila",
+  }).formatToParts(new Date());
+  const hour = parts.find((part) => part.type === "hour")?.value ?? "00";
+  const minute = parts.find((part) => part.type === "minute")?.value ?? "00";
+  return `${hour === "24" ? "00" : hour}:${minute}`;
 }
 
 function formatDisplayDate(date: Date): string {
@@ -255,7 +269,9 @@ function getClockInMinutesPHT(timestamp: string): number | null {
 }
 
 function isLate(timeIn: string, clockType?: string | null, schedule?: UserRow["schedule"]): boolean {
-  if (String(clockType ?? "").toUpperCase() === "LATE") return true;
+  const normalizedClockType = String(clockType ?? "").toUpperCase();
+  if (normalizedClockType === "LATE") return true;
+  if (normalizedClockType === "ON-TIME") return false;
 
   const clockInMins = getClockInMinutesPHT(timeIn);
   const scheduledStartMins = parseClockToMinutes(schedule?.start_time);
@@ -386,8 +402,15 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): R
   const map: Record<string, { ci: PunchRow | null; co: PunchRow | null; ab: PunchRow | null }> = {};
   for (const p of punches) {
     if (!map[p.employee_id]) map[p.employee_id] = { ci: null, co: null, ab: null };
-    if (p.log_type === "time-in"  && !map[p.employee_id].ci) map[p.employee_id].ci = p;
-    if (p.log_type === "time-out") map[p.employee_id].co = p;
+    if (
+      p.log_type === "time-in" &&
+      String(p.log_status ?? "").toUpperCase() !== "DENIED" &&
+      !map[p.employee_id].ci
+    ) map[p.employee_id].ci = p;
+    if (
+      p.log_type === "time-out" &&
+      String(p.log_status ?? "").toUpperCase() !== "DENIED"
+    ) map[p.employee_id].co = p;
     if (
       p.log_type === "absence" &&
       String(p.log_status ?? "").toUpperCase() !== "DENIED"
@@ -608,11 +631,11 @@ function CompliancePill({ rate }: Readonly<{ rate: number }>) {
 
 // ─── Stat Card ────────────────────────────────────────────────────────────────
 
-function StatCard({ icon: Icon, label, value, sub, colorClass }: Readonly<{
-  icon: any; label: string; value: string; sub: string; colorClass: string;
+function StatCard({ icon: Icon, label, value, sub, colorClass, featured = false }: Readonly<{
+  icon: any; label: string; value: string; sub: string; colorClass: string; featured?: boolean;
 }>) {
   return (
-    <Card className="p-5 border-border">
+    <Card className={`p-5 border-border ${featured ? "bg-gradient-to-br from-primary/5 to-transparent" : ""}`}>
       <div className="flex items-center gap-3 mb-3">
         <div className={`p-2 rounded-lg ${colorClass}`}><Icon className="h-4 w-4" /></div>
         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{label}</p>
@@ -945,6 +968,7 @@ function EmployeeSlideOver({
   const [editTimeIn, setEditTimeIn] = useState("");
   const [editTimeOut, setEditTimeOut] = useState("");
   const [editReason, setEditReason] = useState("");
+  const [editQuickAction, setEditQuickAction] = useState<AttendanceQuickAction>("custom");
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -983,7 +1007,9 @@ function EmployeeSlideOver({
   }, [dashboardFrom, dashboardTo, dashboardFilter]);
 
   useEffect(() => {
-    const punches = todayDetail?.punches ?? [];
+    const punches = (todayDetail?.punches ?? []).filter(
+      (p) => String(p.log_status ?? "").toUpperCase() !== "DENIED",
+    );
     const timeIn = punches.find((p) => p.log_type === "time-in") ?? null;
     const timeOut = punches.find((p) => p.log_type === "time-out") ?? null;
     setEditTimeIn(toTimeInputValue(timeIn?.timestamp));
@@ -1001,7 +1027,7 @@ function EmployeeSlideOver({
       setEditError("Edit reason is required.");
       return;
     }
-    if (!editTimeIn && !editTimeOut) {
+    if (editQuickAction !== "excused" && editQuickAction !== "absent" && !editTimeIn && !editTimeOut) {
       setEditError("Provide at least a time-in or time-out value.");
       return;
     }
@@ -1017,6 +1043,13 @@ function EmployeeSlideOver({
           body: JSON.stringify({
             time_in: editTimeIn || undefined,
             time_out: editTimeOut || undefined,
+            attendance_status: editQuickAction === "custom" ? undefined : editQuickAction,
+            absence_reason:
+              editQuickAction === "excused"
+                ? "Excused by HR"
+                : editQuickAction === "absent"
+                ? "Marked absent by HR"
+                : undefined,
             edit_reason: trimmedReason,
           }),
         },
@@ -1031,6 +1064,7 @@ function EmployeeSlideOver({
       setTodayDetail(refreshed);
       setEditAttendanceOpen(false);
       setEditReason("");
+      setEditQuickAction("custom");
     } catch (error) {
       setEditError(
         error instanceof Error ? error.message : "Failed to update attendance.",
@@ -1084,10 +1118,36 @@ function EmployeeSlideOver({
   const effectiveScheduleLabel = dashboardFilter === "day" ? summaryDateLabel : selectedRangeLabel;
 
   // Today data - declare schedule first since sliderDays needs it
-  const todayPunches = todayDetail?.punches ?? [];
+  const todayPunches = (todayDetail?.punches ?? []).filter(
+    (p) => String(p.log_status ?? "").toUpperCase() !== "DENIED",
+  );
   const timeIn = todayPunches.find((p) => p.log_type === "time-in") ?? null;
   const timeOut = todayPunches.find((p) => p.log_type === "time-out") ?? null;
   const schedule = todayDetail?.schedule ?? null;
+  const scheduleStart = schedule?.start_time?.slice(0, 5) || "09:00";
+  const scheduleEnd = schedule?.end_time?.slice(0, 5) || "18:00";
+
+  const applyQuickAction = (action: AttendanceQuickAction) => {
+    setEditQuickAction(action);
+    setEditError(null);
+    if (action === "clocked-in") {
+      setEditTimeIn(getCurrentManilaTimeInput());
+      setEditTimeOut("");
+      setEditReason("HR quick mark: employee is currently clocked in after HR review.");
+    } else if (action === "present") {
+      setEditTimeIn(scheduleStart);
+      setEditTimeOut(scheduleEnd);
+      setEditReason("HR quick mark: employee completed workday but attendance logs were missing or incorrect.");
+    } else if (action === "excused") {
+      setEditTimeIn("");
+      setEditTimeOut("");
+      setEditReason("HR quick mark: employee excused due to emergency or approved circumstance.");
+    } else if (action === "absent") {
+      setEditTimeIn("");
+      setEditTimeOut("");
+      setEditReason("HR quick mark: employee absent after HR review.");
+    }
+  };
   const scheduleWorkdays = useMemo(() => {
     if (!schedule?.workdays) return [];
     const source = Array.isArray(schedule.workdays)
@@ -1164,6 +1224,7 @@ function EmployeeSlideOver({
     for (const p of empPunches) {
       const date = p.timestamp.split("T")[0];
       if (!dailyLogs.has(date)) dailyLogs.set(date, { ci: null, co: null });
+      if (String(p.log_status ?? "").toUpperCase() === "DENIED") continue;
       const log = dailyLogs.get(date)!;
       if (p.log_type === "time-in" && !log.ci) log.ci = p.timestamp;
       if (p.log_type === "time-out") log.co = p.timestamp;
@@ -1205,14 +1266,72 @@ function EmployeeSlideOver({
               </p>
             </div>
             <div className="px-5 py-4 space-y-3">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                  Quick HR Actions
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {([
+                    {
+                      value: "clocked-in",
+                      label: "Mark Clocked In",
+                      sub: "Current time",
+                      idle: "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100",
+                      active: "border-blue-600 bg-blue-600 text-white",
+                    },
+                    {
+                      value: "present",
+                      label: "Mark Present",
+                      sub: "Time-in + out",
+                      idle: "border-green-200 bg-green-50 text-green-700 hover:bg-green-100",
+                      active: "border-green-600 bg-green-600 text-white",
+                    },
+                    {
+                      value: "excused",
+                      label: "Mark Excused",
+                      sub: "Approved excuse",
+                      idle: "border-purple-200 bg-purple-50 text-purple-700 hover:bg-purple-100",
+                      active: "border-purple-600 bg-purple-600 text-white",
+                    },
+                    {
+                      value: "absent",
+                      label: "Mark Absent",
+                      sub: "HR reviewed",
+                      idle: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
+                      active: "border-red-600 bg-red-600 text-white",
+                    },
+                  ] as const).map((action) => {
+                    const active = editQuickAction === action.value;
+                    return (
+                      <button
+                        key={action.value}
+                        type="button"
+                        onClick={() => applyQuickAction(action.value)}
+                        className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                          active ? action.active : action.idle
+                        }`}
+                      >
+                        <span className="block text-xs font-bold">{action.label}</span>
+                        <span className={`block text-[10px] mt-0.5 ${active ? "text-white/80" : "opacity-75"}`}>
+                          {action.sub}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs text-muted-foreground">Time In</label>
                   <Input
                     type="time"
                     value={editTimeIn}
-                    onChange={(e) => setEditTimeIn(e.target.value)}
+                    onChange={(e) => {
+                      setEditQuickAction("custom");
+                      setEditTimeIn(e.target.value);
+                    }}
                     className="h-9 mt-1"
+                    disabled={editQuickAction === "excused" || editQuickAction === "absent"}
                   />
                 </div>
                 <div>
@@ -1220,8 +1339,12 @@ function EmployeeSlideOver({
                   <Input
                     type="time"
                     value={editTimeOut}
-                    onChange={(e) => setEditTimeOut(e.target.value)}
+                    onChange={(e) => {
+                      setEditQuickAction("custom");
+                      setEditTimeOut(e.target.value);
+                    }}
                     className="h-9 mt-1"
+                    disabled={editQuickAction === "excused" || editQuickAction === "absent"}
                   />
                 </div>
               </div>
@@ -1248,6 +1371,7 @@ function EmployeeSlideOver({
                 onClick={() => {
                   setEditAttendanceOpen(false);
                   setEditError(null);
+                  setEditQuickAction("custom");
                 }}
               >
                 Cancel
@@ -1349,6 +1473,7 @@ function EmployeeSlideOver({
                     className="h-8 gap-1.5 text-xs"
                     onClick={() => {
                       setEditError(null);
+                      setEditQuickAction("custom");
                       setEditAttendanceOpen(true);
                     }}
                   >
@@ -1553,6 +1678,12 @@ function EmployeeSlideOver({
                           <p className="text-xs text-muted-foreground mt-1">
                             {audit.edit_reason}
                           </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[10px] text-muted-foreground">
+                            <span>Edited by</span>
+                            <span className="font-semibold text-foreground">
+                              {audit.edited_by_name || audit.edited_by || "Unknown"}
+                            </span>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2114,7 +2245,7 @@ export default function HRTimekeepingPage() {
     (paged as RosterEntry[]).map(row => (
       <tr
         key={row.employee_id}
-        className="hover:bg-muted/30 transition-colors cursor-pointer"
+        className="group hover:bg-muted/30 transition-colors cursor-pointer"
         onClick={() =>
           openDrill(
             row.user_id,
@@ -2131,10 +2262,11 @@ export default function HRTimekeepingPage() {
               lastName={row.last_name}
               avatarUrl={row.avatar_url}
             />
-            <div>
+            <div className="min-w-0">
               <p className="font-semibold">{`${row.first_name} ${row.last_name}`.trim()}</p>
               <p className="text-[10px] text-muted-foreground font-mono">{row.employee_id}</p>
             </div>
+            <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60" />
           </div>
         </td>
         <td className="px-6 py-4 text-xs font-medium">{formatTime(row.time_in)}</td>
@@ -2194,7 +2326,7 @@ export default function HRTimekeepingPage() {
     (paged as PeriodEntry[]).map(e => (
       <tr
         key={e.employee_id}
-        className="hover:bg-muted/30 transition-colors cursor-pointer"
+        className="group hover:bg-muted/30 transition-colors cursor-pointer"
         onClick={() =>
           openDrill(
             e.user_id,
@@ -2211,10 +2343,11 @@ export default function HRTimekeepingPage() {
               lastName={e.last_name}
               avatarUrl={e.avatar_url}
             />
-            <div>
+            <div className="min-w-0">
               <p className="font-semibold">{`${e.first_name} ${e.last_name}`.trim()}</p>
               <p className="text-[10px] text-muted-foreground font-mono">{e.employee_id}</p>
             </div>
+            <ChevronRight className="ml-auto h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60" />
           </div>
         </td>
         <td className="px-6 py-4">
@@ -2424,9 +2557,9 @@ export default function HRTimekeepingPage() {
       </div>
 
       {/* ── View Controls ────────────────────────────────────────────────────── */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        {/* Left: view mode segmented control */}
-        <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+        <div className="flex flex-col md:flex-row md:items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
           {/* Main panel toggle */}
           <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
             <button
@@ -2449,19 +2582,6 @@ export default function HRTimekeepingPage() {
             </button>
           </div>
 
-          {mainPanel === "attendance" && (
-          <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
-            <button
-              onClick={() => setShowCalendar(v => !v)}
-              className={`px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
-                showCalendar ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-              }`}
-            >
-              <Calendar className="h-3.5 w-3.5" />
-              Calendar
-            </button>
-          </div>
-          )}
           {mainPanel === "attendance" && <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
             {([
               { v: "day",    label: "Day",    icon: CalendarDays },
@@ -2481,9 +2601,10 @@ export default function HRTimekeepingPage() {
               </button>
             ))}
           </div>}
+          </div>
 
           {/* Day nav */}
-          {viewMode === "day" && (
+          {mainPanel === "attendance" && viewMode === "day" && (
             <div className="flex items-center gap-1.5">
               <Button variant="outline" size="icon" className="h-9 w-9" onClick={goToPrev}>
                 <ChevronLeft className="h-4 w-4" />
@@ -2505,7 +2626,7 @@ export default function HRTimekeepingPage() {
           )}
 
           {/* Week nav */}
-          {viewMode === "week" && (
+          {mainPanel === "attendance" && viewMode === "week" && (
             <div className="flex items-center gap-1.5">
               <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setWeekOffset(o => o - 1)}>
                 <ChevronLeft className="h-4 w-4" />
@@ -2526,7 +2647,7 @@ export default function HRTimekeepingPage() {
           )}
 
           {/* Month nav */}
-          {viewMode === "month" && (
+          {mainPanel === "attendance" && viewMode === "month" && (
             <div className="flex items-center gap-1.5">
               <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setMonthOffset(o => o - 1)}>
                 <ChevronLeft className="h-4 w-4" />
@@ -2547,7 +2668,7 @@ export default function HRTimekeepingPage() {
           )}
 
           {/* Custom range pickers */}
-          {viewMode === "custom" && (
+          {mainPanel === "attendance" && viewMode === "custom" && (
             <div className="flex items-center gap-2">
               <input
                 type="date"
@@ -2569,8 +2690,22 @@ export default function HRTimekeepingPage() {
           )}
         </div>
 
-        {/* Right: Schedule + Export */}
-        <div className="flex items-center gap-2">
+        {/* Display + Actions */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {mainPanel === "attendance" && <div className="hidden md:block h-6 w-px bg-border" />}
+          {mainPanel === "attendance" && (
+            <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
+              <button
+                onClick={() => setShowCalendar(v => !v)}
+                className={`px-3.5 py-2 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1.5 ${
+                  showCalendar ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                }`}
+              >
+                <Calendar className="h-3.5 w-3.5" />
+                Calendar
+              </button>
+            </div>
+          )}
           {mainPanel === "attendance" && (
             <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
               <button
@@ -2664,7 +2799,7 @@ export default function HRTimekeepingPage() {
       {isDayView ? (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <StatCard icon={Users}      label="Total Employees"   value={String(stats.total)}               sub="tracked"                              colorClass="bg-primary/10 text-primary" />
-          <StatCard icon={TrendingUp} label="Attendance Rate"   value={`${stats.attendance_rate}%`}       sub={`${stats.present + stats.late} present`} colorClass="bg-green-50 text-green-600" />
+          <StatCard icon={TrendingUp} label="Attendance Rate"   value={`${stats.attendance_rate}%`}       sub={`${stats.present + stats.late} present`} colorClass="bg-green-100 text-green-700" featured />
           <StatCard icon={BarChart2}  label="Total Hours"       value={`${stats.totalHours.toFixed(1)}h`} sub={`${stats.avgHours.toFixed(1)}h avg`}  colorClass="bg-blue-50 text-blue-600" />
           <StatCard icon={Timer}      label="Compliance Issues" value={String(stats.late + stats.absent)} sub={`${stats.late} late · ${stats.absent} absent`} colorClass="bg-red-50 text-red-600" />
         </div>
@@ -2673,12 +2808,13 @@ export default function HRTimekeepingPage() {
           <StatCard icon={Users}     label="Employees"      value={String(periodStats.total)}                  sub="in period"          colorClass="bg-primary/10 text-primary" />
           <StatCard icon={BarChart2} label="Total Hours"    value={`${periodStats.totalHours.toFixed(1)}h`}    sub={periodLabel}        colorClass="bg-blue-50 text-blue-600" />
           <StatCard icon={Timer}     label="Avg Per Person" value={`${periodStats.avgHours.toFixed(1)}h`}      sub="across period"      colorClass="bg-green-50 text-green-600" />
-          <StatCard icon={TrendingUp} label="Avg Compliance" value={`${periodStats.avgCompliance.toFixed(0)}%`} sub="attendance rate"   colorClass="bg-indigo-50 text-indigo-600" />
+          <StatCard icon={TrendingUp} label="Avg Compliance" value={`${periodStats.avgCompliance.toFixed(0)}%`} sub="attendance rate"   colorClass="bg-indigo-100 text-indigo-700" featured />
           <StatCard icon={AlertTriangle} label="Flagged Employees" value={String(periodStats.flaggedCount)} sub=">3 absent or >2 late" colorClass="bg-red-50 text-red-600" />
         </div>
       )}
 
       {/* ── Pending Absence Requests ────────────────────────────────────────── */}
+      {absenceRequestsLoading || absenceRequests.length > 0 ? (
       <Card className="border-border overflow-hidden">
         {/* Header */}
         <div className="px-5 py-4 border-b border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 flex items-center justify-between gap-3">
@@ -2714,14 +2850,6 @@ export default function HRTimekeepingPage() {
           <div className="px-5 py-6 flex items-center gap-3 text-sm text-muted-foreground">
             <div className="h-4 w-4 rounded-full border-2 border-amber-400/40 border-t-amber-500 animate-spin shrink-0" />
             Loading pending requests...
-          </div>
-        ) : absenceRequests.length === 0 ? (
-          <div className="px-5 py-8 flex flex-col items-center gap-2 text-center">
-            <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mb-1">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-            </div>
-            <p className="text-sm font-semibold text-foreground">All caught up!</p>
-            <p className="text-xs text-muted-foreground">No pending absence requests at this time.</p>
           </div>
         ) : (
           <div className="divide-y divide-border">
@@ -2806,6 +2934,27 @@ export default function HRTimekeepingPage() {
           </div>
         )}
       </Card>
+      ) : (
+        <div className="min-h-12 rounded-xl border border-border bg-card px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-8 w-8 rounded-lg bg-amber-50 border border-amber-200 flex items-center justify-center shrink-0">
+              <CheckCircle2 className="h-4 w-4 text-amber-600" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">
+              All caught up <span className="text-muted-foreground font-medium">· 0 pending review</span>
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs cursor-pointer shrink-0"
+            onClick={() => void refreshAbsenceRequests()}
+          >
+            Refresh
+          </Button>
+        </div>
+      )}
 
       {showCalendar && (
         <div className="bg-card border border-border rounded-2xl p-6 shadow-sm animate-in fade-in duration-300">
@@ -2979,12 +3128,7 @@ export default function HRTimekeepingPage() {
           <table className="w-full text-sm text-left">
             <thead className="text-[10px] font-bold text-muted-foreground bg-muted/30 border-b border-border uppercase tracking-widest">
               <tr>
-                <th className="px-6 py-4">
-                  <span className="flex items-center gap-2">
-                    Employee
-                    <span className="text-[9px] font-normal text-muted-foreground/60 normal-case tracking-normal">↗ click row for details</span>
-                  </span>
-                </th>
+                <th className="px-6 py-4">Employee</th>
                 {isDayView ? (
                   <>
                     <th className="px-6 py-4">Time In</th>

@@ -1186,10 +1186,24 @@ export class TimekeepingService {
 
     if (auditsError) throw new Error(auditsError.message);
 
+    const auditRows = (audits ?? []) as Array<{
+      audit_id: string;
+      employee_id: string;
+      target_user_id: string;
+      date: string;
+      edited_by: string | null;
+      edited_at: string;
+      edit_reason: string;
+      before_payload: unknown;
+      after_payload: unknown;
+    }>;
+
     const reviewerIds = [
       ...new Set(
-        logsWithLocation
-          .map((l) => (l as any).reviewed_by)
+        [
+          ...logsWithLocation.map((l) => (l as any).reviewed_by),
+          ...auditRows.map((audit) => audit.edited_by),
+        ]
           .filter((id: any): id is string => typeof id === 'string'),
       ),
     ];
@@ -1211,6 +1225,11 @@ export class TimekeepingService {
         (l as any).reviewed_by ? (nameMap[(l as any).reviewed_by] ?? null) : null,
     }));
 
+    const auditsWithEditor = auditRows.map((audit) => ({
+      ...audit,
+      edited_by_name: audit.edited_by ? (nameMap[audit.edited_by] ?? null) : null,
+    }));
+
     return {
       user_id: targetUser.user_id,
       employee_id: targetUser.employee_id,
@@ -1229,7 +1248,7 @@ export class TimekeepingService {
           }
         : null,
       punches: punchesWithReviewer,
-      attendance_audits: audits ?? [],
+      attendance_audits: auditsWithEditor,
     };
   }
 
@@ -1477,8 +1496,14 @@ export class TimekeepingService {
   ) {
     const supabase = this.supabaseService.getClient();
     const safeDate = this.ensureIsoDate(date);
+    const statusAction = dto.attendance_status;
 
-    if (!dto.time_in && !dto.time_out) {
+    if (
+      !dto.time_in &&
+      !dto.time_out &&
+      statusAction !== 'excused' &&
+      statusAction !== 'absent'
+    ) {
       throw new BadRequestException('Provide at least one of time_in or time_out.');
     }
 
@@ -1517,6 +1542,81 @@ export class TimekeepingService {
     const nowIso = new Date().toISOString();
 
     const schedule = await this.getScheduleForEmployee(targetUser.employee_id, safeDate);
+    const isAbsenceAction = statusAction === 'excused' || statusAction === 'absent';
+
+    if (isAbsenceAction) {
+      const activeTimeLogIds = logs
+        .filter(
+          (log) =>
+            (log.log_type === 'time-in' || log.log_type === 'time-out') &&
+            String(log.log_status ?? '').toUpperCase() !== 'DENIED',
+        )
+        .map((log) => log.log_id);
+
+      if (activeTimeLogIds.length > 0) {
+        const { error } = await supabase
+          .from('attendance_time_logs')
+          .update({
+            log_status: 'DENIED',
+            edited_by: editorUserId,
+            edited_at: nowIso,
+            edit_reason: dto.edit_reason,
+          })
+          .in('log_id', activeTimeLogIds);
+        if (error) throw new Error(error.message);
+      }
+
+      const absenceStatus = statusAction === 'excused' ? 'APPROVED' : 'ABSENT';
+      const absenceReason =
+        dto.absence_reason?.trim() ||
+        (statusAction === 'excused' ? 'Excused by HR' : 'Marked absent by HR');
+      const absenceNotes =
+        statusAction === 'excused'
+          ? `HR quick-marked as excused: ${dto.edit_reason}`
+          : `HR quick-marked as absent: ${dto.edit_reason}`;
+
+      if (existingAbsences.length > 0) {
+        const { error } = await supabase
+          .from('attendance_time_logs')
+          .update({
+            schedule_id: schedule?.sched_id ?? null,
+            log_status: absenceStatus,
+            absence_reason: absenceReason,
+            absence_notes: absenceNotes,
+            reviewed_by: editorUserId,
+            reviewed_at: nowIso,
+            review_reason: dto.edit_reason,
+            edited_by: editorUserId,
+            edited_at: nowIso,
+            edit_reason: dto.edit_reason,
+          })
+          .in(
+            'log_id',
+            existingAbsences.map((log) => log.log_id),
+          );
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('attendance_time_logs').insert({
+          log_id: crypto.randomUUID(),
+          employee_id: targetUser.employee_id,
+          schedule_id: schedule?.sched_id ?? null,
+          log_type: 'absence',
+          timestamp: `${safeDate}T12:00:00.000+08:00`,
+          status: statusAction === 'excused' ? 'EXCUSED' : 'ABSENT',
+          log_status: absenceStatus,
+          absence_reason: absenceReason,
+          absence_notes: absenceNotes,
+          reviewed_by: editorUserId,
+          reviewed_at: nowIso,
+          review_reason: dto.edit_reason,
+          is_mock_location: false,
+          edited_by: editorUserId,
+          edited_at: nowIso,
+          edit_reason: dto.edit_reason,
+        });
+        if (error) throw new Error(error.message);
+      }
+    }
 
     const parsedTimeIn = dto.time_in ? this.toManilaTimestamp(safeDate, dto.time_in) : null;
     const parsedTimeOut = dto.time_out
@@ -1529,8 +1629,10 @@ export class TimekeepingService {
       }
     }
 
-    if (parsedTimeIn) {
-      const clockType = schedule
+    if (!isAbsenceAction && parsedTimeIn) {
+      const clockType = statusAction === 'clocked-in' || statusAction === 'present'
+        ? 'ON-TIME'
+        : schedule
         ? this.computeClockTypeForTimeIn(new Date(parsedTimeIn), schedule)
         : null;
 
@@ -1568,7 +1670,20 @@ export class TimekeepingService {
       }
     }
 
-    if (parsedTimeOut) {
+    if (statusAction === 'clocked-in' && existingTimeOut) {
+      const { error } = await supabase
+        .from('attendance_time_logs')
+        .update({
+          log_status: 'DENIED',
+          edited_by: editorUserId,
+          edited_at: nowIso,
+          edit_reason: dto.edit_reason,
+        })
+        .eq('log_id', existingTimeOut.log_id);
+      if (error) throw new Error(error.message);
+    }
+
+    if (!isAbsenceAction && parsedTimeOut) {
       const clockType = schedule
         ? this.computeClockTypeForTimeOut(new Date(parsedTimeOut), schedule)
         : null;
@@ -1607,7 +1722,7 @@ export class TimekeepingService {
       }
     }
 
-    if (existingAbsences.length > 0 && (parsedTimeIn || parsedTimeOut)) {
+    if (!isAbsenceAction && existingAbsences.length > 0 && (parsedTimeIn || parsedTimeOut)) {
       const absenceIds = existingAbsences.map((log) => log.log_id);
       const { error } = await supabase
         .from('attendance_time_logs')

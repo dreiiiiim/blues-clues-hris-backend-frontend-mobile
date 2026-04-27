@@ -630,7 +630,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
   const cfg = effectiveCfg;
 
   return (
-    <div role="presentation" className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
+    <div role="presentation" className="fixed inset-0 z-60 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-3 sm:p-4" onClick={onClose} onKeyDown={(e) => { if (e.key === "Escape") onClose(); }}>
       {/* Accept Offer confirmation modal */}
       {showAcceptConfirm && (
         <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={(e) => e.stopPropagation()}>
@@ -670,7 +670,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
         </div>
       )}
 
-      <div role="dialog" aria-modal="true" className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+      <div role="dialog" aria-modal="true" className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg h-[min(860px,calc(100dvh-1.5rem))] sm:h-[min(860px,calc(100dvh-2rem))] overflow-hidden flex flex-col animate-in zoom-in-95 duration-200" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
 
         {/* Gradient header */}
         <div className="relative overflow-hidden rounded-t-2xl bg-[linear-gradient(135deg,#0f172a_0%,#172554_55%,#134e4a_100%)] px-6 pt-5 pb-0">
@@ -717,7 +717,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
         </div>
 
         {/* ── Tab bar — white, always visible ── */}
-        <div className="flex items-center border-b border-border bg-card shrink-0 px-2">
+        <div className="flex items-center border-b border-border bg-card shrink-0 px-2 overflow-x-auto">
           <button
             onClick={() => setTab("job")}
             className={`flex items-center gap-1.5 px-4 py-3 text-sm font-semibold border-b-2 transition-all cursor-pointer -mb-px ${
@@ -781,7 +781,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto flex-1 p-6 space-y-5">
+        <div className="min-h-0 overflow-y-auto overscroll-contain flex-1 p-4 sm:p-6 space-y-5">
 
           {/* ── JOB DETAILS TAB ── */}
           {tab === "job" && (

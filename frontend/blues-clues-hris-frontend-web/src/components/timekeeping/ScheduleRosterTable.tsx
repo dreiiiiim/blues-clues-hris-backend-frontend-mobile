@@ -53,7 +53,7 @@ function parseWorkdays(wd: string | null): string[] {
 }
 
 const DAY_ABBR: Record<string, string> = {
-  MON: "M", TUE: "T", WED: "W", THU: "T", THURS: "T", FRI: "F", SAT: "S", SUN: "S",
+  MON: "Mo", TUE: "Tu", WED: "We", THU: "Th", THURS: "Th", FRI: "Fr", SAT: "Sa", SUN: "Su",
 };
 const ALL_DAYS = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
 
@@ -318,7 +318,16 @@ export function ScheduleRosterTable({
   }, [roster]);
 
   const customCount = roster.filter(r => r.schedule?.schedule_source === "individual").length;
+  const departmentCount = roster.filter(r => r.schedule?.schedule_source === "department").length;
+  const defaultCount = roster.filter(r => r.schedule?.schedule_source === "default" || r.schedule?.schedule_source === "bulk").length;
   const unsetCount  = roster.filter(r => !r.schedule || r.schedule?.schedule_source === null).length;
+  const totalCount = Math.max(roster.length, 1);
+  const coverageSegments = [
+    { key: "custom", label: "Custom", count: customCount, className: "bg-violet-500" },
+    { key: "department", label: "Department", count: departmentCount, className: "bg-emerald-500" },
+    { key: "default", label: "Default", count: defaultCount, className: "bg-blue-500" },
+    { key: "unset", label: "Unset", count: unsetCount, className: "bg-amber-400" },
+  ];
   const warningRows = useMemo(() => {
     if (warningPanel === "custom") {
       return roster
@@ -348,38 +357,65 @@ export function ScheduleRosterTable({
   return (
     <div className="space-y-4">
 
-      {/* Summary chips */}
-      <div className="flex flex-wrap gap-2">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-card text-xs font-semibold">
-          <Users className="h-3.5 w-3.5 text-muted-foreground" />
-          {roster.length} employees
+      {/* Coverage strip */}
+      <div className="rounded-xl border border-border bg-card px-4 py-3 flex flex-col lg:flex-row lg:items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <div className="h-9 w-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center shrink-0">
+            <Users className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Schedule Coverage</p>
+              <p className="text-xs font-semibold text-muted-foreground">{roster.length} employees</p>
+            </div>
+            <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted flex">
+              {coverageSegments.map((segment) => (
+                segment.count > 0 ? (
+                  <span
+                    key={segment.key}
+                    className={segment.className}
+                    style={{ width: `${(segment.count / totalCount) * 100}%` }}
+                    title={`${segment.label}: ${segment.count}`}
+                  />
+                ) : null
+              ))}
+            </div>
+          </div>
         </div>
-        {customCount > 0 && (
-          <button
-            type="button"
-            onClick={() => toggleWarningPanel("custom")}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
-              warningPanel === "custom"
-                ? "border-violet-300 bg-violet-100 text-violet-800"
-                : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
-            }`}
-          >
-            {customCount} with custom schedules
-          </button>
-        )}
-        {unsetCount > 0 && (
-          <button
-            type="button"
-            onClick={() => toggleWarningPanel("unset")}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
-              warningPanel === "unset"
-                ? "border-amber-300 bg-amber-100 text-amber-800"
-                : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
-            }`}
-          >
-            {unsetCount} without a schedule
-          </button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {coverageSegments.map((segment) => (
+            <span key={segment.key} className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+              <span className={`h-2 w-2 rounded-full ${segment.className}`} />
+              {segment.label} {segment.count}
+            </span>
+          ))}
+          {customCount > 0 && (
+            <button
+              type="button"
+              onClick={() => toggleWarningPanel("custom")}
+              className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-colors ${
+                warningPanel === "custom"
+                  ? "border-violet-300 bg-violet-100 text-violet-800"
+                  : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+              }`}
+            >
+              Review Custom
+            </button>
+          )}
+          {unsetCount > 0 && (
+            <button
+              type="button"
+              onClick={() => toggleWarningPanel("unset")}
+              className={`px-2.5 py-1 rounded-lg border text-[10px] font-bold uppercase tracking-wide cursor-pointer transition-colors ${
+                warningPanel === "unset"
+                  ? "border-amber-300 bg-amber-100 text-amber-800"
+                  : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+              }`}
+            >
+              Review Unset
+            </button>
+          )}
+        </div>
       </div>
 
       {warningPanel && (
@@ -492,7 +528,7 @@ export function ScheduleRosterTable({
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-muted/20">
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-            Department Schedule View
+            Org-wide assignments · {departmentSchedules.length} departments
           </p>
         </div>
         {loading ? (
@@ -586,6 +622,11 @@ export function ScheduleRosterTable({
 
       {/* Table */}
       <div className="rounded-xl border border-border overflow-hidden">
+        <div className="px-4 py-3 border-b border-border bg-muted/20">
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
+            Per-employee overrides · {filtered.length} employees
+          </p>
+        </div>
         {loading ? (
           <div className="py-16 text-center text-sm text-muted-foreground">Loading schedule roster...</div>
         ) : error ? (
@@ -593,8 +634,9 @@ export function ScheduleRosterTable({
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">No employees match your filters.</div>
         ) : (
+          <div className="max-h-[34rem] overflow-auto">
           <table className="w-full text-sm">
-            <thead>
+            <thead className="sticky top-0 z-10 bg-muted/30 backdrop-blur">
               <tr className="border-b border-border bg-muted/30">
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Employee</th>
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Department</th>
@@ -709,6 +751,7 @@ export function ScheduleRosterTable({
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
