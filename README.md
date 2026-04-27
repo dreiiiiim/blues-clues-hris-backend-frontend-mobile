@@ -127,27 +127,36 @@ git pull origin main
 
 ### Step 2 — Set up environment files
 
-**The main branch connects to the deployed Railway backend by default.**
-If you are adding features that touch the backend, switch to localhost (see [Switching Environments](#switching-environments) below).
+**Never paste real `.env` values into this README or any committed file.**
+Real keys are shared privately through the team chat/password manager only. Keep local secrets in `.env` / `.env.local`, which are ignored by Git.
+
+**The main branch can point to the deployed Railway backend by default.**
+If you are adding features that touch the backend, switch the frontend/mobile API URL to localhost (see [Switching Environments](#switching-environments) below).
 
 #### Backend — create `tribeX-hris-auth-api/.env`
 
 ```env
 PORT=5000
-SUPABASE_URL=https://xvofqboilmzlhrnkyyif.supabase.co
-SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2b2ZxYm9pbG16bGhybmt5eWlmIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc3Mjk2MTA0NCwiZXhwIjoyMDg4NTM3MDQ0fQ.DYBGofSYAG_bsv9_bYo8ZvhsO4lx4W5wcfjWtXMoBxg
-SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inh2b2ZxYm9pbG16bGhybmt5eWlmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5NjEwNDQsImV4cCI6MjA4ODUzNzA0NH0.b6T6Auv69Hrxs2klwZpv8Vg1HfqRTzQI_BSb6ppbCKc
-JWT_SECRET=sc078c0eaf7b200f45077475fabba72e2f1d0947992d53619cac9f77e6df32820
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_ANON_KEY=your-anon-key
+JWT_SECRET=replace-with-a-long-random-secret-at-least-32-characters
 
 # Brevo (transactional email) — get API key from https://app.brevo.com/settings/keys/api
-BREVO_API_KEY=xkeysib-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+BREVO_API_KEY=your-brevo-api-key
 BREVO_BASE_URL=https://api.brevo.com
-BREVO_SENDER_EMAIL=bluesclueshris@yourverifieddomain.com
+BREVO_SENDER_EMAIL=your-verified-sender@example.com
 BREVO_SENDER_NAME=Blues Clues HRIS
 BREVO_TIMEOUT_MS=15000
 
 APP_URL=http://localhost:3000
 ```
+
+Backend notes:
+- `SUPABASE_SERVICE_ROLE_KEY` is server-only. Never put it in frontend/mobile env files.
+- `JWT_SECRET` must be at least 32 characters.
+- `BREVO_SENDER_EMAIL` must be verified in Brevo or email sends will fail.
+- If you are only testing UI against Railway, you do not need to run the backend locally.
 
 #### Frontend — create `frontend/blues-clues-hris-frontend-web/.env.local`
 
@@ -155,15 +164,45 @@ For local development (pointing to localhost backend):
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:5000/api/tribeX/auth/v1
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
+For local development against the deployed Railway backend:
+
+```env
+NEXT_PUBLIC_API_BASE_URL=https://blues-clues-hris-backend-frontend-mobile-production.up.railway.app/api/tribeX/auth/v1
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+```
+
+Frontend notes:
+- Only variables starting with `NEXT_PUBLIC_` are exposed to the browser.
+- Restart `npm run dev` after changing `.env.local`.
+
 #### Mobile — edit `blues-clues-hris-mobile/.env`
+
+You can copy the template first:
+
+```bash
+cd blues-clues-hris-mobile
+cp .env.example .env
+```
 
 For local development (replace IP with your machine's Wi-Fi IPv4 from `ipconfig`):
 
 ```env
 EXPO_PUBLIC_API_BASE_URL=http://192.168.x.x:5000/api/tribeX/auth/v1
 ```
+
+For local development against the deployed Railway backend:
+
+```env
+EXPO_PUBLIC_API_BASE_URL=https://blues-clues-hris-backend-frontend-mobile-production.up.railway.app/api/tribeX/auth/v1
+```
+
+Mobile notes:
+- Do not use `localhost` on a physical phone. Use your PC's Wi-Fi IPv4 address.
+- Restart Expo with `npx expo start -c` after changing `.env`.
+- Your phone and development machine must be on the same Wi-Fi network for local backend testing.
 
 ---
 
@@ -285,33 +324,46 @@ npx expo start -c
 | `BREVO_TIMEOUT_MS`          | Fetch timeout for Brevo API call (default: `15000`)             | No       |
 | `APP_URL`                   | Frontend URL (used in email links — verification, reset, etc.)  | Yes      |
 
-> **Never commit `.env` files.** They are in `.gitignore`. Full values are in Step 2 above.
+> **Never commit `.env` files or real secret values.** They are in `.gitignore`. Use placeholders in committed docs and get real values from the private team setup document.
 > Brevo sender email **must be verified** in your Brevo dashboard or sends will 401/403.
+
+### Frontend web — `frontend/blues-clues-hris-frontend-web/.env.local`
+
+| Variable                   | Description                                                | Required |
+| -------------------------- | ---------------------------------------------------------- | -------- |
+| `NEXT_PUBLIC_API_BASE_URL` | Backend API base URL used by the browser                   | Yes      |
+| `NEXT_PUBLIC_APP_URL`      | Local/public frontend URL used by frontend-generated links | No       |
+
+### Mobile — `blues-clues-hris-mobile/.env`
+
+| Variable                   | Description                                                           | Required |
+| -------------------------- | --------------------------------------------------------------------- | -------- |
+| `EXPO_PUBLIC_API_BASE_URL` | Backend API base URL bundled into the Expo app. Use PC IPv4 for local | Yes      |
 
 ---
 
 ## Test Accounts
 
-Use these accounts for local development and testing.
+Use these accounts for local development and testing. Passwords and live credentials are kept in the private team setup document, not in this public README.
 
 ### Company 3
 
-| Role                                   | Identifier                        | Password      | Notes                         |
-| -------------------------------------- | --------------------------------- | ------------- | ----------------------------- |
-| System Admin (timekeeping/recruitment) | `afdmandrei.systemadmin`          | `andrei123`   | Full admin access — COMPANY 3 |
-| Applicant                              | `montanielandrei@gmail.com`       | `password123` | COMPANY 3                     |
-| Applicant                              | `andreimontanielcoding@gmail.com` | `password123` | Applicant portal COMPANY 3    |
-| Manager                                | `cheenamarilenejaring@gmail.com`  | `password123` | Team management               |
-| HR Officer                             | `rickgrimes`                      | `password123` | HR portal                     |
-| Employee                               | `ludovicastorti`                  | `password123` | Employee                      |
+| Role                                   | Identifier                        | Password source   | Notes                         |
+| -------------------------------------- | --------------------------------- | ----------------- | ----------------------------- |
+| System Admin (timekeeping/recruitment) | `afdmandrei.systemadmin`          | Private setup doc | Full admin access - COMPANY 3 |
+| Applicant                              | `montanielandrei@gmail.com`       | Private setup doc | COMPANY 3                     |
+| Applicant                              | `andreimontanielcoding@gmail.com` | Private setup doc | Applicant portal COMPANY 3    |
+| Manager                                | `cheenamarilenejaring@gmail.com`  | Private setup doc | Team management               |
+| HR Officer                             | `rickgrimes`                      | Private setup doc | HR portal                     |
+| Employee                               | `ludovicastorti`                  | Private setup doc | Employee                      |
 
 ### Company 2
 
-| Role       | Identifier                | Password      | Notes            |
-| ---------- | ------------------------- | ------------- | ---------------- |
-| HR Officer | `chiarraalteri@gmail.com` | `password123` | COMP 2 HR portal |
+| Role       | Identifier                | Password source   | Notes            |
+| ---------- | ------------------------- | ----------------- | ---------------- |
+| HR Officer | `chiarraalteri@gmail.com` | Private setup doc | COMP 2 HR portal |
 
-> Default password for all accounts not listed above: `password123`
+> Do not commit real test account passwords. Share them only in the private setup document or password manager.
 
 ---
 
@@ -435,7 +487,7 @@ Current base: `http://localhost:5000/api/tribeX/auth/v1/`
 POST http://localhost:5000/api/tribeX/auth/v1/login
 Content-Type: application/json
 
-{ "identifier": "afdmandrei.systemadmin", "password": "andrei123" }
+{ "identifier": "afdmandrei.systemadmin", "password": "<password-from-private-setup-doc>" }
 ```
 
 **Authenticated request:**
