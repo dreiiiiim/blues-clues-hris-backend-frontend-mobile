@@ -4,11 +4,13 @@ import { TimekeepingService } from './timekeeping.service';
 import { TimekeepingTasksService } from './timekeeping.tasks';
 import { AuthModule } from '../auth/auth.module';
 import { SupabaseModule } from '../supabase/supabase.module';
+import { MailModule } from '../mail/mail.module';
 
 @Module({
   imports: [
-    AuthModule, // provides JwtAuthGuard, RolesGuard, Roles decorator
-    SupabaseModule, // provides SupabaseService
+    AuthModule,
+    SupabaseModule,
+    MailModule,
   ],
   controllers: [TimekeepingController],
   providers: [TimekeepingService, TimekeepingTasksService],

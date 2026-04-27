@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CalendarDays, CalendarRange, Clock, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarDays, CalendarRange, Clock, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, X } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -20,6 +20,7 @@ export type CalendarDayData = {
   timeOut?: string | null;
   hoursWorked?: number | null;
   absenceReason?: string | null;
+  summary?: { present: number; late: number; absent: number; total: number };
 };
 
 export type CalendarViewMode = "month" | "week" | "day";
@@ -50,6 +51,9 @@ const STATUS_CELL: Record<
   future:       { cell: "bg-background border-border/50 text-muted-foreground opacity-50",dot: "bg-muted", label: "Future"  },
   "no-schedule":{ cell: "bg-slate-50 border-slate-200 text-slate-400",   dot: "bg-slate-300",   label: "No Schedule" },
 };
+
+const DAY_CELL_BASE = "bg-card border-border/70 text-foreground";
+const DAY_CELL_MUTED = "bg-muted/20 border-border/50 text-muted-foreground";
 
 const WEEKDAY_HEADERS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEKDAY_SHORT   = ["S", "M", "T", "W", "T", "F", "S"];
@@ -102,26 +106,30 @@ function DayCell({
   data,
   compact,
   onClick,
+  isSelected,
 }: {
   dateStr: string;
   data: CalendarDayData | null;
   compact?: boolean;
   onClick?: () => void;
+  isSelected?: boolean;
 }) {
   const today = toLocaleDateStr(new Date());
   const isToday = dateStr === today;
   const status = data?.status ?? null;
-  const cfg = status ? STATUS_CELL[status] : null;
+  const hasSummary = !!data?.summary;
+  const isFuture = status === "future";
+  const isQuietDay = !data || status === "no-schedule" || isFuture;
 
   return (
     <button
       onClick={onClick}
       className={[
         "relative flex flex-col rounded-xl border transition-all duration-150 text-left",
-        onClick ? "cursor-pointer hover:shadow-md hover:scale-[1.02]" : "cursor-default",
+        onClick ? "cursor-pointer hover:border-primary/40 hover:bg-primary/[0.03] hover:shadow-sm" : "cursor-default",
         compact ? "p-1.5 min-h-[3.5rem]" : "p-3 min-h-[5.5rem]",
-        cfg ? cfg.cell : "bg-background border-border/50 text-muted-foreground",
-        isToday ? "ring-2 ring-primary ring-offset-1" : "",
+        isQuietDay ? DAY_CELL_MUTED : DAY_CELL_BASE,
+        isToday ? "ring-2 ring-primary ring-offset-1" : isSelected ? "ring-2 ring-primary/50 ring-offset-1 border-primary/60 bg-primary/[0.04]" : "",
       ].join(" ")}
     >
       {/* Day number */}
@@ -133,20 +141,21 @@ function DayCell({
         {Number(dateStr.split("-")[2])}
       </span>
 
-      {/* Status dot */}
-      {cfg && (
-        <span className={`absolute top-1.5 right-1.5 h-1.5 w-1.5 rounded-full ${cfg.dot}`} />
+      {hasSummary && !compact && (
+        <span className="mt-auto inline-flex w-fit rounded-md border border-border bg-background px-1.5 py-0.5 text-[10px] font-semibold text-muted-foreground">
+          {data.summary?.total ?? 0} emp.
+        </span>
       )}
 
       {/* Time snippet */}
-      {!compact && data?.timeIn && (
+      {!compact && !hasSummary && data?.timeIn && (
         <span className="mt-auto text-[10px] font-medium leading-none opacity-80 truncate">
           {formatTimeShort(data.timeIn)}
         </span>
       )}
 
       {/* Hours badge */}
-      {!compact && data?.hoursWorked != null && data.hoursWorked > 0 && (
+      {!compact && !hasSummary && data?.hoursWorked != null && data.hoursWorked > 0 && (
         <span className="mt-0.5 text-[9px] font-bold leading-none opacity-70">
           {data.hoursWorked.toFixed(1)}h
         </span>
@@ -161,10 +170,12 @@ function MonthView({
   referenceDate,
   days,
   onDayClick,
+  activeSummaryDate,
 }: {
   referenceDate: Date;
   days: CalendarDayData[];
   onDayClick?: (date: string, data: CalendarDayData | null) => void;
+  activeSummaryDate?: string;
 }) {
   const year  = referenceDate.getFullYear();
   const month = referenceDate.getMonth();
@@ -192,6 +203,7 @@ function MonthView({
               data={dayMap[dateStr] ?? null}
               compact
               onClick={onDayClick ? () => onDayClick(dateStr, dayMap[dateStr] ?? null) : undefined}
+              isSelected={activeSummaryDate === dateStr}
             />
           ) : (
             <div key={`blank-${i}`} className="min-h-[3.5rem]" />
@@ -199,17 +211,10 @@ function MonthView({
         ))}
       </div>
 
-      {/* Legend */}
-      <div className="flex flex-wrap gap-3 mt-4 pt-3 border-t border-border">
-        {(["present", "late", "absent", "no-schedule", "future"] as CalendarDayStatus[]).map(s => {
-          const cfg = STATUS_CELL[s!];
-          return (
-            <div key={s} className="flex items-center gap-1.5">
-              <span className={`h-2.5 w-2.5 rounded-full ${cfg.dot}`} />
-              <span className="text-[10px] text-muted-foreground font-medium">{cfg.label}</span>
-            </div>
-          );
-        })}
+      <div className="mt-4 border-t border-border pt-3">
+        <p className="text-[10px] font-medium text-muted-foreground">
+          Select a day to preview attendance totals below. Use View Day Details for the full employee list.
+        </p>
       </div>
     </div>
   );
@@ -221,10 +226,12 @@ function WeekView({
   referenceDate,
   days,
   onDayClick,
+  activeSummaryDate,
 }: {
   referenceDate: Date;
   days: CalendarDayData[];
   onDayClick?: (date: string, data: CalendarDayData | null) => void;
+  activeSummaryDate?: string;
 }) {
   const weekDates = buildWeekDates(referenceDate);
   const today     = toLocaleDateStr(new Date());
@@ -235,9 +242,11 @@ function WeekView({
       {weekDates.map((dateStr, i) => {
         const data   = dayMap[dateStr] ?? null;
         const status = data?.status ?? null;
-        const cfg    = status ? STATUS_CELL[status] : null;
         const isToday = dateStr === today;
         const dayNum  = Number(dateStr.split("-")[2]);
+        const isSelected = activeSummaryDate === dateStr;
+        const hasSummary = !!data?.summary;
+        const isQuietDay = !data || status === "no-schedule" || status === "future";
 
         return (
           <button
@@ -245,9 +254,9 @@ function WeekView({
             onClick={onDayClick ? () => onDayClick(dateStr, data) : undefined}
             className={[
               "flex flex-col items-center rounded-xl border p-3 min-h-[8rem] transition-all",
-              onDayClick ? "cursor-pointer hover:shadow-md" : "cursor-default",
-              cfg ? cfg.cell : "bg-background border-border/50 text-muted-foreground",
-              isToday ? "ring-2 ring-primary ring-offset-1" : "",
+              onDayClick ? "cursor-pointer hover:border-primary/40 hover:bg-primary/[0.03] hover:shadow-sm" : "cursor-default",
+              isQuietDay ? DAY_CELL_MUTED : DAY_CELL_BASE,
+              isToday ? "ring-2 ring-primary ring-offset-1" : isSelected ? "ring-2 ring-primary/50 ring-offset-1 border-primary/60 bg-primary/[0.04]" : "",
             ].join(" ")}
           >
             {/* Day label */}
@@ -258,23 +267,24 @@ function WeekView({
               {dayNum}
             </span>
 
-            {/* Status dot */}
-            {cfg && (
-              <span className={`h-2 w-2 rounded-full ${cfg.dot} mt-1`} />
+            {hasSummary && (
+              <span className="mt-3 rounded-md border border-border bg-background px-2 py-1 text-[10px] font-semibold text-muted-foreground">
+                {data.summary?.total ?? 0} employees
+              </span>
             )}
 
             {/* Times */}
-            {data?.timeIn && (
+            {!hasSummary && data?.timeIn && (
               <span className="text-[10px] font-medium mt-2 leading-none">
                 {formatTimeShort(data.timeIn)}
               </span>
             )}
-            {data?.timeOut && (
+            {!hasSummary && data?.timeOut && (
               <span className="text-[10px] text-muted-foreground leading-none mt-0.5">
                 {formatTimeShort(data.timeOut)}
               </span>
             )}
-            {data?.hoursWorked != null && data.hoursWorked > 0 && (
+            {!hasSummary && data?.hoursWorked != null && data.hoursWorked > 0 && (
               <span className="mt-auto text-[9px] font-bold opacity-70">
                 {data.hoursWorked.toFixed(1)}h
               </span>
@@ -314,7 +324,7 @@ function DayView({
   })();
 
   return (
-    <div className={`rounded-2xl border p-6 ${cfg ? cfg.cell : "bg-muted/10 border-border"}`}>
+    <div className="rounded-2xl border border-border bg-card p-6">
       <div className="flex items-start justify-between mb-5">
         <div>
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">
@@ -367,6 +377,73 @@ function DayView({
   );
 }
 
+// ─── Day Summary Panel ────────────────────────────────────────────────────────
+
+function DaySummaryPanel({
+  date,
+  summary,
+  onDrillIn,
+  onClose,
+}: {
+  date: string;
+  summary: { present: number; late: number; absent: number; total: number };
+  onDrillIn: () => void;
+  onClose: () => void;
+}) {
+  const longDate = new Date(date + "T12:00:00").toLocaleDateString("en-US", {
+    weekday: "long", month: "long", day: "numeric", year: "numeric",
+    timeZone: "Asia/Manila",
+  });
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2 duration-200">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-bold text-foreground">{longDate}</p>
+        <button
+          onClick={onClose}
+          className="h-6 w-6 flex items-center justify-center rounded-md hover:bg-muted/60 text-muted-foreground transition-colors cursor-pointer"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">On Time</span>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-green-500 shrink-0" />
+            <span className="text-2xl font-bold text-green-700">{summary.present}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Late</span>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0" />
+            <span className="text-2xl font-bold text-amber-700">{summary.late}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Absent</span>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-red-500 shrink-0" />
+            <span className="text-2xl font-bold text-red-700">{summary.absent}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Total Emp.</span>
+          <span className="text-2xl font-bold text-foreground">{summary.total}</span>
+        </div>
+      </div>
+      <button
+        onClick={onDrillIn}
+        className="ml-auto flex items-center gap-1 text-xs font-semibold text-primary hover:underline cursor-pointer"
+      >
+        View Day Details
+        <ChevronRight className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export function AttendanceCalendarGrid({
@@ -382,13 +459,29 @@ export function AttendanceCalendarGrid({
   // ── Inline month/year picker state ────────────────────────────────────────
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerYear, setPickerYear] = useState(referenceDate.getFullYear());
+  const [summaryPanel, setSummaryPanel] = useState<{ date: string; summary: NonNullable<CalendarDayData["summary"]> } | null>(null);
 
-  // Close picker and sync year when referenceDate changes externally
+  // Close picker/summary and sync year when referenceDate changes externally
   useEffect(() => {
     setPickerOpen(false);
     setPickerYear(referenceDate.getFullYear());
+    setSummaryPanel(null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [referenceDate.getFullYear(), referenceDate.getMonth()]);
+
+  const inferredTotal = Math.max(0, ...days.map(d => d.summary?.total ?? 0));
+
+  function handleCellClick(date: string, data: CalendarDayData | null) {
+    const summary = data?.summary ?? { present: 0, late: 0, absent: 0, total: inferredTotal };
+    setSummaryPanel(prev => prev?.date === date ? null : { date, summary });
+  }
+
+  function handleDrillIn() {
+    if (!summaryPanel) return;
+    const data = days.find(d => d.date === summaryPanel.date) ?? null;
+    setSummaryPanel(null);
+    onDayClick?.(summaryPanel.date, data);
+  }
 
   function handlePickMonth(month: number) {
     onNavigate?.(new Date(pickerYear, month, 1));
@@ -464,9 +557,10 @@ export function AttendanceCalendarGrid({
               title="Click to jump to a month or year"
             >
               {monthYearLabel}
-              <span className={`text-[9px] leading-none ${pickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                {pickerOpen ? "▴" : "▾"}
-              </span>
+              {pickerOpen
+                ? <ChevronUp className={`h-3 w-3 ${pickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
+                : <ChevronDown className={`h-3 w-3 ${pickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
+              }
             </button>
 
             <button
@@ -526,15 +620,24 @@ export function AttendanceCalendarGrid({
 
       {/* ── Calendar content ─────────────────────────────────────────────── */}
       {!pickerOpen && mode === "month" && (
-        <MonthView referenceDate={referenceDate} days={days} onDayClick={onDayClick} />
+        <MonthView referenceDate={referenceDate} days={days} onDayClick={onDayClick ? handleCellClick : undefined} activeSummaryDate={summaryPanel?.date} />
       )}
       {!pickerOpen && mode === "week" && (
-        <WeekView referenceDate={referenceDate} days={days} onDayClick={onDayClick} />
+        <WeekView referenceDate={referenceDate} days={days} onDayClick={onDayClick ? handleCellClick : undefined} activeSummaryDate={summaryPanel?.date} />
       )}
       {!pickerOpen && mode === "day" && (
         <DayView referenceDate={referenceDate} days={days} />
       )}
+
+      {/* ── Day summary panel ─────────────────────────────────────────────── */}
+      {summaryPanel && (
+        <DaySummaryPanel
+          date={summaryPanel.date}
+          summary={summaryPanel.summary}
+          onDrillIn={handleDrillIn}
+          onClose={() => setSummaryPanel(null)}
+        />
+      )}
     </div>
   );
 }
-

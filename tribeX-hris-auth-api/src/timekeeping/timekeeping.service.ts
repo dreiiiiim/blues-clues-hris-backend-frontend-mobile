@@ -7,14 +7,26 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
+import { MailService } from '../mail/mail.service';
 import { TimePunchDto } from './dto/time-punch.dto';
 import { ReportAbsenceDto } from './dto/report-absence.dto';
 import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { ScheduleEffectiveDateDto } from './dto/schedule-effective-date.dto';
+import {
+  ReviewAbsenceDto,
+  AbsenceReviewAction,
+} from './dto/review-absence.dto';
+import { EditAttendanceDto } from './dto/edit-attendance.dto';
 
 type AttendanceLogType = 'time-in' | 'time-out' | 'break-start' | 'break-end' | 'absence';
-type ClockType = 'ON-TIME' | 'LATE' | 'EARLY' | 'OVERTIME';
+type ClockType =
+  | 'ON-TIME'
+  | 'LATE'
+  | 'EARLY'
+  | 'OVERTIME'
+  | 'ABSENT_NO_CLOCKIN'
+  | 'NO_CLOCKOUT';
 
 type TimeLogRow = {
   log_id: string;
@@ -29,8 +41,15 @@ type TimeLogRow = {
   clock_type?: ClockType | null;
   status?: string | null;
   log_status: string | null;
+  location_name?: string | null;
   absence_reason?: string | null;
   absence_notes?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_reason?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
+  edit_reason?: string | null;
 };
 
 type ScheduleRow = {
@@ -112,27 +131,175 @@ function getIp(req?: any): string | null {
 }
 
 function todayRange() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-
-  const end = new Date();
-  end.setHours(23, 59, 59, 999);
+  const date = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+  }).format(new Date());
 
   return {
-    start: start.toISOString(),
-    end: end.toISOString(),
-    date: start.toISOString().split('T')[0],
+    start: `${date}T00:00:00.000+08:00`,
+    end: `${date}T23:59:59.999+08:00`,
+    date,
   };
 }
 
 const SCHEDULE_SELECT_FIELDS =
   'sched_id, employee_id, effective_from, workdays, start_time, end_time, break_start, break_end, is_nightshift, schedule_source, updated_by_name, updated_at';
 
+const DEFAULT_GEOCODE_ENDPOINT = 'https://nominatim.openstreetmap.org/reverse';
+const DEFAULT_GEOCODE_TIMEOUT_MS = 2000;
+const DEFAULT_GEOCODE_PRECISION = 4;
+
+function clampInteger(
+  rawValue: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number.parseInt(rawValue ?? '', 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(parsed, min), max);
+}
+
 @Injectable()
 export class TimekeepingService {
   private readonly logger = new Logger(TimekeepingService.name);
+  private readonly geocodeEndpoint =
+    process.env.TIMEKEEPING_GEOCODE_ENDPOINT?.trim() || DEFAULT_GEOCODE_ENDPOINT;
+  private readonly geocodeEnabled =
+    (process.env.TIMEKEEPING_REVERSE_GEOCODE ?? 'true').toLowerCase() !== 'false';
+  private readonly geocodeTimeoutMs = clampInteger(
+    process.env.TIMEKEEPING_GEOCODE_TIMEOUT_MS,
+    DEFAULT_GEOCODE_TIMEOUT_MS,
+    250,
+    15000,
+  );
+  private readonly geocodePrecision = clampInteger(
+    process.env.TIMEKEEPING_GEOCODE_PRECISION,
+    DEFAULT_GEOCODE_PRECISION,
+    2,
+    6,
+  );
+  private readonly geocodeCache = new Map<string, string | null>();
+  private readonly geocodeInFlight = new Map<string, Promise<string | null>>();
 
-  constructor(private readonly supabaseService: SupabaseService) {}
+  constructor(
+    private readonly supabaseService: SupabaseService,
+    private readonly mailService: MailService,
+  ) {}
+
+  private toCoordinateKey(latitude: number, longitude: number): string {
+    return `${latitude.toFixed(this.geocodePrecision)},${longitude.toFixed(this.geocodePrecision)}`;
+  }
+
+  private async fetchLocationName(
+    latitude: number,
+    longitude: number,
+  ): Promise<string | null> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.geocodeTimeoutMs);
+
+    try {
+      const url = new URL(this.geocodeEndpoint);
+      url.searchParams.set('format', 'jsonv2');
+      url.searchParams.set('lat', String(latitude));
+      url.searchParams.set('lon', String(longitude));
+      url.searchParams.set('addressdetails', '1');
+      url.searchParams.set('zoom', '17');
+
+      const response = await fetch(url.toString(), {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'BlueTribe-HRIS/1.0',
+        },
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        if (response.status !== 404 && response.status !== 429) {
+          this.logger.warn(
+            `Reverse geocode failed (${response.status}) for ${latitude},${longitude}`,
+          );
+        }
+        return null;
+      }
+
+      const payload = (await response.json()) as {
+        display_name?: unknown;
+        name?: unknown;
+      };
+
+      if (typeof payload.display_name === 'string') {
+        const displayName = payload.display_name.trim();
+        if (displayName.length > 0) return displayName;
+      }
+
+      if (typeof payload.name === 'string') {
+        const name = payload.name.trim();
+        if (name.length > 0) return name;
+      }
+
+      return null;
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        this.logger.warn(
+          `Reverse geocode timed out for ${latitude},${longitude}`,
+        );
+        return null;
+      }
+      this.logger.warn(
+        `Reverse geocode error for ${latitude},${longitude}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  private async resolveLocationName(
+    latitude: number | null | undefined,
+    longitude: number | null | undefined,
+  ): Promise<string | null> {
+    if (!this.geocodeEnabled) return null;
+    if (latitude == null || longitude == null) return null;
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return null;
+
+    const key = this.toCoordinateKey(latitude, longitude);
+
+    if (this.geocodeCache.has(key)) {
+      return this.geocodeCache.get(key) ?? null;
+    }
+
+    const inflight = this.geocodeInFlight.get(key);
+    if (inflight) return inflight;
+
+    const request = this.fetchLocationName(latitude, longitude)
+      .then((locationName) => {
+        this.geocodeCache.set(key, locationName);
+        return locationName;
+      })
+      .finally(() => {
+        this.geocodeInFlight.delete(key);
+      });
+
+    this.geocodeInFlight.set(key, request);
+    return request;
+  }
+
+  private async withLocationNames<T extends { latitude: number | null; longitude: number | null }>(
+    logs: T[],
+  ): Promise<Array<T & { location_name: string | null }>> {
+    if (logs.length === 0) return [];
+
+    return Promise.all(
+      logs.map(async (log) => ({
+        ...log,
+        location_name: await this.resolveLocationName(log.latitude, log.longitude),
+      })),
+    );
+  }
 
   private async getEmployeeId(userId: string): Promise<string | null> {
     const supabase = this.supabaseService.getClient();
@@ -238,9 +405,12 @@ export class TimekeepingService {
     const militaryMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(timeStr);
     if (militaryMatch) {
       const [, hh, mm, ss] = militaryMatch;
-      const d = new Date(baseDate);
-      d.setHours(Number(hh), Number(mm), Number(ss ?? 0), 0);
-      return d;
+      const manilaDate = this.getManilaDateString(baseDate);
+      return new Date(
+        `${manilaDate}T${String(Number(hh)).padStart(2, '0')}:${mm}:${String(
+          Number(ss ?? 0),
+        ).padStart(2, '0')}+08:00`,
+      );
     }
 
     const ampmMatch = /^(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(AM|PM)$/i.exec(timeStr);
@@ -254,9 +424,12 @@ export class TimekeepingService {
         hour += 12;
       }
 
-      const d = new Date(baseDate);
-      d.setHours(hour, Number(mm), Number(ss ?? 0), 0);
-      return d;
+      const manilaDate = this.getManilaDateString(baseDate);
+      return new Date(
+        `${manilaDate}T${String(hour).padStart(2, '0')}:${mm}:${String(
+          Number(ss ?? 0),
+        ).padStart(2, '0')}+08:00`,
+      );
     }
 
     return null;
@@ -300,6 +473,109 @@ export class TimekeepingService {
     if (now.getTime() < shiftEnd.getTime()) return 'EARLY';
     if (now.getTime() > shiftEnd.getTime()) return 'OVERTIME';
     return 'ON-TIME';
+  }
+
+  private ensureIsoDate(date: string): string {
+    const normalized = String(date ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+      throw new BadRequestException('date must be in YYYY-MM-DD format.');
+    }
+    return normalized;
+  }
+
+  private enumerateDateRange(from: string, to: string): string[] {
+    const start = this.ensureIsoDate(from);
+    const end = this.ensureIsoDate(to);
+    if (end < start) {
+      throw new BadRequestException('date_to cannot be earlier than date_from.');
+    }
+
+    const dates: string[] = [];
+    const cursor = new Date(`${start}T00:00:00+08:00`);
+    const last = new Date(`${end}T00:00:00+08:00`);
+
+    while (cursor <= last) {
+      dates.push(this.getManilaDateString(cursor));
+      if (dates.length > 31) {
+        throw new BadRequestException('Absence range cannot exceed 31 days.');
+      }
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    return dates;
+  }
+
+  private toManilaTimestamp(date: string, timeHHMM: string): string {
+    return `${date}T${timeHHMM}:00+08:00`;
+  }
+
+  private async createSystemAbsentLog(
+    employeeId: string,
+    absenceNote: string,
+    timestamp?: string,
+  ): Promise<string> {
+    const supabase = this.supabaseService.getClient();
+    const ts = timestamp ?? new Date().toISOString();
+    const dateForRange = this.getManilaDateString(new Date(ts));
+    const dayStart = `${dateForRange}T00:00:00.000+08:00`;
+    const dayEnd = `${dateForRange}T23:59:59.999+08:00`;
+
+    const { data: existing, error: existingError } = await supabase
+      .from('attendance_time_logs')
+      .select('log_id')
+      .eq('employee_id', employeeId)
+      .eq('log_type', 'absence')
+      .gte('timestamp', dayStart)
+      .lte('timestamp', dayEnd)
+      .order('timestamp', { ascending: true })
+      .limit(1)
+      .maybeSingle<{ log_id: string }>();
+
+    if (existingError) throw new Error(existingError.message);
+    if (existing?.log_id) return existing.log_id;
+
+    const logId = crypto.randomUUID();
+
+    const { error } = await supabase.from('attendance_time_logs').insert({
+      log_id: logId,
+      employee_id: employeeId,
+      log_type: 'absence',
+      timestamp: ts,
+      absence_reason: null,
+      absence_notes: absenceNote,
+      status: 'ABSENT',
+      log_status: 'ABSENT',
+      clock_type: 'ABSENT_NO_CLOCKIN',
+      is_mock_location: false,
+    });
+
+    if (error) throw new Error(error.message);
+    return logId;
+  }
+
+  private async insertAttendanceAudit(params: {
+    employee_id: string;
+    target_user_id: string;
+    date: string;
+    edited_by: string;
+    edit_reason: string;
+    before_payload: unknown;
+    after_payload: unknown;
+  }): Promise<void> {
+    const supabase = this.supabaseService.getClient();
+    const { error } = await supabase.from('attendance_time_log_audits').insert({
+      audit_id: crypto.randomUUID(),
+      employee_id: params.employee_id,
+      target_user_id: params.target_user_id,
+      date: params.date,
+      edited_by: params.edited_by,
+      edited_at: new Date().toISOString(),
+      edit_reason: params.edit_reason,
+      before_payload: params.before_payload,
+      after_payload: params.after_payload,
+    });
+
+    if (error) throw new Error(error.message);
   }
 
   private async getScheduleForEmployee(
@@ -373,9 +649,7 @@ export class TimekeepingService {
       .eq('employee_id', employeeId)
       .gte('timestamp', start)
       .lte('timestamp', end)
-      .order('timestamp', { ascending: false })
-      .limit(1)
-      .maybeSingle<TimeLogRow>();
+      .order('timestamp', { ascending: false });
 
     if (error) {
       this.logger.error(
@@ -385,7 +659,14 @@ export class TimekeepingService {
       throw new Error(error.message);
     }
 
-    return data ?? null;
+    const logs = (data ?? []) as TimeLogRow[];
+    return (
+      logs.find(
+        (log) =>
+          log.log_type !== 'absence' ||
+          String(log.log_status ?? '').toUpperCase() !== 'DENIED',
+      ) ?? null
+    );
   }
 
   async timeIn(userId: string, dto: TimePunchDto, req?: any) {
@@ -410,7 +691,10 @@ export class TimekeepingService {
       );
     }
 
-    if (existing?.log_type === 'absence') {
+    if (
+      existing?.log_type === 'absence' &&
+      String(existing.log_status ?? '').toUpperCase() !== 'DENIED'
+    ) {
       throw new BadRequestException(
         'You have reported an absence for today. Clock-in is not allowed.',
       );
@@ -429,6 +713,18 @@ export class TimekeepingService {
     }
 
     const nowDate = new Date();
+    const { shiftEnd } = this.buildScheduleWindow(schedule, nowDate);
+
+    if (nowDate.getTime() > shiftEnd.getTime()) {
+      await this.createSystemAbsentLog(
+        employeeId,
+        'Automatically marked absent: attempted clock-in after scheduled shift end.',
+      );
+      throw new BadRequestException(
+        'Clock-in is no longer allowed after your scheduled end time. You were marked absent for today.',
+      );
+    }
+
     const now = nowDate.toISOString();
     const log_id = crypto.randomUUID();
     const clockType = schedule ? this.computeClockTypeForTimeIn(nowDate, schedule) : null;
@@ -458,6 +754,11 @@ export class TimekeepingService {
       throw new Error(insertError.message);
     }
 
+    const locationName = await this.resolveLocationName(
+      dto.latitude ?? null,
+      dto.longitude ?? null,
+    );
+
     this.logger.log(`time-in recorded — employee: ${employeeId} at ${now}`);
 
     return {
@@ -471,6 +772,7 @@ export class TimekeepingService {
       timestamp: now,
       latitude: dto.latitude,
       longitude: dto.longitude,
+      location_name: locationName,
       date: today,
     };
   }
@@ -545,6 +847,11 @@ export class TimekeepingService {
       throw new Error(insertError.message);
     }
 
+    const locationName = await this.resolveLocationName(
+      dto.latitude ?? null,
+      dto.longitude ?? null,
+    );
+
     this.logger.log(`time-out recorded — employee: ${employeeId} at ${now}`);
 
     return {
@@ -558,6 +865,7 @@ export class TimekeepingService {
       timestamp: now,
       latitude: dto.latitude,
       longitude: dto.longitude,
+      location_name: locationName,
       date: today,
     };
   }
@@ -585,7 +893,7 @@ export class TimekeepingService {
     const { data, error } = await supabase
       .from('attendance_time_logs')
       .select(
-        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status',
+        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status, absence_reason, absence_notes, reviewed_by, reviewed_at, review_reason, edited_by, edited_at, edit_reason',
       )
       .eq('employee_id', employeeId)
       .gte('timestamp', start)
@@ -594,8 +902,13 @@ export class TimekeepingService {
 
     if (error) throw new Error(error.message);
 
-    const logs = data ?? [];
-    const lastPunch = logs.at(-1);
+    const logs = await this.withLocationNames((data ?? []) as TimeLogRow[]);
+    const activeLogs = logs.filter(
+      (log) =>
+        log.log_type !== 'absence' ||
+        String(log.log_status ?? '').toUpperCase() !== 'DENIED',
+    );
+    const lastPunch = activeLogs.at(-1);
 
     return {
       date: today,
@@ -623,7 +936,7 @@ export class TimekeepingService {
     let query = supabase
       .from('attendance_time_logs')
       .select(
-        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status, absence_reason, absence_notes',
+        'log_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, clock_type, status, log_status, absence_reason, absence_notes, reviewed_by, reviewed_at, review_reason, edited_by, edited_at, edit_reason',
       )
       .eq('employee_id', employeeId)
       .order('timestamp', { ascending: false });
@@ -634,10 +947,45 @@ export class TimekeepingService {
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
-    return this.groupByDate(data ?? []);
+    const logsWithLocation = await this.withLocationNames(
+      (data ?? []) as TimeLogRow[],
+    );
+
+    const entries = this.groupByDate(logsWithLocation);
+
+    const reviewerIds = [
+      ...new Set(
+        entries
+          .map((e: any) => e.absence?.reviewed_by)
+          .filter((id: any): id is string => typeof id === 'string'),
+      ),
+    ];
+
+    if (reviewerIds.length > 0) {
+      const { data: reviewers } = await supabase
+        .from('user_profile')
+        .select('user_id, first_name, last_name')
+        .in('user_id', reviewerIds);
+
+      const nameMap = Object.fromEntries(
+        (reviewers ?? []).map((r: any) => [
+          r.user_id,
+          `${r.first_name} ${r.last_name}`,
+        ]),
+      );
+
+      for (const entry of entries as any[]) {
+        if (entry.absence?.reviewed_by) {
+          entry.absence.reviewed_by_name =
+            nameMap[entry.absence.reviewed_by] ?? null;
+        }
+      }
+    }
+
+    return entries;
   }
 
-  async getEmployeeUsers(companyId: string) {
+  async getEmployeeUsers(companyId: string, asOfDate?: string) {
     const supabase = this.supabaseService.getClient();
 
     const { data: roles } = await supabase
@@ -660,7 +1008,20 @@ export class TimekeepingService {
       .in('role_id', roleIds);
 
     if (error) throw new Error(error.message);
-    return ((data ?? []) as EmployeeUserRow[]).map(normalizeEmployeeUserRow);
+
+    const employees = ((data ?? []) as EmployeeUserRow[]).map(normalizeEmployeeUserRow);
+    if (!asOfDate) return employees;
+
+    const employeeIds = employees.map((row) => row.employee_id).filter(Boolean);
+    const scheduleMap = await this.getScheduleMapForEmployeesAsOf(
+      employeeIds,
+      asOfDate,
+    );
+
+    return employees.map((employee) => ({
+      ...employee,
+      schedule: scheduleMap.get(employee.employee_id) ?? null,
+    }));
   }
 
   async getAllTimesheets(companyId: string, from?: string, to?: string) {
@@ -687,7 +1048,13 @@ export class TimekeepingService {
         status,
         log_status,
         absence_reason,
-        absence_notes
+        absence_notes,
+        reviewed_by,
+        reviewed_at,
+        review_reason,
+        edited_by,
+        edited_at,
+        edit_reason
       `)
       .in('employee_id', employeeIds)
       .order('timestamp', { ascending: false });
@@ -698,7 +1065,7 @@ export class TimekeepingService {
     const { data, error } = await query;
     if (error) throw new Error(error.message);
 
-    return data ?? [];
+    return this.withLocationNames((data ?? []) as TimeLogRow[]);
   }
 
   async getEmployeeDetail(
@@ -740,7 +1107,15 @@ export class TimekeepingService {
         is_mock_location,
         clock_type,
         status,
-        log_status
+        log_status,
+        absence_reason,
+        absence_notes,
+        reviewed_by,
+        reviewed_at,
+        review_reason,
+        edited_by,
+        edited_at,
+        edit_reason
       `)
       .eq('employee_id', targetUser.employee_id)
       .gte('timestamp', `${date}T00:00:00.000Z`)
@@ -748,6 +1123,48 @@ export class TimekeepingService {
       .order('timestamp', { ascending: true });
 
     if (logsError) throw new Error(logsError.message);
+
+    const logsWithLocation = await this.withLocationNames(
+      (logs ?? []) as TimeLogRow[],
+    );
+
+    const [{ data: audits, error: auditsError }] = await Promise.all([
+      supabase
+        .from('attendance_time_log_audits')
+        .select(
+          'audit_id, employee_id, target_user_id, date, edited_by, edited_at, edit_reason, before_payload, after_payload',
+        )
+        .eq('employee_id', targetUser.employee_id)
+        .eq('date', date)
+        .order('edited_at', { ascending: false }),
+    ]);
+
+    if (auditsError) throw new Error(auditsError.message);
+
+    const reviewerIds = [
+      ...new Set(
+        logsWithLocation
+          .map((l) => (l as any).reviewed_by)
+          .filter((id: any): id is string => typeof id === 'string'),
+      ),
+    ];
+
+    const nameMap: Record<string, string> = {};
+    if (reviewerIds.length > 0) {
+      const { data: reviewers } = await supabase
+        .from('user_profile')
+        .select('user_id, first_name, last_name')
+        .in('user_id', reviewerIds);
+      for (const r of reviewers ?? []) {
+        nameMap[r.user_id] = `${r.first_name} ${r.last_name}`;
+      }
+    }
+
+    const punchesWithReviewer = logsWithLocation.map((l) => ({
+      ...(l as any),
+      reviewed_by_name:
+        (l as any).reviewed_by ? (nameMap[(l as any).reviewed_by] ?? null) : null,
+    }));
 
     return {
       user_id: targetUser.user_id,
@@ -766,54 +1183,433 @@ export class TimekeepingService {
             is_nightshift: schedule.is_nightshift,
           }
         : null,
-      punches: logs ?? [],
+      punches: punchesWithReviewer,
+      attendance_audits: audits ?? [],
     };
   }
 
-  async reportAbsence(userId: string, dto: ReportAbsenceDto) {
+  async reportAbsence(userId: string, dto: ReportAbsenceDto, req?: any) {
     const supabase = this.supabaseService.getClient();
-    const { date: today, start, end } = todayRange();
+    const { date: today } = todayRange();
 
     const employeeId = await this.getEmployeeId(userId);
     if (!employeeId) {
       throw new BadRequestException('Employee profile not found. Cannot report absence.');
     }
 
-    const { data: existing } = await supabase
+    const dateFrom = dto.date_from ? this.ensureIsoDate(dto.date_from) : today;
+    const dateTo = dto.date_to ? this.ensureIsoDate(dto.date_to) : dateFrom;
+    const absenceDates = this.enumerateDateRange(dateFrom, dateTo);
+    const rangeStart = `${absenceDates[0]}T00:00:00.000+08:00`;
+    const rangeEnd = `${absenceDates.at(-1)}T23:59:59.999+08:00`;
+
+    const { data: existingLogs, error: existingError } = await supabase
       .from('attendance_time_logs')
-      .select('log_id, log_type')
+      .select('log_id, log_type, timestamp')
       .eq('employee_id', employeeId)
-      .gte('timestamp', start)
-      .lte('timestamp', end)
-      .limit(1)
-      .maybeSingle();
+      .gte('timestamp', rangeStart)
+      .lte('timestamp', rangeEnd);
 
-    if (existing?.log_type === 'time-in' || existing?.log_type === 'time-out') {
-      throw new BadRequestException('Cannot report absence after clocking in.');
-    }
-    if (existing?.log_type === 'absence') {
-      throw new BadRequestException('Absence already reported for today.');
+    if (existingError) throw new Error(existingError.message);
+
+    const existingByDate = new Map(
+      (existingLogs ?? []).map((log) => [
+        this.getManilaDateString(new Date(log.timestamp)),
+        log.log_type,
+      ]),
+    );
+
+    for (const date of absenceDates) {
+      const existingType = existingByDate.get(date);
+      if (existingType === 'time-in' || existingType === 'time-out') {
+        throw new BadRequestException(
+          `Cannot report absence for ${date} after clocking in.`,
+        );
+      }
+      if (existingType === 'absence') {
+        throw new BadRequestException(`Absence already reported for ${date}.`);
+      }
     }
 
-    const log_id = crypto.randomUUID();
     const now = new Date().toISOString();
-
-    const { error } = await supabase.from('attendance_time_logs').insert({
-      log_id,
+    const rows = absenceDates.map((date) => ({
+      log_id: crypto.randomUUID(),
       employee_id: employeeId,
-      log_type: 'absence',
-      timestamp: now,
+      log_type: 'absence' as const,
+      timestamp: date === today ? now : `${date}T12:00:00+08:00`,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+      ip_address: getIp(req),
       absence_reason: dto.reason,
       absence_notes: dto.notes ?? null,
       status: 'ABSENT',
       log_status: 'PENDING',
       is_mock_location: false,
-    });
+    }));
+
+    const { data: inserted, error } = await supabase
+      .from('attendance_time_logs')
+      .insert(rows)
+      .select('log_id, timestamp');
 
     if (error) throw new Error(error.message);
 
     this.logger.log(`Absence reported — employee: ${employeeId}, reason: ${dto.reason}`);
-    return { log_id, date: today, reason: dto.reason, notes: dto.notes ?? null };
+    return {
+      log_id: inserted?.[0]?.log_id ?? rows[0].log_id,
+      log_ids: (inserted ?? rows).map((row) => row.log_id),
+      date: absenceDates[0],
+      date_from: absenceDates[0],
+      date_to: absenceDates.at(-1),
+      days: absenceDates.length,
+      reason: dto.reason,
+      notes: dto.notes ?? null,
+      latitude: dto.latitude,
+      longitude: dto.longitude,
+    };
+  }
+
+  async getAbsenceRequests(companyId: string, status?: string) {
+    const supabase = this.supabaseService.getClient();
+    const employees = await this.getEmployeeUsers(companyId);
+    const employeeIds = employees.map((e) => e.employee_id).filter(Boolean);
+    if (employeeIds.length === 0) return [];
+
+    const employeeById = new Map(employees.map((e) => [e.employee_id, e]));
+    const normalizedStatus = status?.trim().toUpperCase();
+
+    let query = supabase
+      .from('attendance_time_logs')
+      .select(`
+        log_id,
+        employee_id,
+        log_type,
+        timestamp,
+        latitude,
+        longitude,
+        ip_address,
+        status,
+        log_status,
+        absence_reason,
+        absence_notes,
+        reviewed_by,
+        reviewed_at,
+        review_reason
+      `)
+      .eq('log_type', 'absence')
+      .in('employee_id', employeeIds)
+      .order('timestamp', { ascending: false });
+
+    if (normalizedStatus && normalizedStatus !== 'ALL') {
+      query = query.eq('log_status', normalizedStatus);
+    } else {
+      query = query.eq('log_status', 'PENDING');
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+
+    const logsWithLocation = await this.withLocationNames(
+      (data ?? []) as TimeLogRow[],
+    );
+
+    return logsWithLocation.map((log) => {
+      const employee = employeeById.get(log.employee_id ?? '');
+      return {
+        log_id: log.log_id,
+        employee_id: log.employee_id,
+        user_id: employee?.user_id ?? null,
+        first_name: employee?.first_name ?? null,
+        last_name: employee?.last_name ?? null,
+        department_id: employee?.department_id ?? null,
+        department_name: employee?.department_name ?? null,
+        timestamp: log.timestamp,
+        latitude: log.latitude,
+        longitude: log.longitude,
+        location_name: log.location_name ?? null,
+        absence_reason: log.absence_reason ?? null,
+        absence_notes: log.absence_notes ?? null,
+        log_status: log.log_status ?? 'PENDING',
+        reviewed_by: log.reviewed_by ?? null,
+        reviewed_at: log.reviewed_at ?? null,
+        review_reason: log.review_reason ?? null,
+      };
+    });
+  }
+
+  async reviewAbsenceRequest(
+    logId: string,
+    dto: ReviewAbsenceDto,
+    companyId: string,
+    reviewerUserId: string,
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: target, error: targetError } = await supabase
+      .from('attendance_time_logs')
+      .select('log_id, employee_id, log_type, log_status')
+      .eq('log_id', logId)
+      .maybeSingle();
+
+    if (targetError) throw new Error(targetError.message);
+    if (!target || target.log_type !== 'absence') {
+      throw new NotFoundException('Absence request not found.');
+    }
+
+    const { data: owner, error: ownerError } = await supabase
+      .from('user_profile')
+      .select('user_id, company_id, first_name, last_name, email')
+      .eq('employee_id', target.employee_id)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (ownerError) throw new Error(ownerError.message);
+    if (!owner) throw new NotFoundException('Absence request not found in your company.');
+
+    const nextStatus =
+      dto.action === AbsenceReviewAction.APPROVE ? 'APPROVED' : 'DENIED';
+
+    const [{ data: updated, error: updateError }, { data: reviewer }] = await Promise.all([
+      supabase
+        .from('attendance_time_logs')
+        .update({
+          log_status: nextStatus,
+          reviewed_by: reviewerUserId,
+          reviewed_at: new Date().toISOString(),
+          review_reason: dto.review_reason,
+        })
+        .eq('log_id', logId)
+        .eq('log_type', 'absence')
+        .select(
+          'log_id, employee_id, log_type, timestamp, latitude, longitude, absence_reason, absence_notes, log_status, reviewed_by, reviewed_at, review_reason',
+        )
+        .maybeSingle<TimeLogRow>(),
+      supabase
+        .from('user_profile')
+        .select('user_id, first_name, last_name')
+        .eq('user_id', reviewerUserId)
+        .maybeSingle(),
+    ]);
+
+    if (updateError) throw new Error(updateError.message);
+    if (!updated) throw new NotFoundException('Absence request not found.');
+
+    const reviewerName = reviewer
+      ? `${reviewer.first_name} ${reviewer.last_name}`
+      : 'HR';
+
+    if (owner.email) {
+      const absenceDate = updated.timestamp.split('T')[0];
+      this.mailService
+        .sendAbsenceReviewEmail({
+          to: owner.email,
+          employeeName: `${owner.first_name} ${owner.last_name}`,
+          reviewerName,
+          action: nextStatus as 'APPROVED' | 'DENIED',
+          absenceDate,
+          absenceReason: updated.absence_reason ?? 'Absence',
+          reviewNote: dto.review_reason,
+        })
+        .catch((err) =>
+          this.logger.warn('Absence review email failed silently', err),
+        );
+    }
+
+    const [withLocation] = await this.withLocationNames([updated]);
+    return {
+      ...withLocation,
+      user_id: owner.user_id,
+      reviewed_by_name: reviewerName,
+    };
+  }
+
+  async editAttendanceForDate(
+    targetUserId: string,
+    date: string,
+    dto: EditAttendanceDto,
+    companyId: string,
+    editorUserId: string,
+  ) {
+    const supabase = this.supabaseService.getClient();
+    const safeDate = this.ensureIsoDate(date);
+
+    if (!dto.time_in && !dto.time_out) {
+      throw new BadRequestException('Provide at least one of time_in or time_out.');
+    }
+
+    const { data: targetUser, error: targetUserError } = await supabase
+      .from('user_profile')
+      .select('user_id, employee_id, first_name, last_name, company_id')
+      .eq('user_id', targetUserId)
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (targetUserError) throw new Error(targetUserError.message);
+    if (!targetUser || !targetUser.employee_id) {
+      throw new NotFoundException('Employee not found in your company.');
+    }
+
+    const dayStart = `${safeDate}T00:00:00.000+08:00`;
+    const dayEnd = `${safeDate}T23:59:59.999+08:00`;
+
+    const { data: existingLogs, error: existingError } = await supabase
+      .from('attendance_time_logs')
+      .select(
+        'log_id, employee_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, is_mock_location, clock_type, status, log_status, absence_reason, absence_notes, reviewed_by, reviewed_at, review_reason, edited_by, edited_at, edit_reason',
+      )
+      .eq('employee_id', targetUser.employee_id)
+      .gte('timestamp', dayStart)
+      .lte('timestamp', dayEnd)
+      .order('timestamp', { ascending: true });
+
+    if (existingError) throw new Error(existingError.message);
+
+    const logs = (existingLogs ?? []) as TimeLogRow[];
+    const existingTimeIn = logs.find((log) => log.log_type === 'time-in') ?? null;
+    const existingTimeOut = logs.find((log) => log.log_type === 'time-out') ?? null;
+    const existingAbsences = logs.filter((log) => log.log_type === 'absence');
+    const beforePayload = logs;
+    const nowIso = new Date().toISOString();
+
+    const schedule = await this.getScheduleForEmployee(targetUser.employee_id, safeDate);
+
+    const parsedTimeIn = dto.time_in ? this.toManilaTimestamp(safeDate, dto.time_in) : null;
+    const parsedTimeOut = dto.time_out
+      ? this.toManilaTimestamp(safeDate, dto.time_out)
+      : null;
+
+    if (parsedTimeIn && parsedTimeOut) {
+      if (new Date(parsedTimeOut).getTime() <= new Date(parsedTimeIn).getTime()) {
+        throw new BadRequestException('time_out must be later than time_in.');
+      }
+    }
+
+    if (parsedTimeIn) {
+      const clockType = schedule
+        ? this.computeClockTypeForTimeIn(new Date(parsedTimeIn), schedule)
+        : null;
+
+      if (existingTimeIn) {
+        const { error } = await supabase
+          .from('attendance_time_logs')
+          .update({
+            timestamp: parsedTimeIn,
+            schedule_id: schedule?.sched_id ?? null,
+            clock_type: clockType,
+            status: 'PRESENT',
+            log_status: 'APPROVED',
+            edited_by: editorUserId,
+            edited_at: nowIso,
+            edit_reason: dto.edit_reason,
+          })
+          .eq('log_id', existingTimeIn.log_id);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('attendance_time_logs').insert({
+          log_id: crypto.randomUUID(),
+          employee_id: targetUser.employee_id,
+          schedule_id: schedule?.sched_id ?? null,
+          log_type: 'time-in',
+          timestamp: parsedTimeIn,
+          status: 'PRESENT',
+          log_status: 'APPROVED',
+          clock_type: clockType,
+          is_mock_location: false,
+          edited_by: editorUserId,
+          edited_at: nowIso,
+          edit_reason: dto.edit_reason,
+        });
+        if (error) throw new Error(error.message);
+      }
+    }
+
+    if (parsedTimeOut) {
+      const clockType = schedule
+        ? this.computeClockTypeForTimeOut(new Date(parsedTimeOut), schedule)
+        : null;
+
+      if (existingTimeOut) {
+        const { error } = await supabase
+          .from('attendance_time_logs')
+          .update({
+            timestamp: parsedTimeOut,
+            schedule_id: schedule?.sched_id ?? null,
+            clock_type: clockType,
+            status: 'PRESENT',
+            log_status: 'APPROVED',
+            edited_by: editorUserId,
+            edited_at: nowIso,
+            edit_reason: dto.edit_reason,
+          })
+          .eq('log_id', existingTimeOut.log_id);
+        if (error) throw new Error(error.message);
+      } else {
+        const { error } = await supabase.from('attendance_time_logs').insert({
+          log_id: crypto.randomUUID(),
+          employee_id: targetUser.employee_id,
+          schedule_id: schedule?.sched_id ?? null,
+          log_type: 'time-out',
+          timestamp: parsedTimeOut,
+          status: 'PRESENT',
+          log_status: 'APPROVED',
+          clock_type: clockType,
+          is_mock_location: false,
+          edited_by: editorUserId,
+          edited_at: nowIso,
+          edit_reason: dto.edit_reason,
+        });
+        if (error) throw new Error(error.message);
+      }
+    }
+
+    if (existingAbsences.length > 0 && (parsedTimeIn || parsedTimeOut)) {
+      const absenceIds = existingAbsences.map((log) => log.log_id);
+      const { error } = await supabase
+        .from('attendance_time_logs')
+        .update({
+          log_status: 'DENIED',
+          reviewed_by: editorUserId,
+          reviewed_at: nowIso,
+          review_reason: `Superseded by attendance correction: ${dto.edit_reason}`,
+          edited_by: editorUserId,
+          edited_at: nowIso,
+          edit_reason: dto.edit_reason,
+        })
+        .in('log_id', absenceIds);
+      if (error) throw new Error(error.message);
+    }
+
+    const { data: afterLogs, error: afterError } = await supabase
+      .from('attendance_time_logs')
+      .select(
+        'log_id, employee_id, schedule_id, log_type, timestamp, latitude, longitude, ip_address, is_mock_location, clock_type, status, log_status, absence_reason, absence_notes, reviewed_by, reviewed_at, review_reason, edited_by, edited_at, edit_reason',
+      )
+      .eq('employee_id', targetUser.employee_id)
+      .gte('timestamp', dayStart)
+      .lte('timestamp', dayEnd)
+      .order('timestamp', { ascending: true });
+
+    if (afterError) throw new Error(afterError.message);
+
+    await this.insertAttendanceAudit({
+      employee_id: targetUser.employee_id,
+      target_user_id: targetUserId,
+      date: safeDate,
+      edited_by: editorUserId,
+      edit_reason: dto.edit_reason,
+      before_payload: beforePayload,
+      after_payload: afterLogs ?? [],
+    });
+
+    const withLocation = await this.withLocationNames((afterLogs ?? []) as TimeLogRow[]);
+
+    return {
+      user_id: targetUserId,
+      employee_id: targetUser.employee_id,
+      date: safeDate,
+      punches: withLocation,
+      message: 'Attendance updated successfully.',
+    };
   }
 
   // ─── Auto-Absent Job ──────────────────────────────────────────────────────
@@ -876,13 +1672,18 @@ export class TimekeepingService {
     // 4. Fetch any existing attendance log today for scheduled employees
     const { data: todayLogs } = await supabase
       .from('attendance_time_logs')
-      .select('employee_id')
+      .select('employee_id, log_type, log_status')
       .in('employee_id', scheduledToday)
       .gte('timestamp', manilaStart)
       .lte('timestamp', manilaEnd);
 
     const hasLogToday = new Set(
-      ((todayLogs ?? []) as { employee_id: string }[]).map(l => l.employee_id),
+      ((todayLogs ?? []) as { employee_id: string; log_type?: string | null; log_status?: string | null }[])
+        .filter((log) => {
+          if (log.log_type !== 'absence') return true;
+          return String(log.log_status ?? '').toUpperCase() !== 'DENIED';
+        })
+        .map(l => l.employee_id),
     );
 
     // 5. Mark absent those who have no log at all for today
@@ -893,16 +1694,17 @@ export class TimekeepingService {
       return { date: manilaDate, marked: 0, skipped: scheduledToday.length };
     }
 
-    const now = new Date().toISOString();
+    const markTimestamp = `${manilaDate}T23:59:00.000+08:00`;
     const absenceRows = toMark.map(eid => ({
       log_id:          crypto.randomUUID(),
       employee_id:     eid,
       log_type:        'absence' as const,
-      timestamp:       now,
+      timestamp:       markTimestamp,
       absence_reason:  null,   // no reason — auto-marked
       absence_notes:   'Automatically marked absent: no clock-in or absence report on scheduled workday.',
       status:          'ABSENT',
       log_status:      'ABSENT',
+      clock_type:      'ABSENT_NO_CLOCKIN',
       is_mock_location: false,
     }));
 
@@ -1318,6 +2120,7 @@ export class TimekeepingService {
         time_in: any;
         time_out: any;
         absence: any;
+        absence_request: any;
         all_logs: any[];
       }
     > = {};
@@ -1331,6 +2134,7 @@ export class TimekeepingService {
           time_in: null,
           time_out: null,
           absence: null,
+          absence_request: null,
           all_logs: [],
         };
       }
@@ -1340,11 +2144,26 @@ export class TimekeepingService {
       if (log.log_type === 'time-in' && !grouped[logDate].time_in) {
         grouped[logDate].time_in = log;
       }
-      if (log.log_type === 'time-out') {
+      if (log.log_type === 'time-out' && !grouped[logDate].time_out) {
         grouped[logDate].time_out = log;
       }
       if (log.log_type === 'absence') {
-        grouped[logDate].absence = log;
+        if (!grouped[logDate].absence_request) {
+          grouped[logDate].absence_request = log;
+        }
+        if (
+          String(log.log_status ?? '').toUpperCase() === 'DENIED' &&
+          String(grouped[logDate].absence_request?.log_status ?? '').toUpperCase() !==
+            'DENIED'
+        ) {
+          grouped[logDate].absence_request = log;
+        }
+        if (
+          String(log.log_status ?? '').toUpperCase() !== 'DENIED' &&
+          !grouped[logDate].absence
+        ) {
+          grouped[logDate].absence = log;
+        }
       }
     }
 

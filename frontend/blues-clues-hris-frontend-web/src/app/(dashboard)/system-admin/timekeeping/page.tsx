@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
+import { formatGpsLocation, type LocationDisplayMode } from "@/lib/timekeepingUtils";
 import { ScheduleManagementModal, type DepartmentOption } from "@/components/timekeeping/ScheduleManagementModal";
 import { EmployeeScheduleEditModal } from "@/components/timekeeping/EmployeeScheduleEditModal";
 import { AttendanceCalendarGrid, type CalendarDayData, type CalendarViewMode } from "@/components/timekeeping/AttendanceCalendarGrid";
@@ -29,6 +30,7 @@ type UserRow = {
   department_id: string | null;
   department: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   department_name?: string | null;
+  schedule?: { workdays?: string | string[] | null } | null;
 };
 
 type PunchRow = {
@@ -38,6 +40,7 @@ type PunchRow = {
   timestamp: string;
   latitude: number | null;
   longitude: number | null;
+  location_name?: string | null;
   ip_address: string | null;
   is_mock_location: string;
   log_status: string;
@@ -54,8 +57,11 @@ type RosterEntry = {
   time_in: string | null;
   time_out: string | null;
   hours_worked: number | null;
-  status: "present" | "late" | "clocked-in" | "absent" | "excused";
+  status: "present" | "late" | "clocked-in" | "absent" | "excused" | "rest-day" | "no-schedule";
   gps_verified: boolean;
+  clock_in_latitude: number | null;
+  clock_in_longitude: number | null;
+  clock_in_location_name: string | null;
   absence_reason: string | null;
 };
 
@@ -119,6 +125,16 @@ function isLate(timeIn: string): boolean {
   ) >= 9;
 }
 
+const WEEKDAY_KEYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
+
+function getScheduleDayStatus(schedule: UserRow["schedule"], date: string): "workday" | "rest-day" | "no-schedule" {
+  if (!schedule?.workdays) return "no-schedule";
+  const source = Array.isArray(schedule.workdays) ? schedule.workdays : String(schedule.workdays).split(",");
+  const workdays = new Set(source.map(day => day.trim().slice(0, 3).toUpperCase()).filter(Boolean));
+  if (workdays.size === 0) return "no-schedule";
+  return workdays.has(WEEKDAY_KEYS[new Date(`${date}T12:00:00`).getDay()]) ? "workday" : "rest-day";
+}
+
 function getWeekRange(offset: number) {
   const today = new Date();
   const dow   = today.getDay();
@@ -140,7 +156,7 @@ function getMonthRange(offset: number) {
   return { from, to, label };
 }
 
-function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
+function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): RosterEntry[] {
   const punchMap: Record<string, { clockIn: PunchRow | null; clockOut: PunchRow | null; absence: PunchRow | null }> = {};
   for (const p of punches) {
     if (!punchMap[p.employee_id]) punchMap[p.employee_id] = { clockIn: null, clockOut: null, absence: null };
@@ -152,7 +168,8 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
     const e = punchMap[u.employee_id];
     const time_in  = e?.clockIn?.timestamp  ?? null;
     const time_out = e?.clockOut?.timestamp ?? null;
-    let status: RosterEntry["status"] = "absent";
+    const scheduleDayStatus = getScheduleDayStatus(u.schedule, date);
+    let status: RosterEntry["status"] = scheduleDayStatus === "workday" ? "absent" : scheduleDayStatus;
     if (e?.absence) status = "excused";
     else if (time_in && time_out) status = isLate(time_in) ? "late" : "present";
     else if (time_in) status = "clocked-in";
@@ -174,7 +191,10 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
       time_out,
       hours_worked: computeHoursDecimal(time_in, time_out),
       status,
-      gps_verified: !!(e?.clockIn?.latitude && e?.clockIn?.longitude),
+      gps_verified: e?.clockIn?.latitude != null && e?.clockIn?.longitude != null,
+      clock_in_latitude: e?.clockIn?.latitude ?? null,
+      clock_in_longitude: e?.clockIn?.longitude ?? null,
+      clock_in_location_name: e?.clockIn?.location_name ?? null,
       absence_reason: e?.absence?.absence_reason ?? null,
     };
   });
@@ -182,12 +202,13 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
 
 function computeStats(roster: RosterEntry[]) {
   const total   = roster.length;
+  const scheduledTotal = roster.filter(r => r.status !== "rest-day" && r.status !== "no-schedule").length;
   const present = roster.filter(r => r.status === "present" || r.status === "clocked-in").length;
   const late    = roster.filter(r => r.status === "late").length;
   const absent  = roster.filter(r => r.status === "absent" || r.status === "excused").length;
   const totalHours = roster.reduce((s, r) => s + (r.hours_worked ?? 0), 0);
   const avgHours   = present > 0 ? totalHours / present : 0;
-  const attendance_rate = total > 0 ? Math.round(((present + late) / total) * 100) : 0;
+  const attendance_rate = scheduledTotal > 0 ? Math.round(((present + late) / scheduledTotal) * 100) : 0;
   return { total, present, late, absent, totalHours, avgHours, attendance_rate };
 }
 
@@ -199,6 +220,8 @@ const STATUS_CONFIG: Record<RosterEntry["status"], { label: string; className: s
   "clocked-in": { label: "Clocked In", className: "bg-blue-100 text-blue-700 border border-blue-200" },
   "absent":     { label: "Absent",     className: "bg-red-100 text-red-700 border border-red-200" },
   "excused":    { label: "Excused",    className: "bg-purple-100 text-purple-700 border border-purple-200" },
+  "rest-day":   { label: "Rest Day",   className: "bg-sky-100 text-sky-700 border border-sky-200" },
+  "no-schedule":{ label: "No Schedule",className: "bg-slate-100 text-slate-700 border border-slate-200" },
 };
 
 function StatusBadge({ status }: { readonly status: RosterEntry["status"] }) {
@@ -257,7 +280,23 @@ const FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "absent",     label: "Absent"    },
   { value: "clocked-in", label: "Clocked In"},
   { value: "excused",    label: "Excused"   },
+  { value: "rest-day",   label: "Rest Day"  },
+  { value: "no-schedule",label: "No Schedule" },
 ];
+
+function statusFilterClass(value: StatusFilter, active: boolean): string {
+  if (value === "all") return active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50";
+  const tones: Record<RosterEntry["status"], { active: string; idle: string }> = {
+    "present":    { active: "bg-green-600 text-white border-green-600", idle: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100" },
+    "late":       { active: "bg-amber-500 text-white border-amber-500", idle: "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100" },
+    "clocked-in": { active: "bg-blue-600 text-white border-blue-600", idle: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100" },
+    "absent":     { active: "bg-red-600 text-white border-red-600", idle: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100" },
+    "excused":    { active: "bg-purple-600 text-white border-purple-600", idle: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100" },
+    "rest-day":   { active: "bg-sky-600 text-white border-sky-600", idle: "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" },
+    "no-schedule":{ active: "bg-slate-600 text-white border-slate-600", idle: "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" },
+  };
+  return active ? tones[value].active : tones[value].idle;
+}
 
 const ITEMS_PER_PAGE = 8;
 
@@ -278,6 +317,7 @@ export default function SystemAdminTimekeepingPage() {
   const [search, setSearch]           = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
   const [page, setPage]               = useState(1);
+  const [locationDisplayMode, setLocationDisplayMode] = useState<LocationDisplayMode>("place");
 
   // Main panel toggle
   const [mainPanel, setMainPanel] = useState<"attendance" | "schedules">("attendance");
@@ -336,10 +376,10 @@ export default function SystemAdminTimekeepingPage() {
     setFetchError(false);
     setPage(1);
     Promise.all([
-      authFetch(`${API_BASE_URL}/timekeeping/employees`).then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<UserRow[]>; }),
+      authFetch(`${API_BASE_URL}/timekeeping/employees?asOf=${from}`).then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<UserRow[]>; }),
       authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${from}&to=${to}`).then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<PunchRow[]>; }),
     ])
-      .then(([u, p]) => { setUsers(u); setAllPunches(p); setRoster(buildFullRoster(u, p)); })
+      .then(([u, p]) => { setUsers(u); setAllPunches(p); setRoster(buildFullRoster(u, p, from)); })
       .catch(() => setFetchError(true))
       .finally(() => setLoading(false));
   }, [from, to]);
@@ -362,18 +402,27 @@ export default function SystemAdminTimekeepingPage() {
 
   const calendarDays = useMemo<CalendarDayData[]>(() => {
     const today = toDateString(new Date());
-    const dateMap: Record<string, { hasPresent: boolean; hasAbsent: boolean }> = {};
+    const dateMap: Record<string, { presentIds: Set<string>; lateIds: Set<string>; absentIds: Set<string> }> = {};
     for (const p of allPunches) {
       const d = p.timestamp.split("T")[0];
-      if (!dateMap[d]) dateMap[d] = { hasPresent: false, hasAbsent: false };
-      if (p.log_type === "time-in") dateMap[d].hasPresent = true;
-      if (p.log_type === "absence") dateMap[d].hasAbsent  = true;
+      if (!dateMap[d]) dateMap[d] = { presentIds: new Set(), lateIds: new Set(), absentIds: new Set() };
+      if (p.log_type === "time-in") {
+        dateMap[d].presentIds.add(p.employee_id);
+        if (isLate(p.timestamp)) dateMap[d].lateIds.add(p.employee_id);
+      }
+      if (p.log_type === "absence") dateMap[d].absentIds.add(p.employee_id);
     }
-    return Object.entries(dateMap).map(([date, s]): CalendarDayData => ({
-      date,
-      status: date > today ? "future" : s.hasPresent ? "present" : s.hasAbsent ? "absent" : "no-schedule",
-    }));
-  }, [allPunches]);
+    return Object.entries(dateMap).map(([date, s]): CalendarDayData => {
+      const presentTotal = s.presentIds.size;
+      const late = s.lateIds.size;
+      const absent = s.absentIds.size;
+      return {
+        date,
+        status: date > today ? "future" : late > 0 ? "late" : presentTotal > 0 ? "present" : absent > 0 ? "absent" : "no-schedule",
+        summary: date > today ? undefined : { present: presentTotal - late, late, absent, total: users.length },
+      };
+    });
+  }, [allPunches, users.length]);
 
   const goToPrev  = useCallback(() => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() - 1); return n; }), []);
   const goToNext  = useCallback(() => setSelectedDate(d => { const n = new Date(d); n.setDate(n.getDate() + 1); return n; }), []);
@@ -654,7 +703,7 @@ export default function SystemAdminTimekeepingPage() {
         <div className="bg-card border border-border rounded-2xl p-6 shadow-sm animate-in fade-in duration-300">
           <div className="mb-4">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Attendance Calendar</p>
-            <p className="text-sm font-semibold text-foreground mt-0.5">Company-wide overview — click a day to view details</p>
+            <p className="text-sm font-semibold text-foreground mt-0.5">Company-wide overview - click a day to preview the daily summary</p>
           </div>
           <AttendanceCalendarGrid
             mode={calendarMode}
@@ -683,23 +732,45 @@ export default function SystemAdminTimekeepingPage() {
                 key={opt.value}
                 onClick={() => { setStatusFilter(opt.value); setPage(1); }}
                 className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-colors cursor-pointer ${
-                  statusFilter === opt.value
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                  statusFilterClass(opt.value, statusFilter === opt.value)
                 }`}
               >
                 {opt.label}
               </button>
             ))}
           </div>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name or ID..."
-              value={search}
-              onChange={e => { setSearch(e.target.value); setPage(1); }}
-              className="pl-9 h-9 w-52 bg-background"
-            />
+          <div className="flex items-center gap-2">
+            <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background">
+              <button
+                onClick={() => setLocationDisplayMode("place")}
+                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                  locationDisplayMode === "place"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Place
+              </button>
+              <button
+                onClick={() => setLocationDisplayMode("coordinates")}
+                className={`px-3 py-1.5 text-[10px] font-bold uppercase tracking-wide transition-colors cursor-pointer ${
+                  locationDisplayMode === "coordinates"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Coordinates
+              </button>
+            </div>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or ID..."
+                value={search}
+                onChange={e => { setSearch(e.target.value); setPage(1); }}
+                className="pl-9 h-9 w-52 bg-background"
+              />
+            </div>
           </div>
         </div>
 
@@ -747,12 +818,19 @@ export default function SystemAdminTimekeepingPage() {
                   <td className="px-6 py-4 text-xs font-medium">{formatHours(r.time_in, r.time_out)}</td>
                   <td className="px-6 py-4"><StatusBadge status={r.status} /></td>
                   <td className="px-6 py-4">
-                    {r.status === "absent" || r.status === "excused" ? (
+                    {r.status === "absent" || r.status === "excused" || r.status === "rest-day" || r.status === "no-schedule" ? (
                       <span className="text-muted-foreground text-xs">—</span>
                     ) : r.gps_verified ? (
                       <div className="flex items-center gap-1.5 text-green-600">
                         <MapPin className="h-3.5 w-3.5" />
-                        <span className="text-[10px] font-bold uppercase tracking-wide">Verified</span>
+                        <span className="text-[10px] font-semibold leading-4">
+                          {formatGpsLocation(
+                            r.clock_in_latitude,
+                            r.clock_in_longitude,
+                            r.clock_in_location_name,
+                            locationDisplayMode,
+                          )}
+                        </span>
                       </div>
                     ) : (
                       <div className="flex items-center gap-1.5 text-muted-foreground">

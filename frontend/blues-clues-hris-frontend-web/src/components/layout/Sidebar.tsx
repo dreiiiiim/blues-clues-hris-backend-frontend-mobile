@@ -119,15 +119,26 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
   ],
   "system-admin": [
     {
+      group: "Operations",
       items: [
-        { name: "Dashboard",       href: "/system-admin",                icon: LayoutDashboard },
-        { name: "Users",           href: "/system-admin/users",          icon: Users },
-        { name: "Onboarding",      href: "/system-admin/onboarding",     icon: UserPlus },
-        { name: "Approvals",       href: "/system-admin/approvals",      icon: ShieldCheck },
-        { name: "Timekeeping",     href: "/system-admin/timekeeping",    icon: Clock },
-        { name: "Subscriptions",   href: "/system-admin/subscriptions",  icon: DollarSign },
-        { name: "Audit Logs",      href: "/system-admin/audit-logs",     icon: ScrollText },
-        { name: "Global Settings", href: "/system-admin/settings",       icon: ClipboardCheck },
+        { name: "Dashboard",   href: "/system-admin",             icon: LayoutDashboard },
+        { name: "Timekeeping", href: "/system-admin/timekeeping", icon: Clock },
+      ],
+    },
+    {
+      group: "People",
+      items: [
+        { name: "Users",      href: "/system-admin/users",      icon: Users },
+        { name: "Onboarding", href: "/system-admin/onboarding", icon: UserPlus },
+        { name: "Approvals",  href: "/system-admin/approvals",  icon: ShieldCheck },
+      ],
+    },
+    {
+      group: "System",
+      items: [
+        { name: "Subscriptions",   href: "/system-admin/subscriptions", icon: DollarSign },
+        { name: "Audit Logs",      href: "/system-admin/audit-logs",    icon: ScrollText },
+        { name: "Global Settings", href: "/system-admin/settings",      icon: ClipboardCheck },
       ],
     },
   ],

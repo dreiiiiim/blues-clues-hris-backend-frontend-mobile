@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   Clock, LogIn, LogOut, MapPin,
-  ChevronLeft, ChevronRight, CalendarDays, CalendarRange, CalendarClock, List,
+  ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, CalendarRange, CalendarClock, List,
   AlertTriangle, X, CheckCircle2, FileX,
   Stethoscope, Zap, Home, User, Palmtree, BadgeCheck, HelpCircle,
   Timer, Sun,
@@ -14,31 +14,44 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { authFetch, logoutApi } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
-import { formatTime, formatHoursFromTimestamps, todayPST } from "@/lib/timekeepingUtils";
+import {
+  formatTime,
+  formatHoursFromTimestamps,
+  todayPST,
+  formatGpsLocation,
+  type LocationDisplayMode,
+} from "@/lib/timekeepingUtils";
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// â"€â"€â"€ Types â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type MyStatus = {
   date: string;
   current_status: "time-in" | "time-out" | "absence" | null;
-  time_in: { timestamp: string; latitude: number; longitude: number } | null;
-  time_out: { timestamp: string; latitude: number; longitude: number } | null;
+  time_in: { timestamp: string; latitude: number; longitude: number; location_name?: string | null } | null;
+  time_out: { timestamp: string; latitude: number; longitude: number; location_name?: string | null } | null;
 };
 
 type AbsenceEntry = {
+  log_id?: string | null;
   timestamp: string;
   absence_reason: string | null;
   absence_notes: string | null;
+  log_status?: string | null;
+  review_reason?: string | null;
+  reviewed_by?: string | null;
+  reviewed_by_name?: string | null;
+  reviewed_at?: string | null;
 };
 
 type TimesheetEntry = {
   date: string;
-  time_in: { timestamp: string; latitude: number | null; longitude: number | null } | null;
-  time_out: { timestamp: string; latitude: number | null; longitude: number | null } | null;
+  time_in: { timestamp: string; latitude: number | null; longitude: number | null; location_name?: string | null } | null;
+  time_out: { timestamp: string; latitude: number | null; longitude: number | null; location_name?: string | null } | null;
   absence: AbsenceEntry | null;
+  absence_request?: AbsenceEntry | null;
 };
 
-// ─── Absence reason config ────────────────────────────────────────────────────
+// â"€â"€â"€ Absence reason config â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 const ABSENCE_REASONS = [
   { value: "Sick Leave",          icon: Stethoscope, color: "text-rose-600",    bg: "bg-rose-50",    border: "border-rose-200",    activeBg: "bg-rose-600"    },
@@ -52,7 +65,7 @@ const ABSENCE_REASONS = [
 
 type AbsenceReasonValue = (typeof ABSENCE_REASONS)[number]["value"];
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// â"€â"€â"€ Helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function parseTs(ts: string): Date {
   return new Date(ts.includes("Z") || ts.includes("+") ? ts : ts + "Z");
@@ -97,9 +110,13 @@ function formatScheduleClock(value: string | null | undefined): string {
   const hour12 = hours % 12 === 0 ? 12 : hours % 12;
   return `${hour12}:${mins} ${suffix}`;
 }
-function formatCoordinates(lat: number | null | undefined, lng: number | null | undefined): string {
-  if (lat == null || lng == null) return "No GPS";
-  return `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+function formatCoordinates(
+  lat: number | null | undefined,
+  lng: number | null | undefined,
+  locationName: string | null | undefined,
+  mode: LocationDisplayMode,
+): string {
+  return formatGpsLocation(lat, lng, locationName, mode);
 }
 
 function calcDuration(from: string, to: Date = new Date()): string {
@@ -119,7 +136,9 @@ type EntryStatus = "on-time" | "late" | "in-progress" | "absent" | "excused";
 
 function getEntryStatus(entry: TimesheetEntry): EntryStatus {
   if (!entry.time_in) {
-    return entry.absence?.absence_reason ? "excused" : "absent";
+    return String(entry.absence?.log_status ?? "").toUpperCase() === "APPROVED"
+      ? "excused"
+      : "absent";
   }
   if (!entry.time_out) return "in-progress";
   const hourPST = Number.parseInt(
@@ -156,10 +175,26 @@ function toDateStr(year: number, month: number, day: number): string {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function formatDateInputLabel(iso: string): string {
+  return new Date(`${iso}T00:00:00`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function countInclusiveDays(from: string, to: string): number {
+  const start = new Date(`${from}T00:00:00`).getTime();
+  const end = new Date(`${to}T00:00:00`).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
+  return Math.round((end - start) / 86400000) + 1;
+}
+
 const ITEMS_PER_PAGE = 7;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // Matches the backend's getTodayWorkdayCode() mapping exactly
 const SCHED_DAY_CODE = ["SUN", "MON", "TUES", "WED", "THURS", "FRI", "SAT"] as const;
+type AbsenceDateMode = "today" | "range";
 
 function formatSchedTime(t: string | null | undefined): string {
   if (!t) return "—";
@@ -169,6 +204,86 @@ function formatSchedTime(t: string | null | undefined): string {
   const ampm = h >= 12 ? "PM" : "AM";
   const hour = h % 12 || 12;
   return `${hour}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function parseClockToMinutes(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const match = value.match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return null;
+  const h = Number.parseInt(match[1], 10);
+  const m = Number.parseInt(match[2], 10);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
+function computeScheduledHoursPerDay(schedule: ScheduleInfo): number {
+  if (!schedule?.start_time || !schedule?.end_time) return 0;
+  const startMins = parseClockToMinutes(schedule.start_time);
+  const endMins = parseClockToMinutes(schedule.end_time);
+  if (startMins == null || endMins == null) return 0;
+
+  let shiftMinutes = endMins - startMins;
+  if (schedule.is_nightshift || shiftMinutes < 0) shiftMinutes += 24 * 60;
+
+  const breakStart = parseClockToMinutes(schedule.break_start ?? null);
+  const breakEnd = parseClockToMinutes(schedule.break_end ?? null);
+  let breakMinutes = 0;
+  if (breakStart != null && breakEnd != null) {
+    breakMinutes = breakEnd - breakStart;
+    if (breakMinutes < 0) breakMinutes += 24 * 60;
+  }
+
+  return Math.max(0, (shiftMinutes - breakMinutes) / 60);
+}
+
+type AbsenceReviewState = "PENDING" | "APPROVED" | "DENIED" | "ABSENT" | "UNKNOWN";
+
+function normalizeAbsenceReviewState(value: string | null | undefined): AbsenceReviewState {
+  const normalized = String(value ?? "").toUpperCase();
+  if (normalized === "PENDING") return "PENDING";
+  if (normalized === "APPROVED") return "APPROVED";
+  if (normalized === "DENIED") return "DENIED";
+  if (normalized === "ABSENT") return "ABSENT";
+  return "UNKNOWN";
+}
+
+function getAbsenceReviewMeta(value: string | null | undefined): {
+  label: string;
+  shortLabel: string;
+  badgeClass: string;
+  textClass: string;
+} {
+  const state = normalizeAbsenceReviewState(value);
+  if (state === "APPROVED") {
+    return {
+      label: "Approved",
+      shortLabel: "Approved",
+      badgeClass: "bg-purple-100 text-purple-700 border-purple-200",
+      textClass: "text-purple-700",
+    };
+  }
+  if (state === "PENDING") {
+    return {
+      label: "Pending HR Review",
+      shortLabel: "Pending",
+      badgeClass: "bg-amber-100 text-amber-700 border-amber-200",
+      textClass: "text-amber-700",
+    };
+  }
+  if (state === "DENIED") {
+    return {
+      label: "Denied",
+      shortLabel: "Denied",
+      badgeClass: "bg-red-100 text-red-700 border-red-200",
+      textClass: "text-red-700",
+    };
+  }
+  return {
+    label: "Unexcused",
+    shortLabel: "Absent",
+    badgeClass: "bg-red-100 text-red-700 border-red-200",
+    textClass: "text-red-700",
+  };
 }
 
 function buildWeekDates(ref: Date): Date[] {
@@ -193,7 +308,7 @@ async function executePunch(type: "time-in" | "time-out", coords: { latitude: nu
   }
 }
 
-// ─── Confirmation Modal ───────────────────────────────────────────────────────
+// â"€â"€â"€ Confirmation Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function ConfirmModal({ children, onClose }: Readonly<{ children: React.ReactNode; onClose: () => void }>) {
   return (
@@ -208,7 +323,7 @@ function ConfirmModal({ children, onClose }: Readonly<{ children: React.ReactNod
   );
 }
 
-// ─── Calendar Day Detail Modal ────────────────────────────────────────────────
+// â"€â"€â"€ Calendar Day Detail Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 type ScheduleInfo = {
   workdays: string | string[] | null;
@@ -220,11 +335,18 @@ type ScheduleInfo = {
 } | null;
 
 function CalendarDayModal({
-  dateStr, entry, onClose, schedule,
-}: Readonly<{ dateStr: string; entry: TimesheetEntry | null; onClose: () => void; schedule: ScheduleInfo }>) {
+  dateStr, entry, onClose, schedule, locationDisplayMode,
+}: Readonly<{
+  dateStr: string;
+  entry: TimesheetEntry | null;
+  onClose: () => void;
+  schedule: ScheduleInfo;
+  locationDisplayMode: LocationDisplayMode;
+}>) {
   const status = entry ? getEntryStatus(entry) : null;
   const cfg    = status ? ENTRY_STATUS_CONFIG[status] : null;
   const isFuture = dateStr > todayPST();
+  const absenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
 
   // Determine if this day is a scheduled workday
   const isWorkday = (() => {
@@ -276,7 +398,7 @@ function CalendarDayModal({
         {/* Body */}
         <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
 
-          {/* ── Schedule section (if schedule assigned) ─────────────────── */}
+          {/* â"€â"€ Schedule section (if schedule assigned) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
           {schedule && (
             <div>
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Your Schedule</p>
@@ -285,7 +407,7 @@ function CalendarDayModal({
                   <div className="flex items-center gap-2">
                     <Clock className="h-4 w-4 text-blue-600 shrink-0" />
                     <span className="text-sm font-semibold text-blue-900">
-                      {formatSchedTime(schedule.start_time)} – {formatSchedTime(schedule.end_time)}
+                      {formatSchedTime(schedule.start_time)} — {formatSchedTime(schedule.end_time)}
                     </span>
                     {schedule.is_nightshift && (
                       <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200">Night</span>
@@ -295,7 +417,7 @@ function CalendarDayModal({
                     <div className="flex items-center gap-2">
                       <Timer className="h-4 w-4 text-amber-500 shrink-0" />
                       <span className="text-xs text-blue-700">
-                        Break: {formatSchedTime(schedule.break_start)} – {formatSchedTime(schedule.break_end)}
+                        Break: {formatSchedTime(schedule.break_start)} — {formatSchedTime(schedule.break_end)}
                       </span>
                     </div>
                   )}
@@ -308,7 +430,7 @@ function CalendarDayModal({
             </div>
           )}
 
-          {/* ── Attendance record section ────────────────────────────────── */}
+          {/* â"€â"€ Attendance record section â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
           {!isFuture && (
             <div>
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Your Record</p>
@@ -329,8 +451,16 @@ function CalendarDayModal({
                   <p className="text-xs text-muted-foreground text-center">No attendance recorded for this day.</p>
                 </div>
               ) : (status === "excused" || status === "absent") && entry.absence ? (
-                /* ── Absence / Excused ──────────────────────────────────── */
+                /* â"€â"€ Absence / Excused â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */
                 <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
+                      Review Status
+                    </p>
+                    <Badge className={`text-[10px] font-bold border ${absenceMeta.badgeClass}`}>
+                      {absenceMeta.label}
+                    </Badge>
+                  </div>
                   <div className={`flex items-center gap-3 p-3 rounded-xl border ${absenceReasonCfg ? `${absenceReasonCfg.bg} ${absenceReasonCfg.border}` : "bg-purple-50 border-purple-200"}`}>
                     {absenceReasonCfg && (
                       <div className="p-2 rounded-lg bg-white/60">
@@ -348,13 +478,31 @@ function CalendarDayModal({
                       <p className="text-sm text-foreground leading-relaxed">{entry.absence.absence_notes}</p>
                     </div>
                   )}
+                  {(entry.absence.review_reason || entry.absence.reviewed_by_name) && (
+                    <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-1.5">
+                      {entry.absence.reviewed_by_name && (
+                        <div className="flex items-center gap-1.5">
+                          <BadgeCheck className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          <p className="text-xs text-muted-foreground">
+                            Reviewed by <span className="font-semibold text-foreground">{entry.absence.reviewed_by_name}</span>
+                          </p>
+                        </div>
+                      )}
+                      {entry.absence.review_reason && (
+                        <>
+                          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">HR Note</p>
+                          <p className="text-sm text-foreground leading-relaxed">{entry.absence.review_reason}</p>
+                        </>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1">
                     <Timer className="h-3.5 w-3.5" />
                     <span>Reported at {formatCellTime(entry.absence.timestamp)}</span>
                   </div>
                 </div>
               ) : (
-                /* ── Punched In ─────────────────────────────────────────── */
+                /* â"€â"€ Punched In â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */
                 <div className="space-y-3">
                   {/* Time In */}
                   {entry.time_in && (
@@ -367,7 +515,12 @@ function CalendarDayModal({
                       <p className="text-xl font-bold text-foreground tabular-nums">{formatCellTime(entry.time_in.timestamp)}</p>
                       <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
-                        {formatCoordinates(entry.time_in.latitude, entry.time_in.longitude)}
+                        {formatCoordinates(
+                          entry.time_in.latitude,
+                          entry.time_in.longitude,
+                          entry.time_in.location_name,
+                          locationDisplayMode,
+                        )}
                       </p>
                     </div>
                   )}
@@ -382,7 +535,12 @@ function CalendarDayModal({
                       <p className="text-xl font-bold text-foreground tabular-nums">{formatCellTime(entry.time_out.timestamp)}</p>
                       <p className="text-[10px] text-muted-foreground mt-1 flex items-center gap-1">
                         <MapPin className="h-3 w-3" />
-                        {formatCoordinates(entry.time_out.latitude, entry.time_out.longitude)}
+                        {formatCoordinates(
+                          entry.time_out.latitude,
+                          entry.time_out.longitude,
+                          entry.time_out.location_name,
+                          locationDisplayMode,
+                        )}
                       </p>
                     </div>
                   ) : (
@@ -404,7 +562,7 @@ function CalendarDayModal({
             </div>
           )}
 
-          {/* ── Future workday placeholder ───────────────────────────────── */}
+          {/* â"€â"€ Future workday placeholder â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
           {isFuture && isWorkday && (
             <div className="flex flex-col items-center py-4 gap-2 text-center">
               <CalendarDays className="h-8 w-8 text-blue-300" />
@@ -412,10 +570,10 @@ function CalendarDayModal({
             </div>
           )}
 
-          {/* ── Future day off placeholder ───────────────────────────────── */}
+          {/* â"€â"€ Future day off placeholder â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
           {isFuture && !isWorkday && (
             <div className="flex flex-col items-center py-4 gap-2 text-center">
-              <span className="text-2xl">🌙</span>
+              <span className="text-2xl">ðŸŒ™</span>
               <p className="text-sm text-muted-foreground">Rest day — enjoy your time off.</p>
             </div>
           )}
@@ -425,11 +583,13 @@ function CalendarDayModal({
   );
 }
 
-// ─── Absence Modal ────────────────────────────────────────────────────────────
+// â"€â"€â"€ Absence Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 function AbsenceModal({
   visible, now, absenceReason, absenceNotes, absenceLoading, absenceError,
-  onReasonChange, onNotesChange, onSubmit, onClose,
+  absenceDateMode, absenceDateFrom, absenceDateTo,
+  locationAvailable, locationLabel,
+  onReasonChange, onNotesChange, onDateModeChange, onDateFromChange, onDateToChange, onSubmit, onClose,
 }: Readonly<{
   visible: boolean;
   now: Date;
@@ -437,14 +597,31 @@ function AbsenceModal({
   absenceNotes: string;
   absenceLoading: boolean;
   absenceError: string | null;
+  absenceDateMode: AbsenceDateMode;
+  absenceDateFrom: string;
+  absenceDateTo: string;
+  locationAvailable: boolean;
+  locationLabel: string;
   onReasonChange: (r: AbsenceReasonValue) => void;
   onNotesChange: (n: string) => void;
+  onDateModeChange: (m: AbsenceDateMode) => void;
+  onDateFromChange: (d: string) => void;
+  onDateToChange: (d: string) => void;
   onSubmit: () => void;
   onClose: () => void;
 }>) {
   if (!visible) return null;
 
   const selectedCfg = ABSENCE_REASONS.find(r => r.value === absenceReason)!;
+  const rangeDays = countInclusiveDays(absenceDateFrom, absenceDateTo);
+  const invalidRange = absenceDateMode === "range" && rangeDays === 0;
+  const selectedDateLabel = invalidRange
+    ? "Select a valid date range"
+    : absenceDateMode === "today"
+    ? formatDateInputLabel(todayPST())
+    : rangeDays > 1
+      ? `${formatDateInputLabel(absenceDateFrom)} - ${formatDateInputLabel(absenceDateTo)}`
+      : formatDateInputLabel(absenceDateFrom);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
@@ -500,12 +677,95 @@ function AbsenceModal({
             </div>
           </div>
 
-          {/* Selected summary chip */}
-          <div className={`flex items-center gap-2 px-3 py-2 rounded-lg ${selectedCfg.bg} ${selectedCfg.border} border`}>
-            <selectedCfg.icon className={`h-3.5 w-3.5 ${selectedCfg.color}`} />
-            <p className="text-xs font-semibold text-foreground">
-              Reporting: <span className={`font-bold ${selectedCfg.color}`}>{absenceReason}</span>
+          {/* Date selection */}
+          <div>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
+              Absence Date <span className="text-red-500">*</span>
             </p>
+            <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
+              {[
+                { value: "today" as const, label: "Today", icon: CalendarClock },
+                { value: "range" as const, label: "Range", icon: CalendarRange },
+              ].map(({ value, label, icon: Icon }) => {
+                const active = absenceDateMode === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => onDateModeChange(value)}
+                    className={`h-10 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                      active ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <Icon className="h-4 w-4" />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            {absenceDateMode === "range" ? (
+              <div className="grid grid-cols-2 gap-3 mt-3">
+                <label className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">From</span>
+                  <input
+                    type="date"
+                    value={absenceDateFrom}
+                    onChange={(e) => {
+                      onDateFromChange(e.target.value);
+                      if (absenceDateTo < e.target.value) onDateToChange(e.target.value);
+                    }}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">To</span>
+                  <input
+                    type="date"
+                    value={absenceDateTo}
+                    min={absenceDateFrom}
+                    onChange={(e) => onDateToChange(e.target.value)}
+                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+                  />
+                </label>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-3 flex items-center gap-3">
+                <CalendarClock className="h-4 w-4 text-blue-600 shrink-0" />
+                <div>
+                  <p className="text-xs font-bold text-blue-900">Today only</p>
+                  <p className="text-xs text-blue-700 mt-0.5">{formatDateInputLabel(todayPST())}</p>
+                </div>
+              </div>
+            )}
+
+            {invalidRange && (
+              <p className="text-xs font-medium text-red-600 mt-2">End date must be the same as or later than the start date.</p>
+            )}
+          </div>
+
+          {/* Selected summary chip */}
+          <div className={`flex items-start gap-3 px-3.5 py-3 rounded-xl ${selectedCfg.bg} ${selectedCfg.border} border`}>
+            <selectedCfg.icon className={`h-4 w-4 mt-0.5 ${selectedCfg.color}`} />
+            <div>
+              <p className="text-xs font-semibold text-foreground">
+                Reporting: <span className={`font-bold ${selectedCfg.color}`}>{absenceReason}</span>
+              </p>
+              <p className="text-xs text-slate-600 mt-0.5">
+                {selectedDateLabel}{absenceDateMode === "range" && rangeDays > 1 ? ` (${rangeDays} days)` : ""}
+              </p>
+            </div>
+          </div>
+
+          <div
+            className={`px-3 py-2 rounded-lg border text-xs ${
+              locationAvailable
+                ? "bg-green-50 border-green-200 text-green-800"
+                : "bg-amber-50 border-amber-200 text-amber-800"
+            }`}
+          >
+            <p className="font-semibold">GPS is required for absence reporting.</p>
+            <p className="mt-0.5">{locationLabel}</p>
           </div>
 
           {/* Notes */}
@@ -538,10 +798,9 @@ function AbsenceModal({
             Cancel
           </Button>
           <Button
-            className="flex-1 cursor-pointer font-bold"
-            style={{ backgroundColor: selectedCfg.activeBg.replace("bg-", "") }}
+            className={`flex-1 cursor-pointer font-bold text-white ${selectedCfg.activeBg}`}
             onClick={onSubmit}
-            disabled={absenceLoading}
+            disabled={absenceLoading || !locationAvailable || invalidRange}
           >
             {absenceLoading ? "Submitting..." : "Submit Absence"}
           </Button>
@@ -551,7 +810,7 @@ function AbsenceModal({
   );
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+// â"€â"€â"€ Page â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
 export default function EmployeeTimekeepingPage() {
   const router = useRouter();
@@ -566,6 +825,7 @@ export default function EmployeeTimekeepingPage() {
   const [actionError, setActionError]       = useState<string | null>(null);
   const [location, setLocation]             = useState<{ latitude: number; longitude: number } | null>(null);
   const [locationError, setLocationError]   = useState<string | null>(null);
+  const [locationDisplayMode, setLocationDisplayMode] = useState<LocationDisplayMode>("place");
 
   // Modal state
   const [modal, setModal] = useState<null | "time-in" | "time-out" | "absence">(null);
@@ -573,6 +833,9 @@ export default function EmployeeTimekeepingPage() {
   // Absence form
   const [absenceReason, setAbsenceReason]     = useState<AbsenceReasonValue>(ABSENCE_REASONS[0].value);
   const [absenceNotes, setAbsenceNotes]       = useState("");
+  const [absenceDateMode, setAbsenceDateMode] = useState<AbsenceDateMode>("today");
+  const [absenceDateFrom, setAbsenceDateFrom] = useState(() => todayPST());
+  const [absenceDateTo, setAbsenceDateTo]     = useState(() => todayPST());
   const [absenceLoading, setAbsenceLoading]   = useState(false);
   const [absenceError, setAbsenceError]       = useState<string | null>(null);
   const [absenceSuccess, setAbsenceSuccess]   = useState(false);
@@ -635,7 +898,36 @@ export default function EmployeeTimekeepingPage() {
 
     authFetch(`${API_BASE_URL}/timekeeping/my-timesheet`)
       .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<TimesheetEntry[]>; })
-      .then(setTimesheet)
+      .then(entries => {
+        setTimesheet(entries);
+        for (const entry of entries) {
+          const abs = entry.absence_request ?? entry.absence;
+          if (!abs?.log_id) continue;
+          const state = String(abs.log_status ?? "").toUpperCase();
+          if (state !== "APPROVED" && state !== "DENIED") continue;
+          const key = `seen_absence_review_${abs.log_id}`;
+          if (localStorage.getItem(key)) continue;
+          localStorage.setItem(key, "1");
+          const reviewerLabel = abs.reviewed_by_name ? ` by ${abs.reviewed_by_name}` : "";
+          const absDate = new Date(abs.timestamp + (abs.timestamp.includes("T") ? "" : "T12:00:00"))
+            .toLocaleDateString("en-US", { month: "short", day: "numeric" });
+          if (state === "APPROVED") {
+            import("sonner").then(({ toast }) =>
+              toast.success(`Absence approved${reviewerLabel}`, {
+                description: `Your ${abs.absence_reason ?? "absence"} on ${absDate} was approved.`,
+                duration: 8000,
+              })
+            );
+          } else {
+            import("sonner").then(({ toast }) =>
+              toast.error(`Absence denied${reviewerLabel}`, {
+                description: `Your ${abs.absence_reason ?? "absence"} on ${absDate} was denied.`,
+                duration: 8000,
+              })
+            );
+          }
+        }
+      })
       .catch(() => setFetchError(true))
       .finally(() => setSheetLoading(false));
 
@@ -691,13 +983,30 @@ export default function EmployeeTimekeepingPage() {
   }
 
   async function handleAbsenceSubmit() {
+    if (!location) {
+      setAbsenceError(locationError || "Location is required to report an absence.");
+      return;
+    }
+    const dateFrom = absenceDateMode === "today" ? todayPST() : absenceDateFrom;
+    const dateTo = absenceDateMode === "today" ? todayPST() : absenceDateTo;
+    if (!dateFrom || !dateTo || dateTo < dateFrom) {
+      setAbsenceError("Choose a valid absence date range.");
+      return;
+    }
     setAbsenceLoading(true);
     setAbsenceError(null);
     try {
       const res = await authFetch(`${API_BASE_URL}/timekeeping/report-absence`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: absenceReason, notes: absenceNotes || undefined }),
+        body: JSON.stringify({
+          reason: absenceReason,
+          latitude: location.latitude,
+          longitude: location.longitude,
+          date_from: dateFrom,
+          date_to: dateTo,
+          notes: absenceNotes || undefined,
+        }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
@@ -706,6 +1015,9 @@ export default function EmployeeTimekeepingPage() {
       setAbsenceSuccess(true);
       setModal(null);
       setAbsenceNotes("");
+      setAbsenceDateMode("today");
+      setAbsenceDateFrom(todayPST());
+      setAbsenceDateTo(todayPST());
       await refreshData();
     } catch (err: unknown) {
       setAbsenceError((err as { message?: string })?.message || "Something went wrong.");
@@ -722,6 +1034,7 @@ export default function EmployeeTimekeepingPage() {
   const canTimeOut = status?.current_status === "time-in" && hasSchedule;
   const shiftDone  = !!(status?.time_in && status?.time_out);
   const todayAbsence = timesheet.find(e => e.date === todayPST())?.absence ?? null;
+  const todayAbsenceRequest = timesheet.find(e => e.date === todayPST())?.absence_request ?? null;
 
   const dateMap  = useMemo(() => buildDateMap(timesheet), [timesheet]);
   const calGrid  = useMemo(() => buildCalendarGrid(calMonth.year, calMonth.month), [calMonth]);
@@ -735,6 +1048,96 @@ export default function EmployeeTimekeepingPage() {
     const arr = Array.isArray(raw) ? raw : String(raw).split(",");
     return new Set(arr.map(d => d.trim().toUpperCase()));
   }, [mySchedule]);
+
+  const isShiftInProgress = Boolean(status?.time_in && !status?.time_out);
+  const todayAbsenceMeta = getAbsenceReviewMeta((todayAbsenceRequest ?? todayAbsence)?.log_status);
+  const shiftElapsed = status?.time_in ? calcDuration(status.time_in.timestamp, now) : null;
+
+  // True when employee has a schedule but today is not a scheduled workday
+  const todayDayCode = SCHED_DAY_CODE[new Date(`${today}T00:00:00`).getDay()];
+  const isRestDay = hasSchedule && !workdaySet.has(todayDayCode) && !statusLoading;
+
+  const lateClockInWarning = useMemo(() => {
+    if (!mySchedule?.start_time) return null;
+    if (!hasSchedule || hasReportedAbsence || status?.time_in || !canTimeIn) return null;
+    const todayCode = SCHED_DAY_CODE[new Date(`${today}T00:00:00`).getDay()];
+    if (!workdaySet.has(todayCode)) return null;
+
+    const startMins = parseClockToMinutes(mySchedule.start_time);
+    if (startMins == null) return null;
+
+    const currentClock = now.toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Manila",
+    });
+    const [curH, curM] = currentClock.split(":");
+    const currentMins = Number.parseInt(curH, 10) * 60 + Number.parseInt(curM, 10);
+    const lateMinutes = currentMins - startMins;
+    if (lateMinutes <= 0) return null;
+
+    const lateHours = Math.floor(lateMinutes / 60);
+    const lateMinsOnly = lateMinutes % 60;
+    const lateText =
+      lateHours > 0 ? `${lateHours}h ${lateMinsOnly}m` : `${lateMinsOnly}m`;
+
+    return {
+      startLabel: formatSchedTime(mySchedule.start_time),
+      nowLabel: now.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+        timeZone: "Asia/Manila",
+      }),
+      lateText,
+    };
+  }, [canTimeIn, hasReportedAbsence, hasSchedule, mySchedule, now, status?.time_in, today, workdaySet]);
+
+  const monthlySummary = useMemo(() => {
+    const currentDate = today;
+    const [yearStr, monthStr, dayStr] = currentDate.split("-");
+    const year = Number.parseInt(yearStr, 10);
+    const month = Number.parseInt(monthStr, 10);
+    const currentDay = Number.parseInt(dayStr, 10);
+
+    const scheduledHoursPerDay = computeScheduledHoursPerDay(mySchedule);
+    const daysInMonth = new Date(year, month, 0).getDate();
+
+    let scheduledDaysInMonth = 0;
+    let remainingWorkdays = 0;
+    if (scheduledHoursPerDay > 0 && workdaySet.size > 0) {
+      for (let day = 1; day <= daysInMonth; day++) {
+        const dateStr = `${yearStr}-${monthStr}-${String(day).padStart(2, "0")}`;
+        const code = SCHED_DAY_CODE[new Date(`${dateStr}T00:00:00`).getDay()];
+        if (!workdaySet.has(code)) continue;
+        scheduledDaysInMonth += 1;
+        if (day > currentDay) remainingWorkdays += 1;
+      }
+    }
+
+    const expectedHours = scheduledDaysInMonth * scheduledHoursPerDay;
+    const workedHours = myStats?.hours_worked ?? 0;
+    const remainingHours = Math.max(expectedHours - workedHours, 0);
+    const progress = expectedHours > 0 ? Math.min((workedHours / expectedHours) * 100, 100) : 0;
+
+    return {
+      expectedHours,
+      workedHours,
+      remainingHours,
+      remainingWorkdays,
+      progress,
+    };
+  }, [mySchedule, myStats?.hours_worked, today, workdaySet]);
+
+  const monthSummaryLabel = useMemo(
+    () =>
+      new Date(`${today}T00:00:00`).toLocaleDateString("en-US", {
+        month: "long",
+        year: "numeric",
+      }),
+    [today],
+  );
 
 
   function prevMonth() {
@@ -753,7 +1156,7 @@ export default function EmployeeTimekeepingPage() {
     return calMonth.year === n.getFullYear() && calMonth.month === n.getMonth();
   })();
 
-  // ── Calendar view ─────────────────────────────────────────────────────────
+  // â"€â"€ Calendar view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
   const calendarView = (
     <div className="p-6">
@@ -772,9 +1175,10 @@ export default function EmployeeTimekeepingPage() {
         >
           <CalendarDays className="h-3.5 w-3.5" />
           {calTitle}
-          <span className={`text-[10px] ${calPickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-            {calPickerOpen ? "▴" : "▾"}
-          </span>
+          {calPickerOpen
+            ? <ChevronUp className={`h-3 w-3 ${calPickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`} />
+            : <ChevronDown className={`h-3 w-3 text-muted-foreground`} />
+          }
         </button>
         <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => { nextMonth(); setCalPickerOpen(false); }} disabled={isCurrentMonth}>
           <ChevronRight className="h-4 w-4" />
@@ -840,6 +1244,7 @@ export default function EmployeeTimekeepingPage() {
           const isFuture    = dateStr > today;
           const entryStatus = entry ? getEntryStatus(entry) : null;
           const cfg         = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
+          const entryAbsenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
           const isAbsent    = entryStatus === "absent" || entryStatus === "excused";
           const isClickable = true; // all days are clickable to show schedule/status
 
@@ -874,13 +1279,11 @@ export default function EmployeeTimekeepingPage() {
               {/* Absence indicator */}
               {!isFuture && isAbsent && entry?.absence && (
                 <div className="flex-1 mt-0.5 space-y-0.5">
-                  <div className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[8px] font-bold border ${
-                    entryStatus === "excused"
-                      ? "bg-purple-100 text-purple-700 border-purple-200"
-                      : "bg-red-100 text-red-700 border-red-200"
-                  }`}>
+                  <div
+                    className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[8px] font-bold border ${entryAbsenceMeta.badgeClass}`}
+                  >
                     <FileX className="h-2.5 w-2.5 shrink-0" />
-                    {entryStatus === "excused" ? "Excused" : "Absent"}
+                    {entryAbsenceMeta.shortLabel}
                   </div>
                   {entry.absence.absence_reason && (
                     <p className="text-[8px] font-semibold text-muted-foreground truncate leading-tight px-0.5">
@@ -936,14 +1339,14 @@ export default function EmployeeTimekeepingPage() {
     </div>
   );
 
-  // ── Schedule view ─────────────────────────────────────────────────────────
+  // â"€â"€ Schedule view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
   const schedTitle = schedRefDate.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   const schedWeekDates = buildWeekDates(schedRefDate);
   const schedWeekLabel = (() => {
     const fmt = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-    return `${fmt(schedWeekDates[0])} – ${fmt(schedWeekDates[6])}, ${schedWeekDates[6].getFullYear()}`;
+    return `${fmt(schedWeekDates[0])} - ${fmt(schedWeekDates[6])}, ${schedWeekDates[6].getFullYear()}`;
   })();
 
   const schedMonthGrid = buildCalendarGrid(schedRefDate.getFullYear(), schedRefDate.getMonth());
@@ -968,7 +1371,7 @@ export default function EmployeeTimekeepingPage() {
         </div>
       ) : (<>
 
-        {/* ── Controls ───────────────────────────────────────────────────── */}
+        {/* â"€â"€ Controls â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
         <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
           {/* Day / Week / Month mode toggle */}
           <div className="flex items-center gap-1 p-1 bg-muted/30 rounded-lg border border-border w-fit">
@@ -1017,9 +1420,10 @@ export default function EmployeeTimekeepingPage() {
                 ].join(" ")}
               >
                 {schedTitle}
-                <span className={`text-[9px] leading-none ${schedPickerOpen ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                  {schedPickerOpen ? "▴" : "▾"}
-                </span>
+                {schedPickerOpen
+                  ? <ChevronUp className={`h-3 w-3 text-primary-foreground/70`} />
+                  : <ChevronDown className={`h-3 w-3 text-muted-foreground`} />
+                }
               </button>
             ) : schedMode === "week" ? (
               <div className="h-7 px-3 flex items-center rounded-lg border border-border text-xs font-semibold text-foreground bg-background min-w-48 justify-center">
@@ -1050,7 +1454,7 @@ export default function EmployeeTimekeepingPage() {
           </div>
         </div>
 
-        {/* ── Inline month/year picker ───────────────────────────────────── */}
+        {/* â"€â"€ Inline month/year picker â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
         {schedPickerOpen && schedMode === "month" && (
           <div className="rounded-2xl border border-border bg-muted/10 p-4 mb-4 animate-in fade-in slide-in-from-top-1 duration-200">
             <div className="flex items-center justify-between mb-3">
@@ -1085,7 +1489,7 @@ export default function EmployeeTimekeepingPage() {
           </div>
         )}
 
-        {/* ── Month grid ─────────────────────────────────────────────────── */}
+        {/* â"€â"€ Month grid â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
         {!schedPickerOpen && schedMode === "month" && (
           <div>
             {/* Day-of-week headers */}
@@ -1149,7 +1553,7 @@ export default function EmployeeTimekeepingPage() {
           </div>
         )}
 
-        {/* ── Week grid ──────────────────────────────────────────────────── */}
+        {/* â"€â"€ Week grid â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
         {schedMode === "week" && (
           <div className="grid grid-cols-7 gap-2">
             {schedWeekDates.map((d, i) => {
@@ -1181,13 +1585,13 @@ export default function EmployeeTimekeepingPage() {
                       <span className="mt-2 text-[10px] font-semibold text-blue-800 leading-snug text-center">
                         {formatSchedTime(mySchedule.start_time)}
                       </span>
-                      <span className="text-[10px] text-blue-700 leading-snug">–</span>
+                      <span className="text-[10px] text-blue-700 leading-snug">-</span>
                       <span className="text-[10px] font-semibold text-blue-800 leading-snug text-center">
                         {formatSchedTime(mySchedule.end_time)}
                       </span>
                       {(mySchedule.break_start || mySchedule.break_end) && (
                         <span className="mt-1.5 text-[9px] text-blue-600 text-center leading-tight">
-                          Break {formatSchedTime(mySchedule.break_start)}–{formatSchedTime(mySchedule.break_end)}
+                          Break {formatSchedTime(mySchedule.break_start)} - {formatSchedTime(mySchedule.break_end)}
                         </span>
                       )}
                     </>
@@ -1202,7 +1606,7 @@ export default function EmployeeTimekeepingPage() {
           </div>
         )}
 
-        {/* ── Day view ───────────────────────────────────────────────────── */}
+        {/* â"€â"€ Day view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
         {schedMode === "day" && (
           <div className="space-y-3">
             {/* Big day card */}
@@ -1272,7 +1676,7 @@ export default function EmployeeTimekeepingPage() {
                     <div>
                       <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Break Window</p>
                       <p className="text-sm font-semibold text-foreground tabular-nums">
-                        {formatSchedTime(mySchedule.break_start)} – {formatSchedTime(mySchedule.break_end)}
+                        {formatSchedTime(mySchedule.break_start)} — {formatSchedTime(mySchedule.break_end)}
                       </p>
                     </div>
                   </div>
@@ -1300,7 +1704,7 @@ export default function EmployeeTimekeepingPage() {
           </div>
         )}
 
-        {/* ── Schedule summary pill ──────────────────────────────────────── */}
+        {/* â"€â"€ Schedule summary pill â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
         <div className="mt-4 pt-3 border-t border-border flex flex-wrap gap-3 text-xs text-muted-foreground">
           <span>
             <span className="font-semibold text-foreground">Days: </span>
@@ -1308,7 +1712,7 @@ export default function EmployeeTimekeepingPage() {
           </span>
           <span>
             <span className="font-semibold text-foreground">Hours: </span>
-            {formatSchedTime(mySchedule.start_time)} – {formatSchedTime(mySchedule.end_time)}
+            {formatSchedTime(mySchedule.start_time)} — {formatSchedTime(mySchedule.end_time)}
           </span>
           {mySchedule.is_nightshift && (
             <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 border border-indigo-200 font-semibold">
@@ -1321,7 +1725,7 @@ export default function EmployeeTimekeepingPage() {
     </div>
   );
 
-  // ── List view ─────────────────────────────────────────────────────────────
+  // â"€â"€ List view â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
   const listView = (
     <>
@@ -1331,6 +1735,7 @@ export default function EmployeeTimekeepingPage() {
         ) : paged.map(entry => {
           const entryStatus = getEntryStatus(entry);
           const cfg = ENTRY_STATUS_CONFIG[entryStatus];
+          const entryAbsenceMeta = getAbsenceReviewMeta(entry.absence?.log_status);
           return (
             <button
               key={entry.date}
@@ -1353,11 +1758,21 @@ export default function EmployeeTimekeepingPage() {
                 </div>
               )}
               {!entry.time_in && entry.absence?.absence_reason && (
-                <div className="mt-2 ml-5 flex items-center gap-2">
-                  <FileX className="h-3.5 w-3.5 text-purple-500 shrink-0" />
-                  <span className="text-xs text-purple-700 font-medium">{entry.absence.absence_reason}</span>
-                  {entry.absence.absence_notes && (
-                    <span className="text-xs text-muted-foreground truncate">— {entry.absence.absence_notes}</span>
+                <div className="mt-2 ml-5 space-y-1.5">
+                  <div className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${entryAbsenceMeta.badgeClass}`}>
+                    {entryAbsenceMeta.label}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <FileX className="h-3.5 w-3.5 text-purple-500 shrink-0" />
+                    <span className="text-xs text-purple-700 font-medium">{entry.absence.absence_reason}</span>
+                    {entry.absence.absence_notes && (
+                      <span className="text-xs text-muted-foreground truncate">- {entry.absence.absence_notes}</span>
+                    )}
+                  </div>
+                  {entry.absence.review_reason && (
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      Review note: {entry.absence.review_reason}
+                    </p>
                   )}
                 </div>
               )}
@@ -1369,7 +1784,7 @@ export default function EmployeeTimekeepingPage() {
       <div className="p-4 bg-muted/10 border-t border-border flex items-center justify-between">
         <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
           {timesheet.length > 0
-            ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}–${Math.min(page * ITEMS_PER_PAGE, timesheet.length)} of ${timesheet.length}`
+            ? `Showing ${(page - 1) * ITEMS_PER_PAGE + 1}-${Math.min(page * ITEMS_PER_PAGE, timesheet.length)} of ${timesheet.length}`
             : "No records"}
         </p>
         <div className="flex gap-2">
@@ -1387,32 +1802,56 @@ export default function EmployeeTimekeepingPage() {
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
 
-      {/* ── Calendar Day Modal ──────────────────────────────────────────────── */}
+      {/* â"€â"€ Calendar Day Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {calDayModal && (
         <CalendarDayModal
           dateStr={calDayModal.dateStr}
           entry={calDayModal.entry}
           onClose={() => setCalDayModal(null)}
           schedule={mySchedule}
+          locationDisplayMode={locationDisplayMode}
         />
       )}
 
 
-      {/* ── Absence Modal ───────────────────────────────────────────────────── */}
+      {/* â"€â"€ Absence Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       <AbsenceModal
         visible={modal === "absence"}
         now={now}
         absenceReason={absenceReason}
         absenceNotes={absenceNotes}
+        absenceDateMode={absenceDateMode}
+        absenceDateFrom={absenceDateFrom}
+        absenceDateTo={absenceDateTo}
         absenceLoading={absenceLoading}
         absenceError={absenceError}
+        locationAvailable={!!location}
+        locationLabel={
+          location
+            ? formatGpsLocation(
+                location.latitude,
+                location.longitude,
+                null,
+                locationDisplayMode,
+              )
+            : (locationError || "Location unavailable. Enable device location to submit.")
+        }
         onReasonChange={setAbsenceReason}
         onNotesChange={setAbsenceNotes}
+        onDateModeChange={(mode) => {
+          setAbsenceDateMode(mode);
+          if (mode === "today") {
+            setAbsenceDateFrom(todayPST());
+            setAbsenceDateTo(todayPST());
+          }
+        }}
+        onDateFromChange={setAbsenceDateFrom}
+        onDateToChange={setAbsenceDateTo}
         onSubmit={handleAbsenceSubmit}
         onClose={() => { setModal(null); setAbsenceError(null); }}
       />
 
-      {/* ── Time In Confirmation ────────────────────────────────────────────── */}
+      {/* â"€â"€ Time In Confirmation â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {modal === "time-in" && (
         <ConfirmModal onClose={() => setModal(null)}>
           <div className="p-6">
@@ -1433,7 +1872,14 @@ export default function EmployeeTimekeepingPage() {
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-muted-foreground">Location</span>
                 <span className="font-medium text-xs">
-                  {location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : "Not available"}
+                  {location
+                    ? formatGpsLocation(
+                        location.latitude,
+                        location.longitude,
+                        null,
+                        locationDisplayMode,
+                      )
+                    : "Not available"}
                 </span>
               </div>
             </div>
@@ -1451,7 +1897,7 @@ export default function EmployeeTimekeepingPage() {
         </ConfirmModal>
       )}
 
-      {/* ── Time Out Confirmation ───────────────────────────────────────────── */}
+      {/* â"€â"€ Time Out Confirmation â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {modal === "time-out" && (
         <ConfirmModal onClose={() => setModal(null)}>
           <div className="p-6">
@@ -1478,7 +1924,14 @@ export default function EmployeeTimekeepingPage() {
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-muted-foreground">Location</span>
                 <span className="font-medium text-xs">
-                  {location ? `${location.latitude.toFixed(4)}, ${location.longitude.toFixed(4)}` : "Not available"}
+                  {location
+                    ? formatGpsLocation(
+                        location.latitude,
+                        location.longitude,
+                        null,
+                        locationDisplayMode,
+                      )
+                    : "Not available"}
                 </span>
               </div>
             </div>
@@ -1507,9 +1960,20 @@ export default function EmployeeTimekeepingPage() {
         </ConfirmModal>
       )}
 
-      {/* ── Clock In/Out Card ───────────────────────────────────────────────── */}
-      <Card className="border-0 overflow-hidden shadow-lg text-white bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)]">
-        <CardContent className="p-8">
+      {/* â"€â"€ Clock In/Out Card â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
+      <Card className={`border-0 overflow-hidden shadow-lg text-white relative ${
+        isRestDay
+          ? "bg-[linear-gradient(135deg,#0f0c29_0%,#302b63_50%,#1e1b4b_100%)]"
+          : "bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)]"
+      }`}>
+        {/* Ambient glow orbs — rest day only */}
+        {isRestDay && (
+          <div className="pointer-events-none absolute inset-0 overflow-hidden">
+            <div className="absolute -top-12 -right-12 h-48 w-48 rounded-full bg-violet-500/10 blur-3xl" />
+            <div className="absolute bottom-0 left-1/4 h-32 w-32 rounded-full bg-indigo-400/10 blur-2xl" />
+          </div>
+        )}
+        <CardContent className="p-8 relative">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6">
             <div>
               <p className="text-sm font-medium text-white/70 mb-1 flex items-center gap-2">
@@ -1521,9 +1985,11 @@ export default function EmployeeTimekeepingPage() {
 
             <div className="flex flex-col gap-4">
               <div className="flex items-center gap-2 text-sm">
-                <MapPin className="h-4 w-4" />
+                <MapPin className="h-4 w-4 shrink-0" />
                 {location ? (
-                  <span className="text-white/90">{location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}</span>
+                  <span className="text-white/90">
+                    {location.latitude.toFixed(4)}, {location.longitude.toFixed(4)}
+                  </span>
                 ) : (
                   <span className="text-white/50">{locationError ?? "Acquiring location..."}</span>
                 )}
@@ -1533,6 +1999,21 @@ export default function EmployeeTimekeepingPage() {
                 <div className="flex items-start gap-2 rounded-lg bg-amber-500/20 border border-amber-400/30 px-4 py-3 text-sm font-semibold text-amber-100">
                   <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
                   <span>No schedule assigned. Contact HR to set up your work schedule.</span>
+                </div>
+              ) : isRestDay ? (
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center gap-3 rounded-xl bg-white/10 border border-white/15 px-5 py-4">
+                    <div className="h-10 w-10 rounded-full bg-violet-400/20 border border-violet-300/30 flex items-center justify-center shrink-0">
+                      <Palmtree className="h-5 w-5 text-violet-200" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-bold text-white tracking-wide">Rest Day</p>
+                      <p className="text-xs text-white/55 mt-0.5">Not scheduled to work today</p>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-white/40 text-center sm:text-right px-1">
+                    Enjoy your time off!
+                  </p>
                 </div>
               ) : hasReportedAbsence ? (
                 <div className="flex items-center gap-2 rounded-lg bg-purple-500/20 border border-purple-400/30 px-4 py-3 text-sm font-semibold text-purple-100">
@@ -1573,7 +2054,39 @@ export default function EmployeeTimekeepingPage() {
         </CardContent>
       </Card>
 
-      {/* ── Report Absence ──────────────────────────────────────────────────── */}
+      {/* â"€â"€ Report Absence â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
+      {!statusLoading && lateClockInWarning && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-sm font-semibold text-amber-900">You&apos;re clocking in late today</p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Your schedule starts at {lateClockInWarning.startLabel}. It is currently {lateClockInWarning.nowLabel} - you are {lateClockInWarning.lateText} late.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {!statusLoading && isShiftInProgress && status?.time_in && shiftElapsed && (
+        <div className="rounded-xl border border-blue-200 bg-blue-50 px-5 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-3 w-3 rounded-full bg-blue-500 animate-pulse shrink-0" />
+            <div>
+              <p className="text-base font-semibold text-blue-900">Shift In Progress</p>
+              <p className="text-xs text-blue-700">
+                Started at {formatTime(status.time_in.timestamp)} - elapsed time: {shiftElapsed}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-3xl font-black text-blue-900 tabular-nums leading-none">{shiftElapsed}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mt-1">Elapsed</p>
+          </div>
+        </div>
+      )}
+
       {!statusLoading && canTimeIn && !shiftDone && !hasReportedAbsence && (
         <div className="rounded-xl border px-5 py-4 flex items-center justify-between gap-4 bg-slate-50 border-slate-200 transition-colors">
           <div className="flex items-center gap-3">
@@ -1595,11 +2108,11 @@ export default function EmployeeTimekeepingPage() {
       )}
 
       {/* Absence reported confirmation banner */}
-      {!statusLoading && (hasReportedAbsence || todayAbsence) && (
+      {!statusLoading && (hasReportedAbsence || todayAbsence || todayAbsenceRequest) && (
         <div className="rounded-xl border px-5 py-4 bg-purple-50 border-purple-200">
           <div className="flex items-center gap-3">
             {(() => {
-              const reason = todayAbsence?.absence_reason ?? "";
+              const reason = (todayAbsenceRequest ?? todayAbsence)?.absence_reason ?? "";
               const cfg = ABSENCE_REASONS.find(r => r.value === reason);
               if (!cfg) return <FileX className="h-5 w-5 shrink-0 text-purple-500" />;
               const Icon = cfg.icon;
@@ -1610,17 +2123,29 @@ export default function EmployeeTimekeepingPage() {
               );
             })()}
             <div>
-              <p className="text-sm font-semibold text-purple-800">Absence reported for today</p>
-              <p className="text-xs text-purple-600">
-                {todayAbsence?.absence_reason}
-                {todayAbsence?.absence_notes ? ` — ${todayAbsence.absence_notes}` : ""}
+              <p className="text-sm font-semibold text-purple-800">
+                {normalizeAbsenceReviewState(todayAbsenceRequest?.log_status) === "DENIED"
+                  ? "Absence request denied for today"
+                  : "Absence reported for today"}
               </p>
+              <p className="text-xs text-purple-600">
+                {(todayAbsenceRequest ?? todayAbsence)?.absence_reason}
+                {(todayAbsenceRequest ?? todayAbsence)?.absence_notes ? ` - ${(todayAbsenceRequest ?? todayAbsence)?.absence_notes}` : ""}
+              </p>
+              <p className={`text-[11px] font-semibold mt-1 ${todayAbsenceMeta.textClass}`}>
+                Status: {todayAbsenceMeta.label}
+              </p>
+              {(todayAbsenceRequest ?? todayAbsence)?.review_reason && (
+                <p className="text-[11px] text-purple-700 mt-0.5">
+                  Review note: {(todayAbsenceRequest ?? todayAbsence)?.review_reason}
+                </p>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ── Today's punch summary ───────────────────────────────────────────── */}
+      {/* â"€â"€ Today's punch summary â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {!statusLoading && !fetchError && status && !hasReportedAbsence && (
         <div className="grid grid-cols-3 gap-4">
           {[
@@ -1636,7 +2161,7 @@ export default function EmployeeTimekeepingPage() {
         </div>
       )}
 
-      {/* ── My Schedule ────────────────────────────────────────────────────── */}
+      {/* â"€â"€ My Schedule â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {mySchedule && (
         <Card className="border-border overflow-hidden">
           <div className="px-6 py-4 bg-muted/20 border-b border-border flex items-center gap-3">
@@ -1704,64 +2229,126 @@ export default function EmployeeTimekeepingPage() {
         </Card>
       )}
 
-      {/* ── Performance Stats ────────────────────────────────────────────────── */}
       {myStats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <div className="p-4 rounded-xl border bg-green-50 border-green-200">
-            <p className="text-[10px] font-bold text-green-700 uppercase tracking-widest mb-1">Attendance Rate</p>
-            <p className="text-2xl font-bold text-green-700 tabular-nums">{myStats.attendance_rate.toFixed(1)}%</p>
-            <p className="text-xs text-muted-foreground mt-1">This month</p>
+        <Card className="border-border overflow-hidden">
+          <div className="p-5 md:p-6 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+              <div>
+                <h2 className="text-lg font-bold">{monthSummaryLabel} Summary</h2>
+                <p className="text-xs text-muted-foreground">
+                  {monthlySummary.remainingWorkdays} working day
+                  {monthlySummary.remainingWorkdays === 1 ? "" : "s"} remaining this month
+                </p>
+              </div>
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-green-200 bg-green-50 text-green-700 text-xs font-bold w-fit">
+                {myStats.attendance_rate.toFixed(1)}% attendance rate
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="p-4 rounded-xl border bg-green-50 border-green-200">
+                <p className="text-3xl font-black text-green-700 leading-none tabular-nums">{myStats.days_present}</p>
+                <p className="text-[11px] font-bold text-green-700 uppercase tracking-wider mt-2">Days Present</p>
+                <p className="text-xs text-muted-foreground mt-1">On time</p>
+              </div>
+              <div className="p-4 rounded-xl border bg-amber-50 border-amber-200">
+                <p className="text-3xl font-black text-amber-700 leading-none tabular-nums">{myStats.days_late}</p>
+                <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wider mt-2">Days Late</p>
+                <p className="text-xs text-muted-foreground mt-1">Late arrivals</p>
+              </div>
+              <div className="p-4 rounded-xl border bg-red-50 border-red-200">
+                <p className="text-3xl font-black text-red-700 leading-none tabular-nums">{myStats.days_absent}</p>
+                <p className="text-[11px] font-bold text-red-700 uppercase tracking-wider mt-2">Days Absent</p>
+                <p className="text-xs text-muted-foreground mt-1">Unexcused + denied</p>
+              </div>
+              <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
+                <p className="text-3xl font-black text-blue-700 leading-none tabular-nums">{myStats.hours_worked.toFixed(1)}h</p>
+                <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider mt-2">Total Hours</p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {monthlySummary.expectedHours > 0
+                    ? `${monthlySummary.expectedHours.toFixed(1)}h expected`
+                    : "No expected-hours baseline"}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between text-[11px] font-semibold mb-1.5">
+                <span className="text-muted-foreground">Hours Progress</span>
+                <span className="text-foreground tabular-nums">
+                  {monthlySummary.workedHours.toFixed(1)}h / {monthlySummary.expectedHours.toFixed(1)}h
+                </span>
+              </div>
+              <div className="h-2 rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full bg-primary transition-all"
+                  style={{ width: `${monthlySummary.progress.toFixed(1)}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1.5">
+                {monthlySummary.remainingHours.toFixed(1)}h remaining to meet expected hours
+              </p>
+            </div>
           </div>
-          <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
-            <p className="text-[10px] font-bold text-blue-700 uppercase tracking-widest mb-1">Days Present</p>
-            <p className="text-2xl font-bold text-blue-700 tabular-nums">{myStats.days_present}</p>
-            <p className="text-xs text-muted-foreground mt-1">{myStats.hours_worked.toFixed(1)}h worked</p>
-          </div>
-          <div className="p-4 rounded-xl border bg-amber-50 border-amber-200">
-            <p className="text-[10px] font-bold text-amber-700 uppercase tracking-widest mb-1">Days Late</p>
-            <p className="text-2xl font-bold text-amber-700 tabular-nums">{myStats.days_late}</p>
-            <p className="text-xs text-muted-foreground mt-1">This month</p>
-          </div>
-          <div className="p-4 rounded-xl border bg-red-50 border-red-200">
-            <p className="text-[10px] font-bold text-red-700 uppercase tracking-widest mb-1">Days Absent</p>
-            <p className="text-2xl font-bold text-red-700 tabular-nums">{myStats.days_absent}</p>
-            <p className="text-xs text-muted-foreground mt-1">This month</p>
-          </div>
-        </div>
+        </Card>
       )}
 
-      {/* ── Attendance History ──────────────────────────────────────────────── */}
+      {/* â"€â"€ Attendance History â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       <Card className="border-border overflow-hidden">
-        <div className="p-6 bg-muted/20 border-b border-border flex items-center justify-between">
+        <div className="p-6 bg-muted/20 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>
             <h2 className="font-bold text-base">Attendance History</h2>
             <p className="text-xs text-muted-foreground mt-0.5">Your monthly and daily time records</p>
           </div>
-          <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background">
-            <button
-              onClick={() => setView("calendar")}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
-                view === "calendar" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <CalendarDays className="h-3.5 w-3.5" /> Calendar
-            </button>
-            <button
-              onClick={() => setView("list")}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
-                view === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <List className="h-3.5 w-3.5" /> List
-            </button>
-            <button
-              onClick={() => setView("schedule")}
-              className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
-                view === "schedule" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <CalendarRange className="h-3.5 w-3.5" /> Schedule
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background">
+              <button
+                onClick={() => setLocationDisplayMode("place")}
+                className={`px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                  locationDisplayMode === "place"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Place
+              </button>
+              <button
+                onClick={() => setLocationDisplayMode("coordinates")}
+                className={`px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                  locationDisplayMode === "coordinates"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Coordinates
+              </button>
+            </div>
+            <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background">
+              <button
+                onClick={() => setView("calendar")}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                  view === "calendar" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <CalendarDays className="h-3.5 w-3.5" /> Calendar
+              </button>
+              <button
+                onClick={() => setView("list")}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                  view === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <List className="h-3.5 w-3.5" /> List
+              </button>
+              <button
+                onClick={() => setView("schedule")}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                  view === "schedule" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <CalendarRange className="h-3.5 w-3.5" /> Schedule
+              </button>
+            </div>
           </div>
         </div>
 
@@ -1776,6 +2363,8 @@ export default function EmployeeTimekeepingPage() {
     </div>
   );
 }
+
+
 
 
 

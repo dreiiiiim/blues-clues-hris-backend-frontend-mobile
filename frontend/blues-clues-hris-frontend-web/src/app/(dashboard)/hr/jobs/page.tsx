@@ -253,8 +253,14 @@ function QuestionBuilder({
   return (
     <div className="space-y-4">
       {questions.length === 0 && (
-        <div className="rounded-xl border border-dashed border-border bg-muted/10 px-4 py-8 text-center text-sm text-muted-foreground">
-          No questions yet. Click "Add Question" to build your application form.
+        <div className="flex flex-col items-center justify-center rounded-xl border-2 border-dashed border-border bg-muted/20 py-10 gap-3">
+          <div className="h-11 w-11 rounded-full bg-muted flex items-center justify-center">
+            <FileText className="h-5 w-5 text-muted-foreground" />
+          </div>
+          <div className="text-center px-4">
+            <p className="text-sm font-medium text-foreground">No questions yet</p>
+            <p className="text-xs text-muted-foreground mt-1">Build your screening form by adding questions below</p>
+          </div>
         </div>
       )}
       {questions.map((q, qi) => (
@@ -338,7 +344,7 @@ function QuestionBuilder({
         type="button"
         variant="outline"
         size="sm"
-        className="gap-1.5 h-8"
+        className="gap-1.5 h-9 border-dashed"
         onClick={() => onChange([...questions, newQuestion()])}
       >
         <Plus className="h-3.5 w-3.5" /> Add Question
@@ -510,45 +516,52 @@ function CreateJobModal({
   };
 
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 shrink-0">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
-              <button
-                type="button"
-                onClick={() => setStep(1)}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors cursor-pointer ${step === 1 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-primary/20"}`}
-              >1</button>
-              <span className="text-[10px] text-muted-foreground">Job Details</span>
-              <span className="text-[10px] text-muted-foreground">›</span>
-              <button
-                type="button"
-                onClick={() => { if (createdJob) setStep(2); }}
-                disabled={!createdJob}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${step === 2 ? "bg-primary text-primary-foreground" : createdJob ? "bg-muted text-muted-foreground hover:bg-primary/20 cursor-pointer" : "bg-muted text-muted-foreground/40 cursor-not-allowed"}`}
-              >2</button>
-              <span className="text-[10px] text-muted-foreground">App Form</span>
-              <span className="text-[10px] text-muted-foreground">›</span>
-              <button
-                type="button"
-                onClick={() => { if (createdJob) goToSfiaStep(); }}
-                disabled={!createdJob}
-                className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors ${step === 3 ? "bg-primary text-primary-foreground" : createdJob ? "bg-muted text-muted-foreground hover:bg-primary/20 cursor-pointer" : "bg-muted text-muted-foreground/40 cursor-not-allowed"}`}
-              >3</button>
-              <span className="text-[10px] text-muted-foreground">SFIA Skills</span>
+        <div className="px-6 pt-5 pb-4 shrink-0">
+          {/* Title row */}
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h3 className="font-bold text-foreground text-lg leading-tight">
+                {step === 1 ? "Create Job Posting" : step === 2 ? "Build Application Form" : "Configure SFIA Skills"}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {step === 1 ? "Fill in the details for the new position" : step === 2 ? "Add questions applicants must answer" : "Set required skill levels for SFIA matching"}
+              </p>
             </div>
-            <h3 className="font-bold text-foreground text-lg">
-              {step === 1 ? "Create Job Posting" : step === 2 ? "Build Application Form" : "Configure SFIA Skills"}
-            </h3>
-            <p className="text-xs text-muted-foreground">
-              {step === 1 ? "Fill in the details for the new position" : step === 2 ? "Add questions applicants must answer" : "Set required skill levels for SFIA matching"}
-            </p>
+            <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors shrink-0 ml-2">
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
+          {/* Step indicator */}
+          <div className="flex items-start w-full">
+            <button type="button" onClick={() => setStep(1)} className="flex flex-col items-center gap-1 cursor-pointer group">
+              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 1 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : step > 1 ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"}`}>
+                {step > 1 ? <Check className="h-3.5 w-3.5" /> : "1"}
+              </div>
+              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 1 ? "text-primary" : "text-muted-foreground"}`}>Job Details</span>
+            </button>
+            <div className="flex-1 mt-[13px] mx-2">
+              <div className={`h-px w-full transition-colors duration-300 ${step > 1 ? "bg-emerald-400/70" : "bg-border"}`} />
+            </div>
+            <button type="button" onClick={() => { if (createdJob) setStep(2); }} disabled={!createdJob} className={`flex flex-col items-center gap-1 ${createdJob ? "cursor-pointer" : "cursor-default"} group`}>
+              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 2 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : step > 2 && createdJob ? "bg-emerald-500 text-white" : createdJob ? "bg-muted text-muted-foreground group-hover:bg-muted/70" : "bg-muted/40 text-muted-foreground/40"}`}>
+                {step > 2 && createdJob ? <Check className="h-3.5 w-3.5" /> : "2"}
+              </div>
+              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 2 ? "text-primary" : createdJob ? "text-muted-foreground" : "text-muted-foreground/40"}`}>App Form</span>
+            </button>
+            <div className="flex-1 mt-[13px] mx-2">
+              <div className={`h-px w-full transition-colors duration-300 ${step > 2 ? "bg-emerald-400/70" : "bg-border"}`} />
+            </div>
+            <button type="button" onClick={() => { if (createdJob) goToSfiaStep(); }} disabled={!createdJob} className={`flex flex-col items-center gap-1 ${createdJob ? "cursor-pointer" : "cursor-default"} group`}>
+              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 3 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : createdJob ? "bg-muted text-muted-foreground group-hover:bg-muted/70" : "bg-muted/40 text-muted-foreground/40"}`}>
+                3
+              </div>
+              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 3 ? "text-primary" : createdJob ? "text-muted-foreground" : "text-muted-foreground/40"}`}>SFIA Skills</span>
+            </button>
+          </div>
         </div>
+        <div className="border-t border-border" />
 
         <div className="flex-1 overflow-y-auto px-6 pb-6">
           {step === 1 ? (
@@ -648,7 +661,7 @@ function CreateJobModal({
               </div>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               <Input
                 placeholder="Search skills…"
                 value={sfiaSearch}
@@ -661,45 +674,51 @@ function CreateJobModal({
                 size="sm"
                 onClick={handleSuggestSfia}
                 disabled={suggestingSfia || sfiaLoading}
-                className="w-full h-8 gap-1.5 text-xs"
+                className="w-full h-9 gap-2 text-xs border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 hover:border-violet-300 transition-all duration-200"
               >
-                {suggestingSfia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
-                Auto-suggest from job description
+                {suggestingSfia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                Auto-suggest skills from job description
               </Button>
-              <div className="rounded-lg bg-muted/30 border border-border px-3 py-2">
-                <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">How levels work</p>
-                <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-                  Check a skill, then set <span className="font-semibold">how skilled the candidate must be</span> at it.
-                  L1 = total beginner · L3 = works independently · L5 = team lead · L7 = director level.
-                  Candidates who match or exceed your level score higher.
+              <div className="rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 px-3.5 py-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <BookOpen className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                  <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400">How skill levels work</p>
+                </div>
+                <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 leading-relaxed">
+                  Check a skill, then set the <span className="font-semibold">minimum experience level</span> required.
+                  <span className="block mt-0.5">Beginner → trainee · Applied → works alone · Managed → leads team · Strategic → director</span>
                 </p>
               </div>
-              <p className="text-[10px] text-muted-foreground/70">
-                {sfiaSelected.size} skill{sfiaSelected.size !== 1 ? "s" : ""} selected. Applicants scored against these requirements.
-              </p>
-              <div className="space-y-1 max-h-[38vh] overflow-y-auto pr-1">
+              {sfiaSelected.size > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium text-primary">{sfiaSelected.size} skill{sfiaSelected.size !== 1 ? "s" : ""} selected</span>
+                  <span className="text-xs text-muted-foreground ml-auto">Applicants scored against these</span>
+                </div>
+              )}
+              <div className="space-y-1.5 max-h-[34vh] overflow-y-auto pr-1">
                 {sfiaLoading ? (
                   <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
                     <Loader2 className="h-4 w-4 animate-spin" /> Loading skills…
                   </div>
                 ) : sfiaFiltered.length === 0 ? (
-                  <p className="text-center py-4 text-xs text-muted-foreground">No skills match.</p>
+                  <p className="text-center py-4 text-xs text-muted-foreground">No skills match your search.</p>
                 ) : (
                   sfiaFiltered.map((skill) => {
                     const isChecked = sfiaSelected.has(skill.skill_id);
                     const level = sfiaSelected.get(skill.skill_id) ?? 3;
                     return (
-                      <div key={skill.skill_id} className="rounded-lg border border-border bg-background p-2.5 space-y-2">
+                      <div key={skill.skill_id} className={`rounded-xl border transition-all duration-150 p-3 space-y-2 ${isChecked ? "border-primary/40 bg-primary/5 dark:bg-primary/10" : "border-border bg-background hover:bg-muted/30"}`}>
                         <label className="flex items-center gap-2.5 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={isChecked}
                             onChange={() => toggleSfiaSkill(skill.skill_id)}
-                            className="h-3.5 w-3.5 rounded accent-primary"
+                            className="h-4 w-4 rounded accent-primary shrink-0"
                           />
-                          <span className="text-xs font-medium flex-1">{skill.skill}</span>
+                          <span className="text-xs font-medium flex-1 leading-tight">{skill.skill}</span>
                           {skill.category && (
-                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/70 border border-border">
+                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border shrink-0 ${getCategoryColor(skill.category)}`}>
                               {skill.category}
                             </span>
                           )}
@@ -708,10 +727,10 @@ function CreateJobModal({
                           <select
                             value={level}
                             onChange={(e) => setSfiaLevel(skill.skill_id, Number(e.target.value))}
-                            className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                            className="w-full h-8 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                           >
                             {[1,2,3,4,5,6,7].map((l) => (
-                              <option key={l} value={l}>{SFIA_LEVEL_LABELS[l - 1]}</option>
+                              <option key={l} value={l}>{getLevelDesc(skill, l)}</option>
                             ))}
                           </select>
                         )}
@@ -720,8 +739,8 @@ function CreateJobModal({
                   })
                 )}
               </div>
-              <div className="flex gap-3 pt-2">
-                <Button type="button" variant="ghost" className="gap-1.5" onClick={handleSkipSfia} disabled={savingSfia}>
+              <div className="flex gap-3 pt-1">
+                <Button type="button" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={handleSkipSfia} disabled={savingSfia}>
                   Skip for now
                 </Button>
                 <Button className="flex-1 gap-1.5" onClick={handleSaveSfia} disabled={savingSfia || sfiaLoading}>
@@ -736,17 +755,40 @@ function CreateJobModal({
   );
 }
 
-// ─── Configure SFIA Skills Modal ─────────────────────────────────────────────
+// ─── SFIA helpers ─────────────────────────────────────────────────────────────
 
 const SFIA_LEVEL_LABELS = [
-  "L1 — Needs full supervision (Trainee / Intern)",
-  "L2 — Can assist with guidance (Entry-level)",
-  "L3 — Works independently (Junior / Mid)",
-  "L4 — Plans own work, mentors others (Senior)",
-  "L5 — Accountable for results, advises teams (Lead)",
-  "L6 — Drives org-wide initiatives (Principal)",
-  "L7 — Sets company direction (VP / Director)",
+  "Beginner — needs close supervision (Trainee / Intern)",
+  "Assisted — works with guidance on routine tasks (Entry-level)",
+  "Applied — works independently on own initiative (Junior / Mid)",
+  "Enabled — plans own work and guides teammates (Senior)",
+  "Managed — leads team, accountable for outcomes (Team Lead)",
+  "Initiating — shapes org-wide programs, drives strategy (Principal)",
+  "Strategic — sets company direction and policies (VP / Director)",
 ];
+
+function getLevelDesc(skill: SfiaSkill, level: number): string {
+  const desc = (skill as Record<string, unknown>)[`level_${level}_desc`] as string | null;
+  if (!desc) return SFIA_LEVEL_LABELS[level - 1] ?? `Level ${level}`;
+  return `L${level} — ${desc.slice(0, 60)}${desc.length > 60 ? "…" : ""}`;
+}
+
+const CATEGORY_COLORS: Record<string, string> = {
+  Business:      "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-900/30 dark:text-blue-400 dark:border-blue-800",
+  Development:   "bg-violet-100 text-violet-700 border-violet-200 dark:bg-violet-900/30 dark:text-violet-400 dark:border-violet-800",
+  Strategy:      "bg-amber-100 text-amber-700 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-800",
+  Operation:     "bg-orange-100 text-orange-700 border-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:border-orange-800",
+  Relationships: "bg-emerald-100 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-800",
+  Management:    "bg-rose-100 text-rose-700 border-rose-200 dark:bg-rose-900/30 dark:text-rose-400 dark:border-rose-800",
+  Analytics:     "bg-cyan-100 text-cyan-700 border-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400 dark:border-cyan-800",
+  Security:      "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-400 dark:border-red-800",
+};
+
+function getCategoryColor(category: string | null): string {
+  return CATEGORY_COLORS[category ?? ""] ?? "bg-muted text-muted-foreground border-border";
+}
+
+// ─── Configure SFIA Skills Modal ─────────────────────────────────────────────
 
 function ConfigureSfiaSkillsModal({
   jobId,
@@ -836,12 +878,6 @@ function ConfigureSfiaSkillsModal({
     }
   };
 
-  const getLevelDesc = (skill: SfiaSkill, level: number): string => {
-    const desc = (skill as Record<string, any>)[`level_${level}_desc`] as string | null;
-    if (!desc) return SFIA_LEVEL_LABELS[level - 1] ?? `Level ${level}`;
-    return `L${level} — ${desc.slice(0, 50)}${desc.length > 50 ? "…" : ""}`;
-  };
-
   return createPortal(
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40" onClick={onClose}>
       <div
@@ -873,22 +909,30 @@ function ConfigureSfiaSkillsModal({
             size="sm"
             onClick={handleSuggest}
             disabled={suggesting || loading}
-            className="w-full h-8 gap-1.5 text-xs mt-2"
+            className="w-full h-9 gap-2 text-xs mt-2 border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 hover:border-violet-300 transition-all duration-200"
           >
-            {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 text-violet-500" />}
-            Auto-suggest from job description
+            {suggesting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            Auto-suggest skills from job description
           </Button>
-          <div className="mt-2 rounded-lg bg-muted/30 border border-border px-3 py-2">
-            <p className="text-[10px] font-semibold text-muted-foreground mb-0.5">How levels work</p>
-            <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-              Check a skill, then set <span className="font-semibold">how skilled the candidate must be</span> at it.
-              L1 = total beginner · L3 = works independently · L5 = team lead · L7 = company director level.
-              Candidates who match or exceed your required level score higher.
+          <div className="mt-2 rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 px-3.5 py-3">
+            <div className="flex items-center gap-1.5 mb-1">
+              <BookOpen className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+              <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400">How skill levels work</p>
+            </div>
+            <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 leading-relaxed">
+              Check a skill, then set the <span className="font-semibold">minimum experience level</span> required.
+              <span className="block mt-0.5">Beginner → trainee · Applied → works alone · Managed → leads team · Strategic → director</span>
             </p>
           </div>
+          {selected.size > 0 && (
+            <div className="mt-2 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20">
+              <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+              <span className="text-xs font-medium text-primary">{selected.size} skill{selected.size !== 1 ? "s" : ""} selected</span>
+            </div>
+          )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 space-y-1 min-h-0">
+        <div className="flex-1 overflow-y-auto px-6 space-y-1.5 min-h-0">
           {loading ? (
             <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
               <Loader2 className="h-4 w-4 animate-spin" /> Loading skills…
@@ -900,17 +944,17 @@ function ConfigureSfiaSkillsModal({
               const isChecked = selected.has(skill.skill_id);
               const level = selected.get(skill.skill_id) ?? 3;
               return (
-                <div key={skill.skill_id} className="rounded-lg border border-border bg-background p-2.5 space-y-2">
+                <div key={skill.skill_id} className={`rounded-xl border transition-all duration-150 p-3 space-y-2 ${isChecked ? "border-primary/40 bg-primary/5 dark:bg-primary/10" : "border-border bg-background hover:bg-muted/30"}`}>
                   <label className="flex items-center gap-2.5 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={isChecked}
                       onChange={() => toggle(skill.skill_id)}
-                      className="h-3.5 w-3.5 rounded accent-primary"
+                      className="h-4 w-4 rounded accent-primary shrink-0"
                     />
-                    <span className="text-xs font-medium flex-1">{skill.skill}</span>
+                    <span className="text-xs font-medium flex-1 leading-tight">{skill.skill}</span>
                     {skill.category && (
-                      <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/70 border border-border">
+                      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border shrink-0 ${getCategoryColor(skill.category)}`}>
                         {skill.category}
                       </span>
                     )}
@@ -919,7 +963,7 @@ function ConfigureSfiaSkillsModal({
                     <select
                       value={level}
                       onChange={(e) => setLevel(skill.skill_id, Number(e.target.value))}
-                      className="w-full h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="w-full h-8 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     >
                       {[1, 2, 3, 4, 5, 6, 7].map((l) => (
                         <option key={l} value={l}>{getLevelDesc(skill, l)}</option>
@@ -947,126 +991,6 @@ function ConfigureSfiaSkillsModal({
 
 // ─── Edit Job Modal ────────────────────────────────────────────────────────────
 
-type SfiaSkillRow = { skill_id: string; required_level: number; weight: number };
-
-function SfiaSkillsSection({ jobId }: { jobId: string }) {
-  const [masterSkills, setMasterSkills] = useState<SfiaSkill[]>([]);
-  const [skills, setSkills] = useState<SfiaSkillRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    Promise.all([
-      listSfiaSkills(),
-      apiFetch<SfiaSkillRow[]>(`/jobs/${jobId}/sfia-skills`),
-    ])
-      .then(([master, current]) => {
-        setMasterSkills(master);
-        setSkills(current);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [jobId]);
-
-  const addRow = () => setSkills((p) => [...p, { skill_id: "", required_level: 3, weight: 1 }]);
-  const removeRow = (i: number) => setSkills((p) => p.filter((_, idx) => idx !== i));
-  const updateRow = (i: number, field: keyof SfiaSkillRow, val: string | number) =>
-    setSkills((p) => p.map((r, idx) => idx === i ? { ...r, [field]: val } : r));
-
-  const handleSave = async () => {
-    const valid = skills.filter((s) => s.skill_id.trim());
-    setSaving(true);
-    try {
-      await apiFetch(`/jobs/${jobId}/sfia-skills`, {
-        method: "PUT",
-        body: JSON.stringify({ skills: valid }),
-      });
-      setSkills(valid);
-      toast.success("SFIA skill requirements saved.");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Failed to save SFIA skills.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const SFIA_LEVELS = [
-    { value: 1, label: "L1 — Needs full supervision (Trainee / Intern)" },
-    { value: 2, label: "L2 — Can assist with guidance (Entry-level)" },
-    { value: 3, label: "L3 — Works independently (Junior / Mid)" },
-    { value: 4, label: "L4 — Plans own work, mentors others (Senior)" },
-    { value: 5, label: "L5 — Accountable for results, advises teams (Lead)" },
-    { value: 6, label: "L6 — Drives org-wide initiatives (Principal)" },
-    { value: 7, label: "L7 — Sets company direction (VP / Director)" },
-  ];
-
-  return (
-    <div className="space-y-3 pt-3 border-t border-border">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Required Skills</p>
-          <p className="text-[11px] text-muted-foreground/60 mt-0.5">Define skills candidates will be matched against for SFIA grading.</p>
-        </div>
-        <Button type="button" variant="ghost" size="sm" onClick={addRow} className="gap-1 h-7 text-xs">
-          <Plus className="h-3.5 w-3.5" /> Add Skill
-        </Button>
-      </div>
-
-      {loading ? (
-        <div className="flex items-center gap-2 py-2 text-muted-foreground text-xs">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading…
-        </div>
-      ) : skills.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-3 text-center">
-          <p className="text-xs text-muted-foreground/60">No skills defined — applicants won't receive a SFIA grade until skills are added.</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {skills.map((row, i) => (
-            <div key={i} className="flex items-center gap-2">
-              <select
-                value={row.skill_id}
-                onChange={(e) => updateRow(i, "skill_id", e.target.value)}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring flex-1"
-              >
-                <option value="">Select skill…</option>
-                {masterSkills.map((s) => (
-                  <option key={s.skill_id} value={s.skill_id}>{s.skill}{s.category ? ` (${s.category})` : ""}</option>
-                ))}
-              </select>
-              <select
-                value={row.required_level}
-                onChange={(e) => updateRow(i, "required_level", Number(e.target.value))}
-                className="h-8 rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring w-52 shrink-0"
-              >
-                {SFIA_LEVELS.map((l) => (
-                  <option key={l.value} value={l.value}>{l.label}</option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => removeRow(i)}
-                className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors cursor-pointer shrink-0"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {!loading && (
-        <div className="flex justify-end">
-          <Button type="button" size="sm" onClick={handleSave} disabled={saving} className="h-8 text-xs gap-1.5">
-            {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Zap className="h-3.5 w-3.5" />}
-            Save Skills
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function EditJobModal({
   job,
   onClose,
@@ -1076,8 +1000,16 @@ function EditJobModal({
   onClose: () => void;
   onSave: (updated: JobPosting) => void;
 }>) {
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [saving, setSaving] = useState(false);
+  const [savingQuestions, setSavingQuestions] = useState(false);
+  const [savingSfia, setSavingSfia] = useState(false);
+  const [suggestingSfia, setSuggestingSfia] = useState(false);
   const [departments, setDepartments] = useState<{ department_id: string; department_name: string }[]>([]);
+
+  // Track the latest saved job so we can pass it to onSave
+  const [savedJob, setSavedJob] = useState<JobPosting>(job);
+
   const [form, setForm] = useState({
     title: job.title,
     description: job.description,
@@ -1089,31 +1021,87 @@ function EditJobModal({
     status: job.status,
   });
 
+  // Step 2 — questions
+  const [questions, setQuestions] = useState<Question[]>([]);
+  const [questionsLoaded, setQuestionsLoaded] = useState(false);
+  const [questionsLoading, setQuestionsLoading] = useState(false);
+
+  // Step 3 — SFIA
+  const [masterSkills, setMasterSkills] = useState<SfiaSkill[]>([]);
+  const [sfiaSelected, setSfiaSelected] = useState<Map<string, number>>(new Map());
+  const [sfiaSearch, setSfiaSearch] = useState("");
+  const [sfiaLoading, setSfiaLoading] = useState(false);
+  const [sfiaLoaded, setSfiaLoaded] = useState(false);
+
   useEffect(() => {
     apiFetch<{ department_id: string; department_name: string }[]>("/users/departments")
       .then(setDepartments)
       .catch(() => {});
   }, []);
 
-  const handleSubmit = async (e: React.SyntheticEvent<HTMLFormElement>) => {
+  // Lazy-load questions when entering step 2
+  useEffect(() => {
+    if (step === 2 && !questionsLoaded) {
+      setQuestionsLoading(true);
+      apiFetch<StoredQuestion[]>(`/jobs/${job.job_posting_id}/questions`)
+        .then((existing) =>
+          setQuestions(
+            existing.map((q) => ({
+              id: q.question_id,
+              question_text: q.question_text,
+              question_type: q.question_type,
+              options: q.options?.length ? q.options : [""],
+              is_required: q.is_required,
+            }))
+          )
+        )
+        .catch(() => toast.error("Failed to load questions"))
+        .finally(() => { setQuestionsLoading(false); setQuestionsLoaded(true); });
+    }
+  }, [step, questionsLoaded, job.job_posting_id]);
+
+  // Lazy-load SFIA skills when entering step 3
+  useEffect(() => {
+    if (step === 3 && !sfiaLoaded) {
+      setSfiaLoading(true);
+      Promise.all([listSfiaSkills(), getJobSfiaSkills(job.job_posting_id)])
+        .then(([master, current]) => {
+          setMasterSkills(master);
+          const map = new Map<string, number>();
+          for (const s of current) map.set(s.skill_id, s.required_level);
+          setSfiaSelected(map);
+        })
+        .catch(() => {})
+        .finally(() => { setSfiaLoading(false); setSfiaLoaded(true); });
+    }
+  }, [step, sfiaLoaded, job.job_posting_id]);
+
+  const buildPatchPayload = () => ({
+    title: form.title,
+    description: form.description,
+    location: form.location.trim() || null,
+    employment_type: form.employment_type || null,
+    salary_range: form.salary_range.trim() || null,
+    closes_at: form.closes_at ? new Date(form.closes_at).toISOString() : null,
+    department_id: form.department_id || null,
+    status: form.status,
+  });
+
+  const handleSaveDetails = async (e: React.SyntheticEvent, andClose = false) => {
     e.preventDefault();
     setSaving(true);
     try {
       const updated = await apiFetch<JobPosting>(`/jobs/${job.job_posting_id}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          title: form.title,
-          description: form.description,
-          location: form.location.trim() || null,
-          employment_type: form.employment_type || null,
-          salary_range: form.salary_range.trim() || null,
-          closes_at: form.closes_at ? new Date(form.closes_at).toISOString() : null,
-          department_id: form.department_id || null,
-          status: form.status,
-        }),
+        body: JSON.stringify(buildPatchPayload()),
       });
-      toast.success("Job posting updated!");
-      onSave(updated);
+      setSavedJob(updated);
+      if (andClose) {
+        toast.success("Job posting updated!");
+        onSave(updated);
+      } else {
+        setStep(2);
+      }
     } catch (err: any) {
       toast.error(err.message || "Failed to update job posting");
     } finally {
@@ -1121,102 +1109,332 @@ function EditJobModal({
     }
   };
 
+  const handleSaveQuestions = async () => {
+    setSavingQuestions(true);
+    try {
+      const payload = questions
+        .filter((q) => q.question_text.trim())
+        .map((q, i) => ({
+          question_text: q.question_text.trim(),
+          question_type: q.question_type,
+          options: (q.question_type !== "text" && q.options.length) ? q.options.filter(Boolean) : undefined,
+          is_required: q.is_required,
+          sort_order: i,
+        }));
+      await apiFetch(`/jobs/${job.job_posting_id}/questions`, {
+        method: "PUT",
+        body: JSON.stringify({ questions: payload }),
+      });
+      setStep(3);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save questions");
+    } finally {
+      setSavingQuestions(false);
+    }
+  };
+
+  const handleSuggestSfia = async () => {
+    setSuggestingSfia(true);
+    try {
+      const suggestions = await suggestJobSfiaSkills(job.job_posting_id);
+      if (suggestions.length === 0) {
+        toast.info("No skill matches found in job description.");
+        return;
+      }
+      setSfiaSelected((prev) => {
+        const next = new Map(prev);
+        for (const s of suggestions) {
+          if (!next.has(s.skill_id)) next.set(s.skill_id, s.suggested_level);
+        }
+        return next;
+      });
+      toast.success(`${suggestions.length} skill${suggestions.length !== 1 ? "s" : ""} suggested from job description.`);
+    } catch {
+      toast.error("Failed to fetch suggestions.");
+    } finally {
+      setSuggestingSfia(false);
+    }
+  };
+
+  const handleSaveSfia = async () => {
+    setSavingSfia(true);
+    try {
+      const skills = Array.from(sfiaSelected.entries()).map(([skill_id, required_level]) => ({ skill_id, required_level }));
+      await updateJobSfiaSkills(job.job_posting_id, skills);
+      toast.success("Job posting updated!");
+      onSave(savedJob);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save SFIA skills");
+    } finally {
+      setSavingSfia(false);
+    }
+  };
+
+  const toggleSfiaSkill = (skillId: string) => {
+    setSfiaSelected((prev) => {
+      const next = new Map(prev);
+      if (next.has(skillId)) next.delete(skillId);
+      else next.set(skillId, 3);
+      return next;
+    });
+  };
+
+  const setSfiaLevel = (skillId: string, level: number) => {
+    setSfiaSelected((prev) => { const next = new Map(prev); next.set(skillId, level); return next; });
+  };
+
+  const sfiaFiltered = masterSkills.filter((s) =>
+    s.skill.toLowerCase().includes(sfiaSearch.toLowerCase()) ||
+    (s.category ?? "").toLowerCase().includes(sfiaSearch.toLowerCase())
+  );
+
   return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm">
       <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
-        <div className="flex items-center justify-between px-6 pt-6 pb-4 shrink-0">
-          <div>
-            <h3 className="font-bold text-foreground text-lg">Edit Job Posting</h3>
-            <p className="text-xs text-muted-foreground">Update the details for this position</p>
+        <div className="px-6 pt-5 pb-4 shrink-0">
+          {/* Title row */}
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h3 className="font-bold text-foreground text-lg leading-tight">
+                {step === 1 ? "Edit Job Posting" : step === 2 ? "Build Application Form" : "Configure SFIA Skills"}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {step === 1 ? "Update the details for this position" : step === 2 ? "Add questions applicants must answer" : "Set required skill levels for SFIA matching"}
+              </p>
+            </div>
+            <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors shrink-0 ml-2">
+              <X className="h-4 w-4 text-muted-foreground" />
+            </button>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors">
-            <X className="h-4 w-4 text-muted-foreground" />
-          </button>
+          {/* Step indicator — all steps always navigable in edit mode */}
+          <div className="flex items-start w-full">
+            <button type="button" onClick={() => setStep(1)} className="flex flex-col items-center gap-1 cursor-pointer group">
+              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 1 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : step > 1 ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"}`}>
+                {step > 1 ? <Check className="h-3.5 w-3.5" /> : "1"}
+              </div>
+              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 1 ? "text-primary" : "text-muted-foreground"}`}>Job Details</span>
+            </button>
+            <div className="flex-1 mt-[13px] mx-2">
+              <div className={`h-px w-full transition-colors duration-300 ${step > 1 ? "bg-emerald-400/70" : "bg-border"}`} />
+            </div>
+            <button type="button" onClick={() => setStep(2)} className="flex flex-col items-center gap-1 cursor-pointer group">
+              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 2 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : step > 2 ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground group-hover:bg-muted/70"}`}>
+                {step > 2 ? <Check className="h-3.5 w-3.5" /> : "2"}
+              </div>
+              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 2 ? "text-primary" : "text-muted-foreground"}`}>App Form</span>
+            </button>
+            <div className="flex-1 mt-[13px] mx-2">
+              <div className={`h-px w-full transition-colors duration-300 ${step > 2 ? "bg-emerald-400/70" : "bg-border"}`} />
+            </div>
+            <button type="button" onClick={() => setStep(3)} className="flex flex-col items-center gap-1 cursor-pointer group">
+              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 3 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : "bg-muted text-muted-foreground group-hover:bg-muted/70"}`}>
+                3
+              </div>
+              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 3 ? "text-primary" : "text-muted-foreground"}`}>SFIA Skills</span>
+            </button>
+          </div>
         </div>
+        <div className="border-t border-border" />
+
         <div className="flex-1 overflow-y-auto px-6 pb-6">
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-1.5">
-              <label htmlFor="edit-title" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Job Title *</label>
-              <Input id="edit-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Senior Software Engineer" required className="h-10" />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="edit-status" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</label>
-              <select
-                id="edit-status"
-                value={form.status}
-                onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as "open" | "closed" | "draft" }))}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-                <option value="draft">Draft</option>
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="edit-description" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Description *</label>
-              <textarea
-                id="edit-description"
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="Describe the role, responsibilities, and requirements..."
-                required rows={4}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <label htmlFor="edit-department" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</label>
-              <select
-                id="edit-department"
-                value={form.department_id}
-                onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value }))}
-                className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                <option value="">Select department</option>
-                {departments.map((d) => (
-                  <option key={d.department_id} value={d.department_id}>{d.department_name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
+          {step === 1 ? (
+            <form id="edit-step1-form" onSubmit={(e) => handleSaveDetails(e, false)} className="space-y-4">
               <div className="space-y-1.5">
-                <label htmlFor="edit-location" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Location</label>
-                <Input id="edit-location" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="e.g. Manila" className="h-10" />
+                <label htmlFor="edit-title" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Job Title *</label>
+                <Input id="edit-title" value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))} placeholder="e.g. Senior Software Engineer" required className="h-10" />
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="edit-employment-type" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Employment Type</label>
+                <label htmlFor="edit-status" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</label>
                 <select
-                  id="edit-employment-type"
-                  value={form.employment_type}
-                  onChange={(e) => setForm((f) => ({ ...f, employment_type: e.target.value }))}
+                  id="edit-status"
+                  value={form.status}
+                  onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as "open" | "closed" | "draft" }))}
                   className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
-                  <option value="">Select type</option>
-                  <option>Full-time</option>
-                  <option>Part-time</option>
-                  <option>Contract</option>
-                  <option>Internship</option>
+                  <option value="open">Open</option>
+                  <option value="closed">Closed</option>
+                  <option value="draft">Draft</option>
                 </select>
               </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
-                <label htmlFor="edit-salary" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Salary Range</label>
-                <Input id="edit-salary" value={form.salary_range} onChange={(e) => setForm((f) => ({ ...f, salary_range: e.target.value }))} placeholder="e.g. ₱50k – ₱80k" className="h-10" />
+                <label htmlFor="edit-description" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Description *</label>
+                <textarea
+                  id="edit-description"
+                  value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="Describe the role, responsibilities, and requirements..."
+                  required rows={4}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                />
               </div>
               <div className="space-y-1.5">
-                <label htmlFor="edit-closes-at" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Closes On</label>
-                <Input id="edit-closes-at" type="date" value={form.closes_at} onChange={(e) => setForm((f) => ({ ...f, closes_at: e.target.value }))} className="h-10" />
+                <label htmlFor="edit-department" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</label>
+                <select
+                  id="edit-department"
+                  value={form.department_id}
+                  onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value }))}
+                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="">Select department</option>
+                  {departments.map((d) => (
+                    <option key={d.department_id} value={d.department_id}>{d.department_name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label htmlFor="edit-location" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Location</label>
+                  <Input id="edit-location" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="e.g. Manila" className="h-10" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="edit-employment-type" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Employment Type</label>
+                  <select
+                    id="edit-employment-type"
+                    value={form.employment_type}
+                    onChange={(e) => setForm((f) => ({ ...f, employment_type: e.target.value }))}
+                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  >
+                    <option value="">Select type</option>
+                    <option>Full-time</option>
+                    <option>Part-time</option>
+                    <option>Contract</option>
+                    <option>Internship</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label htmlFor="edit-salary" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Salary Range</label>
+                  <Input id="edit-salary" value={form.salary_range} onChange={(e) => setForm((f) => ({ ...f, salary_range: e.target.value }))} placeholder="e.g. ₱50k – ₱80k" className="h-10" />
+                </div>
+                <div className="space-y-1.5">
+                  <label htmlFor="edit-closes-at" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Closes On</label>
+                  <Input id="edit-closes-at" type="date" value={form.closes_at} onChange={(e) => setForm((f) => ({ ...f, closes_at: e.target.value }))} className="h-10" />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="flex-1"
+                  disabled={saving || !form.title.trim() || !form.description.trim()}
+                  onClick={(e) => void handleSaveDetails(e, true)}
+                >
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
+                </Button>
+                <Button type="submit" className="flex-1 gap-1.5" disabled={saving}>
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
+                </Button>
+              </div>
+            </form>
+          ) : step === 2 ? (
+            <div className="space-y-4">
+              {questionsLoading ? (
+                <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading questions…
+                </div>
+              ) : (
+                <QuestionBuilder questions={questions} onChange={setQuestions} />
+              )}
+              <div className="flex gap-3 pt-2">
+                <Button type="button" variant="ghost" className="gap-1.5" onClick={() => setStep(3)} disabled={savingQuestions}>
+                  Skip for now
+                </Button>
+                <Button className="flex-1 gap-1.5" onClick={handleSaveQuestions} disabled={savingQuestions || questionsLoading}>
+                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
+                </Button>
               </div>
             </div>
-            <div className="flex gap-3 pt-2">
-              <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
-              <Button type="submit" className="flex-1 gap-1.5" disabled={saving}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save Changes"}
+          ) : (
+            <div className="space-y-3">
+              <Input
+                placeholder="Search skills…"
+                value={sfiaSearch}
+                onChange={(e) => setSfiaSearch(e.target.value)}
+                className="h-9 text-xs"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleSuggestSfia}
+                disabled={suggestingSfia || sfiaLoading}
+                className="w-full h-9 gap-2 text-xs border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 hover:border-violet-300 transition-all duration-200"
+              >
+                {suggestingSfia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                Auto-suggest skills from job description
               </Button>
+              <div className="rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 px-3.5 py-3">
+                <div className="flex items-center gap-1.5 mb-1">
+                  <BookOpen className="h-3 w-3 text-blue-600 dark:text-blue-400" />
+                  <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400">How skill levels work</p>
+                </div>
+                <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 leading-relaxed">
+                  Check a skill, then set the <span className="font-semibold">minimum experience level</span> required.
+                  <span className="block mt-0.5">Beginner → trainee · Applied → works alone · Managed → leads team · Strategic → director</span>
+                </p>
+              </div>
+              {sfiaSelected.size > 0 && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20">
+                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-xs font-medium text-primary">{sfiaSelected.size} skill{sfiaSelected.size !== 1 ? "s" : ""} selected</span>
+                  <span className="text-xs text-muted-foreground ml-auto">Applicants scored against these</span>
+                </div>
+              )}
+              <div className="space-y-1.5 max-h-[34vh] overflow-y-auto pr-1">
+                {sfiaLoading ? (
+                  <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading skills…
+                  </div>
+                ) : sfiaFiltered.length === 0 ? (
+                  <p className="text-center py-4 text-xs text-muted-foreground">No skills match your search.</p>
+                ) : (
+                  sfiaFiltered.map((skill) => {
+                    const isChecked = sfiaSelected.has(skill.skill_id);
+                    const level = sfiaSelected.get(skill.skill_id) ?? 3;
+                    return (
+                      <div key={skill.skill_id} className={`rounded-xl border transition-all duration-150 p-3 space-y-2 ${isChecked ? "border-primary/40 bg-primary/5 dark:bg-primary/10" : "border-border bg-background hover:bg-muted/30"}`}>
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => toggleSfiaSkill(skill.skill_id)}
+                            className="h-4 w-4 rounded accent-primary shrink-0"
+                          />
+                          <span className="text-xs font-medium flex-1 leading-tight">{skill.skill}</span>
+                          {skill.category && (
+                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border shrink-0 ${getCategoryColor(skill.category)}`}>
+                              {skill.category}
+                            </span>
+                          )}
+                        </label>
+                        {isChecked && (
+                          <select
+                            value={level}
+                            onChange={(e) => setSfiaLevel(skill.skill_id, Number(e.target.value))}
+                            className="w-full h-8 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            {[1, 2, 3, 4, 5, 6, 7].map((l) => (
+                              <option key={l} value={l}>{getLevelDesc(skill, l)}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+              <div className="flex gap-3 pt-1">
+                <Button type="button" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={() => { toast.success("Job posting updated!"); onSave(savedJob); }} disabled={savingSfia}>
+                  Skip for now
+                </Button>
+                <Button className="flex-1 gap-1.5" onClick={handleSaveSfia} disabled={savingSfia || sfiaLoading}>
+                  {savingSfia ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Zap className="h-4 w-4" /><span>Save & Finish</span></>}
+                </Button>
+              </div>
             </div>
-          </form>
-
-          <SfiaSkillsSection jobId={job.job_posting_id} />
+          )}
         </div>
       </div>
     </div>

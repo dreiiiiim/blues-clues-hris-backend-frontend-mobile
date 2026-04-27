@@ -97,7 +97,6 @@ function employeeInitials(first: string, last: string) {
   return `${first.charAt(0)}${last.charAt(0)}`.toUpperCase();
 }
 
-// Deterministic avatar color from name
 const AVATAR_COLORS = [
   "bg-blue-100 text-blue-700",
   "bg-violet-100 text-violet-700",
@@ -187,9 +186,8 @@ function EmployeeCard({
   return (
     <button
       onClick={onClick}
-      className="w-full text-left rounded-2xl border border-gray-200 bg-white hover:border-indigo-300 hover:shadow-md transition-all duration-150 p-5 flex items-center gap-4 group cursor-pointer"
+      className="w-full text-left rounded-xl border border-border bg-card hover:border-primary/30 hover:shadow-sm transition-all duration-150 p-5 flex items-center gap-4 group cursor-pointer"
     >
-      {/* Avatar */}
       <UserAvatar
         firstName={group.first_name}
         lastName={group.last_name}
@@ -197,27 +195,23 @@ function EmployeeCard({
         className="h-11 w-11 rounded-xl flex items-center justify-center shrink-0"
         textClassName="font-bold text-sm"
       />
-
-      {/* Info */}
       <div className="flex-1 min-w-0">
-        <p className="font-semibold text-gray-900 truncate">{fullName}</p>
-        <p className="text-xs text-gray-500 truncate">{group.employee_id}</p>
-        <p className="text-xs text-gray-400 mt-0.5">
+        <p className="font-semibold text-foreground truncate">{fullName}</p>
+        <p className="text-xs text-muted-foreground truncate">{group.employee_id}</p>
+        <p className="text-xs text-muted-foreground/70 mt-0.5">
           Last submitted {formatDate(group.latest_upload)}
         </p>
       </div>
-
-      {/* Pending count badge */}
       <div className="flex items-center gap-2 shrink-0">
-        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-0 font-semibold">
+        <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border border-amber-200 font-semibold">
           {group.docs.length} pending
         </Badge>
         {replacementCount > 0 && (
-          <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 border-0 font-semibold">
+          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border border-blue-200 font-semibold">
             {replacementCount} replacement
           </Badge>
         )}
-        <ChevronRight className="h-4 w-4 text-gray-400 group-hover:text-indigo-500 transition-colors" />
+        <ChevronRight className="h-4 w-4 text-muted-foreground/40 group-hover:text-primary transition-colors" />
       </div>
     </button>
   );
@@ -225,7 +219,7 @@ function EmployeeCard({
 
 // ─── Document Row (inside modal) ──────────────────────────────────────────────
 
-type DocRowState = "idle" | "rejecting" | "processing";
+type DocRowState = "idle" | "confirming-approve" | "rejecting" | "processing";
 
 function DocumentRow({
   doc,
@@ -274,31 +268,31 @@ function DocumentRow({
   const busy = state === "processing";
 
   return (
-    <div className="rounded-xl border border-gray-200 bg-gray-50/50 p-4 space-y-3">
+    <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
       {/* Doc header */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-2.5">
-          <div className="h-8 w-8 rounded-lg bg-white border border-gray-200 flex items-center justify-center text-gray-500 shrink-0">
+          <div className="h-8 w-8 rounded-lg bg-background border border-border flex items-center justify-center text-muted-foreground shrink-0">
             <DocTypeIcon type={doc.document_type} />
           </div>
           <div>
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-sm font-semibold text-gray-900">{docLabel(doc.document_type)}</p>
+              <p className="text-sm font-semibold text-foreground">{docLabel(doc.document_type)}</p>
               {isReplacementRequest && (
-                <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 border-0 text-[10px]">
+                <Badge className="bg-blue-50 text-blue-700 hover:bg-blue-50 border border-blue-200 text-[10px]">
                   <RotateCcw className="h-3 w-3 mr-1" />
                   Replacement Request
                 </Badge>
               )}
             </div>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-muted-foreground">
               {doc.file_name}
               {doc.file_size ? ` · ${formatBytes(doc.file_size)}` : ""}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[10px] text-gray-400 flex items-center gap-1">
+          <span className="text-[10px] text-muted-foreground/70 flex items-center gap-1">
             <Clock className="h-3 w-3" />
             {formatDate(doc.uploaded_at)}
           </span>
@@ -314,11 +308,20 @@ function DocumentRow({
       </div>
 
       {isReplacementRequest && doc.replacement_reason && (
-        <div className="rounded-lg border border-indigo-100 bg-indigo-50/70 px-3 py-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-indigo-700">
+        <div className="rounded-lg border border-blue-100 bg-blue-50/60 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">
             Replacement Reason
           </p>
-          <p className="text-xs text-indigo-900 mt-1">{doc.replacement_reason}</p>
+          <p className="text-xs text-blue-900 mt-1">{doc.replacement_reason}</p>
+        </div>
+      )}
+
+      {/* Confirm approve prompt */}
+      {state === "confirming-approve" && (
+        <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2.5">
+          <p className="text-xs text-emerald-800 font-medium">
+            Approve <span className="font-semibold">{docLabel(doc.document_type)}</span>? The employee will be notified.
+          </p>
         </div>
       )}
 
@@ -336,11 +339,36 @@ function DocumentRow({
 
       {/* Actions */}
       <div className="flex items-center gap-2">
-        {state !== "rejecting" ? (
+        {state === "idle" && (
           <>
             <Button
               size="sm"
-              className="h-8 gap-1.5 bg-green-600 hover:bg-green-700 text-white text-xs"
+              variant="outline"
+              className="h-8 gap-1.5 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:border-emerald-300 hover:text-emerald-700 text-xs"
+              onClick={() => setState("confirming-approve")}
+              disabled={busy}
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 gap-1.5 border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 hover:border-rose-300 hover:text-rose-700 text-xs"
+              onClick={() => setState("rejecting")}
+              disabled={busy}
+            >
+              <XCircle className="h-3.5 w-3.5" />
+              Reject
+            </Button>
+          </>
+        )}
+
+        {state === "confirming-approve" && (
+          <>
+            <Button
+              size="sm"
+              className="h-8 gap-1.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs"
               onClick={handleApprove}
               disabled={busy}
             >
@@ -349,25 +377,26 @@ function DocumentRow({
               ) : (
                 <CheckCircle2 className="h-3.5 w-3.5" />
               )}
-              Approve
+              Confirm Approval
             </Button>
             <Button
               size="sm"
-              variant="outline"
-              className="h-8 gap-1.5 border-red-200 text-red-600 hover:bg-red-50 text-xs"
-              onClick={() => setState("rejecting")}
+              variant="ghost"
+              className="h-8 text-xs text-muted-foreground"
+              onClick={() => setState("idle")}
               disabled={busy}
             >
-              <XCircle className="h-3.5 w-3.5" />
-              Reject
+              Cancel
             </Button>
           </>
-        ) : (
+        )}
+
+        {state === "rejecting" && (
           <>
             <Button
               size="sm"
-              variant="destructive"
-              className="h-8 gap-1.5 text-xs"
+              variant="outline"
+              className="h-8 gap-1.5 border-rose-300 bg-rose-700 text-white hover:bg-rose-800 text-xs"
               onClick={handleReject}
               disabled={busy}
             >
@@ -381,13 +410,20 @@ function DocumentRow({
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 text-xs"
+              className="h-8 text-xs text-muted-foreground"
               onClick={() => { setState("idle"); setNotes(""); }}
               disabled={busy}
             >
               Cancel
             </Button>
           </>
+        )}
+
+        {state === "processing" && (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Processing…
+          </div>
         )}
       </div>
     </div>
@@ -408,24 +444,29 @@ function EmployeeDocDetailDialog({
   onGroupEmpty: (userId: string) => void;
 }) {
   const [remaining, setRemaining] = useState<PendingDoc[]>([]);
+  // Tracks whether at least one doc has been reviewed in this session.
+  // Guards against calling onGroupEmpty on initial mount when remaining=[].
+  const [hadDocs, setHadDocs] = useState(false);
 
   useEffect(() => {
-    if (group) setRemaining([...group.docs]);
+    if (group) {
+      setRemaining([...group.docs]);
+      setHadDocs(false);
+    }
   }, [group]);
 
-  const removeDoc = useCallback(
-    (docId: string) => {
-      setRemaining((prev) => {
-        const next = prev.filter((d) => d.id !== docId);
-        if (next.length === 0 && group) {
-          onGroupEmpty(group.user_id);
-          onClose();
-        }
-        return next;
-      });
-    },
-    [group, onClose, onGroupEmpty]
-  );
+  // Call parent callbacks AFTER render, not inside a setState updater
+  useEffect(() => {
+    if (hadDocs && remaining.length === 0 && group) {
+      onGroupEmpty(group.user_id);
+      onClose();
+    }
+  }, [hadDocs, remaining.length, group, onGroupEmpty, onClose]);
+
+  const removeDoc = useCallback((docId: string) => {
+    setHadDocs(true);
+    setRemaining((prev) => prev.filter((d) => d.id !== docId));
+  }, []);
 
   if (!group) return null;
 
@@ -434,8 +475,7 @@ function EmployeeDocDetailDialog({
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-lg w-full max-h-[90vh] flex flex-col p-0 gap-0 rounded-2xl overflow-hidden">
-        {/* Header */}
-        <DialogHeader className="px-6 py-5 border-b border-gray-100 shrink-0">
+        <DialogHeader className="px-6 py-5 border-b border-border shrink-0">
           <div className="flex items-center gap-3">
             <UserAvatar
               firstName={group.first_name}
@@ -445,28 +485,27 @@ function EmployeeDocDetailDialog({
               textClassName="font-bold text-sm"
             />
             <div>
-              <DialogTitle className="text-base font-semibold text-gray-900 leading-tight">
+              <DialogTitle className="text-base font-semibold text-foreground leading-tight">
                 {fullName}
               </DialogTitle>
-              <p className="text-xs text-gray-500 mt-0.5">{group.employee_id}</p>
+              <p className="text-xs text-muted-foreground mt-0.5">{group.employee_id}</p>
             </div>
             {remaining.length > 0 && (
-              <Badge className="ml-auto bg-amber-100 text-amber-700 hover:bg-amber-100 border-0 font-semibold shrink-0">
+              <Badge className="ml-auto bg-amber-100 text-amber-700 hover:bg-amber-100 border border-amber-200 font-semibold shrink-0">
                 {remaining.length} pending
               </Badge>
             )}
           </div>
         </DialogHeader>
 
-        {/* Document list */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-3">
           {remaining.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 gap-3 text-center">
-              <div className="h-12 w-12 rounded-full bg-green-100 flex items-center justify-center">
-                <CheckCircle2 className="h-6 w-6 text-green-600" />
+              <div className="h-12 w-12 rounded-full bg-emerald-50 flex items-center justify-center">
+                <CheckCircle2 className="h-6 w-6 text-emerald-600" />
               </div>
-              <p className="text-sm font-medium text-gray-700">All documents reviewed</p>
-              <p className="text-xs text-gray-400">The employee will be notified of your decisions.</p>
+              <p className="text-sm font-medium text-foreground">All documents reviewed</p>
+              <p className="text-xs text-muted-foreground">The employee will be notified of your decisions.</p>
             </div>
           ) : (
             remaining.map((doc) => (
@@ -480,10 +519,9 @@ function EmployeeDocDetailDialog({
           )}
         </div>
 
-        {/* Footer note */}
         {remaining.length > 0 && (
-          <div className="px-6 py-3 border-t border-gray-100 shrink-0">
-            <p className="text-[11px] text-gray-400">
+          <div className="px-6 py-3 border-t border-border shrink-0 bg-muted/10">
+            <p className="text-[11px] text-muted-foreground">
               Rejected documents allow the employee to resubmit a corrected version.
             </p>
           </div>
@@ -516,15 +554,14 @@ export default function HRDocumentApprovalsView() {
     setDialogOpen(true);
   };
 
-  const handleGroupEmpty = (userId: string) => {
+  const handleGroupEmpty = useCallback((userId: string) => {
     setGroups((prev) => prev.filter((g) => g.user_id !== userId));
-  };
+  }, []);
 
   const totalPending = groups.reduce((acc, g) => acc + g.docs.length, 0);
 
   return (
     <div className="space-y-4">
-      {/* Toolbar */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           {loading
@@ -539,19 +576,18 @@ export default function HRDocumentApprovalsView() {
         </Button>
       </div>
 
-      {/* Content */}
       {loading ? (
         <div className="flex items-center justify-center py-16 gap-2 text-muted-foreground">
           <Loader2 className="h-5 w-5 animate-spin" />
           <span className="text-sm">Loading documents…</span>
         </div>
       ) : groups.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center rounded-2xl border border-dashed border-gray-200 bg-gray-50/50">
-          <div className="h-14 w-14 rounded-full bg-green-100 flex items-center justify-center">
-            <FileCheck className="h-7 w-7 text-green-600" />
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-center rounded-2xl border border-dashed border-border bg-muted/20">
+          <div className="h-14 w-14 rounded-full bg-emerald-50 flex items-center justify-center">
+            <FileCheck className="h-7 w-7 text-emerald-600" />
           </div>
-          <p className="text-base font-semibold text-gray-700">All caught up</p>
-          <p className="text-sm text-gray-400 max-w-xs">
+          <p className="text-base font-semibold text-foreground">All caught up</p>
+          <p className="text-sm text-muted-foreground max-w-xs">
             No employee documents are waiting for review.
           </p>
         </div>
@@ -567,7 +603,6 @@ export default function HRDocumentApprovalsView() {
         </div>
       )}
 
-      {/* Detail modal */}
       <EmployeeDocDetailDialog
         group={selected}
         open={dialogOpen}

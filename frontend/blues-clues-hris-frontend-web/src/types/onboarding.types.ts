@@ -121,6 +121,7 @@ export interface TemplateItem {
   tab_category: string;
   title: string;
   description?: string;
+  rich_content?: string;
   is_required: boolean;
 }
 

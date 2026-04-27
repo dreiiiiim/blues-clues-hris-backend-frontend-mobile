@@ -12,6 +12,7 @@ import {
   UserPlus, CreditCard, Settings, ChevronRight,
   RefreshCw, ScrollText, Briefcase, ClipboardList,
   Shield, Activity, UserCheck, ArrowRight,
+  CheckCircle2, AlertTriangle, TimerReset,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -138,8 +139,12 @@ export default function AdminDashboardPage() {
   const inactive = employees.filter(e => e.account_status === "Inactive");
   const companies = subscriptions.length;
   const expiry   = nextExpiry(pending);
+  const expiredInvites = pending.filter(e => countdown(e.invite_expires_at).expired);
+  const expiringSoon = pending.filter(e => {
+    const exp = countdown(e.invite_expires_at);
+    return exp.urgent && !exp.expired;
+  });
 
-  // Attention queue: sort by soonest expiry, those without expiry go last
   const attentionQueue = [...pending].sort((a, b) => {
     if (!a.invite_expires_at && !b.invite_expires_at) return 0;
     if (!a.invite_expires_at) return 1;
@@ -150,19 +155,24 @@ export default function AdminDashboardPage() {
   const attentionQueueEmpty = loading ? (
     <p className="px-6 py-8 text-center text-sm text-muted-foreground">Loading...</p>
   ) : (
-    <p className="px-6 py-8 text-center text-sm text-muted-foreground">No pending invitations. All caught up!</p>
+    <div className="flex flex-col items-center justify-center gap-2 px-6 py-10">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-50">
+        <CheckCircle2 className="h-5 w-5 text-green-500" />
+      </div>
+      <p className="text-sm font-medium text-foreground">All clear!</p>
+      <p className="text-xs text-muted-foreground">No pending invitations.</p>
+    </div>
   );
+
   const attentionQueueContent = loading || attentionQueue.length === 0 ? attentionQueueEmpty : attentionQueue.map(u => {
     const cd = countdown(u.invite_expires_at);
     return (
-      <div key={u.user_id} className="px-6 py-4">
+      <div key={u.user_id} className={`px-6 py-4 transition-colors ${cd.expired ? "bg-red-50/40" : ""}`}>
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <p className="font-semibold text-sm text-foreground">
-                {u.first_name} {u.last_name}
-              </p>
-            </div>
+            <p className="font-semibold text-sm text-foreground">
+              {u.first_name} {u.last_name}
+            </p>
             <p className="text-xs text-muted-foreground mt-0.5 truncate">{u.email}</p>
             {u.invite_expires_at && (
               <p className="text-[11px] text-muted-foreground mt-1">
@@ -173,23 +183,23 @@ export default function AdminDashboardPage() {
           <div className="text-right shrink-0 flex flex-col items-end gap-1.5">
             {u.invite_expires_at && !cd.expired ? (
               <>
-                <p className={`text-sm font-bold ${cd.urgent ? "text-red-500" : "text-amber-600"}`}>
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold border ${cd.urgent ? "bg-red-50 text-red-600 border-red-200" : "bg-amber-50 text-amber-600 border-amber-200"}`}>
                   {cd.label}
-                </p>
-                <p className="text-[10px] text-muted-foreground">Remaining before expiry</p>
+                </span>
+                <p className="text-[10px] text-muted-foreground">left before expiry</p>
               </>
             ) : (
               <>
-                <p className={`text-xs font-bold ${cd.expired ? "text-red-500" : "text-muted-foreground"}`}>
-                  {cd.expired ? "Expired" : "No active invite"}
-                </p>
+                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-bold border ${cd.expired ? "bg-red-50 text-red-600 border-red-200" : "bg-muted text-muted-foreground border-border"}`}>
+                  {cd.expired ? "Expired" : "No invite"}
+                </span>
                 <button
                   onClick={() => handleResendInvite(u)}
                   disabled={resendingId === u.user_id}
-                  className="flex items-center gap-1 text-[11px] font-bold text-primary hover:underline disabled:opacity-50"
+                  className="flex items-center gap-1 text-[11px] font-bold text-primary hover:underline disabled:opacity-50 cursor-pointer"
                 >
                   <RefreshCw className={`h-3 w-3 ${resendingId === u.user_id ? "animate-spin" : ""}`} />
-                  {resendingId === u.user_id ? "Sending..." : "Resend Invite"}
+                  {resendingId === u.user_id ? "Sending…" : "Resend Invite"}
                 </button>
               </>
             )}
@@ -204,6 +214,7 @@ export default function AdminDashboardPage() {
   ) : (
     <p className="px-6 py-8 text-center text-sm text-muted-foreground">No activity recorded yet.</p>
   );
+
   const auditLogsContent = loading || auditLogs.length === 0 ? auditLogsEmpty : (
     <div className="divide-y divide-border">
       {auditLogs.map((log) => {
@@ -227,11 +238,13 @@ export default function AdminDashboardPage() {
   );
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6 max-w-6xl animate-in fade-in duration-500">
 
-      {/* Hero card */}
-      <section className="relative overflow-hidden rounded-2xl bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-7 py-8 text-white shadow-sm">
-        <div className="absolute inset-y-0 right-0 w-80 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_60%)]" />
+      {/* Hero */}
+      <section className="relative overflow-hidden rounded-[26px] bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-7 py-8 text-white shadow-sm">
+        <div className="absolute -top-16 -right-16 h-72 w-72 rounded-full bg-blue-500/20 blur-3xl pointer-events-none" />
+        <div className="absolute -bottom-12 right-48 h-48 w-48 rounded-full bg-emerald-500/15 blur-3xl pointer-events-none" />
+        <div className="absolute inset-y-0 right-0 w-80 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.08),transparent_60%)] pointer-events-none" />
         <div className="relative z-10">
           <span className="inline-block text-[10px] font-bold uppercase tracking-[0.2em] border border-white/20 bg-white/10 text-white/80 rounded-full px-3 py-1 mb-4">
             Platform Overview
@@ -247,13 +260,13 @@ export default function AdminDashboardPage() {
             </div>
             <div className="flex items-stretch gap-3 shrink-0">
               {[
-                { label: "Users",    value: totalUsers },
-                { label: "Pending",  value: pending.length },
-                { label: "Inactive", value: inactive.length },
-              ].map(({ label, value }) => (
-                <div key={label} className="flex flex-col items-center justify-center rounded-xl border border-white/15 bg-white/8 px-5 py-3 min-w-18 backdrop-blur">
+                { label: "Users",    value: totalUsers,       color: "text-white" },
+                { label: "Pending",  value: pending.length,   color: pending.length  > 0 ? "text-amber-300" : "text-white" },
+                { label: "Inactive", value: inactive.length,  color: inactive.length > 0 ? "text-red-300"   : "text-white" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="flex flex-col items-center justify-center rounded-2xl border border-white/15 bg-white/8 px-5 py-3 min-w-18 backdrop-blur-sm">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-1">{label}</p>
-                  <p className="text-2xl font-bold">{loading ? "—" : value}</p>
+                  <p className={`text-2xl font-bold ${color}`}>{loading ? "—" : value}</p>
                 </div>
               ))}
             </div>
@@ -267,7 +280,7 @@ export default function AdminDashboardPage() {
           {
             icon: Users,
             iconBg: "bg-blue-100 text-blue-600",
-            border: "border-border",
+            accentBar: "bg-blue-500",
             label: "Total Users",
             value: loading ? "—" : String(totalUsers),
             sub: "All users across tenants",
@@ -276,7 +289,7 @@ export default function AdminDashboardPage() {
           {
             icon: Building2,
             iconBg: "bg-emerald-100 text-emerald-600",
-            border: "border-border",
+            accentBar: "bg-emerald-500",
             label: "Companies",
             value: loading ? "—" : String(companies),
             sub: "Organizations onboarded",
@@ -284,8 +297,8 @@ export default function AdminDashboardPage() {
           },
           {
             icon: Mail,
-            iconBg: "bg-amber-100 text-amber-600",
-            border: pending.length > 0 ? "border-amber-200" : "border-border",
+            iconBg: pending.length > 0 ? "bg-amber-100 text-amber-600" : "bg-amber-50 text-amber-500",
+            accentBar: pending.length > 0 ? "bg-amber-500" : "bg-border",
             label: "Pending Invites",
             value: loading ? "—" : String(pending.length),
             sub: "Awaiting activation",
@@ -294,28 +307,30 @@ export default function AdminDashboardPage() {
           {
             icon: Clock,
             iconBg: "bg-red-100 text-red-500",
-            border: expiry.label === "—" ? "border-border" : "border-red-200",
+            accentBar: expiry.label === "—" ? "bg-border" : "bg-red-500",
             label: "Next Expiry",
             value: loading ? "—" : expiry.label,
             sub: expiry.name,
             valueColor: "text-red-500",
           },
-        ].map(({ icon: Icon, iconBg, border, label, value, sub, valueColor }) => (
-          <div key={label} className={`bg-card border ${border} rounded-xl p-5 shadow-sm`}>
-            <div className={`h-9 w-9 rounded-xl flex items-center justify-center mb-4 ${iconBg}`}>
-              <Icon className="h-4.5 w-4.5" />
+        ].map(({ icon: Icon, iconBg, accentBar, label, value, sub, valueColor }) => (
+          <div key={label} className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+            <div className={`h-1 w-full ${accentBar}`} />
+            <div className="p-5">
+              <div className={`h-9 w-9 rounded-xl flex items-center justify-center mb-4 ${iconBg}`}>
+                <Icon className="h-4.5 w-4.5" />
+              </div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
+              <p className={`text-2xl font-bold ${valueColor}`}>{value}</p>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${valueColor}`}>{value}</p>
-            <p className="text-xs text-muted-foreground mt-0.5 truncate">{sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Bottom row */}
+      {/* Attention Queue + Quick Actions */}
       <div className="grid md:grid-cols-[1fr_360px] gap-6 items-start">
 
-        {/* Attention Queue */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
           <div className="flex items-start justify-between px-6 py-5 border-b border-border">
             <div>
@@ -328,11 +343,9 @@ export default function AdminDashboardPage() {
               </span>
             )}
           </div>
-
           <div className="divide-y divide-border">
             {attentionQueueContent}
           </div>
-
           {attentionQueue.length > 0 && (
             <div className="px-6 py-3 border-t border-border bg-muted/10">
               <Link href="/system-admin/users" className="text-xs text-primary font-semibold hover:underline">
@@ -342,7 +355,6 @@ export default function AdminDashboardPage() {
           )}
         </div>
 
-        {/* Quick Actions */}
         <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
           <div className="px-6 py-5 border-b border-border">
             <h2 className="font-bold text-base">Quick Actions</h2>
@@ -391,7 +403,7 @@ export default function AdminDashboardPage() {
                 sub: "Configure lifecycle permissions per role.",
               },
             ].map(({ href, icon: Icon, accent, iconBg, label, sub }) => (
-              <Link key={href} href={href} className={`flex items-start gap-4 pl-5 pr-6 py-3.5 border-l-[3px] border-l-transparent transition-all group ${accent}`}>
+              <Link key={href} href={href} className={`flex items-start gap-4 pl-5 pr-6 py-3.5 border-l-[3px] border-l-transparent transition-all group cursor-pointer ${accent}`}>
                 <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 mt-0.5 transition-colors ${iconBg}`}>
                   <Icon className="h-4 w-4" />
                 </div>
@@ -405,6 +417,57 @@ export default function AdminDashboardPage() {
           </div>
         </div>
 
+      </div>
+
+      {/* Access Risks */}
+      <div className="grid gap-4 sm:grid-cols-3">
+        {[
+          {
+            label: "Expired Invites",
+            value: expiredInvites.length,
+            href: "/system-admin/users?status=Pending&invite=expired",
+            icon: TimerReset,
+            accentBar: expiredInvites.length ? "bg-red-500" : "bg-border",
+            iconCls: expiredInvites.length ? "bg-red-100 text-red-600" : "bg-green-100 text-green-600",
+            valueColor: expiredInvites.length ? "text-red-600" : "text-foreground",
+            sub: expiredInvites.length ? "Needs immediate action" : "None expired",
+          },
+          {
+            label: "Expiring Soon",
+            value: expiringSoon.length,
+            href: "/system-admin/users?status=Pending&invite=expiring",
+            icon: AlertTriangle,
+            accentBar: expiringSoon.length ? "bg-amber-500" : "bg-border",
+            iconCls: expiringSoon.length ? "bg-amber-100 text-amber-600" : "bg-green-100 text-green-600",
+            valueColor: expiringSoon.length ? "text-amber-600" : "text-foreground",
+            sub: expiringSoon.length ? "Expiring within 24h" : "No urgent expiries",
+          },
+          {
+            label: "Inactive Accounts",
+            value: inactive.length,
+            href: "/system-admin/users?status=Inactive",
+            icon: UserCheck,
+            accentBar: inactive.length ? "bg-slate-500" : "bg-border",
+            iconCls: inactive.length ? "bg-slate-100 text-slate-600" : "bg-green-100 text-green-600",
+            valueColor: inactive.length ? "text-slate-700" : "text-foreground",
+            sub: "Deactivated accounts",
+          },
+        ].map(({ label, value, href, icon: Icon, accentBar, iconCls, valueColor, sub }) => (
+          <Link key={label} href={href} className="group bg-card border border-border rounded-xl overflow-hidden shadow-sm cursor-pointer hover:shadow-md transition-shadow">
+            <div className={`h-1 w-full ${accentBar}`} />
+            <div className="p-5 flex items-start justify-between gap-4">
+              <div className="min-w-0 flex-1">
+                <div className={`h-9 w-9 rounded-xl flex items-center justify-center mb-4 ${iconCls}`}>
+                  <Icon className="h-4 w-4" />
+                </div>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">{label}</p>
+                <p className={`text-2xl font-bold ${valueColor}`}>{loading ? "—" : value}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
+              </div>
+              <ChevronRight className="h-4 w-4 text-muted-foreground/30 group-hover:text-muted-foreground mt-1 shrink-0 transition-colors" />
+            </div>
+          </Link>
+        ))}
       </div>
 
       {/* Recent Activity */}

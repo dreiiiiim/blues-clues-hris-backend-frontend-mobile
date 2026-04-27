@@ -2,7 +2,7 @@ import { useState } from "react";
 import { confirmTask } from "@/lib/onboardingApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { CheckCircle, Clock, AlertCircle, Video } from "lucide-react";
+import { CheckCircle, Clock, AlertCircle, Video, Image as ImageIcon, Paperclip, ExternalLink } from "lucide-react";
 import { TaskItem, Remark } from "@/types/onboarding.types";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -17,6 +17,12 @@ interface TaskChecklistProps {
   tasks: TaskItem[];
   remarks: Remark[];
   onUpdateTasks: (tasks: TaskItem[]) => void;
+}
+
+interface RichContent {
+  videoLinks?: string[];
+  imageUrls?: string[];
+  fileLinks?: Array<{ name: string; url: string }>;
 }
 
 export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskChecklistProps>) {
@@ -68,11 +74,24 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
   const getFormFields = (task: TaskItem): Array<{ label: string; type: string; required: boolean }> => {
     if (!task.rich_content) return [];
     try {
-      return JSON.parse(task.rich_content);
+      const parsed = JSON.parse(task.rich_content);
+      return Array.isArray(parsed) ? parsed : [];
     } catch {
       return [];
     }
   };
+
+  const getRichContent = (task: TaskItem): RichContent => {
+    if (!task.rich_content) return {};
+    try {
+      const parsed = JSON.parse(task.rich_content);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    } catch {}
+    return {};
+  };
+
+  const hasRichContent = (content: RichContent) =>
+    Boolean(content.videoLinks?.length || content.imageUrls?.length || content.fileLinks?.length);
 
   const isFormComplete = () => {
     if (!selectedTask) return false;
@@ -192,6 +211,87 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
 
           {selectedTask && (
             <div className="space-y-4 overflow-y-auto flex-1 pr-1">
+              {(() => {
+                const richContent = getRichContent(selectedTask);
+                if (!hasRichContent(richContent)) return null;
+
+                return (
+                  <div className="space-y-4 rounded-lg border bg-slate-50 p-4">
+                    {richContent.imageUrls && richContent.imageUrls.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <ImageIcon className="size-4 text-green-600" />
+                          Images
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {richContent.imageUrls.map((url, index) => (
+                            <a
+                              key={`${url}-${index}`}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="overflow-hidden rounded-lg border bg-white hover:border-blue-300 transition-colors"
+                            >
+                              <img
+                                src={url}
+                                alt={`Task image ${index + 1}`}
+                                className="h-44 w-full object-cover"
+                              />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {richContent.videoLinks && richContent.videoLinks.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <Video className="size-4 text-red-600" />
+                          Videos
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {richContent.videoLinks.map((url, index) => (
+                            <a
+                              key={`${url}-${index}`}
+                              href={url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex max-w-full items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50"
+                            >
+                              <span className="truncate">{url.replace(/^https?:\/\//, "")}</span>
+                              <ExternalLink className="size-3.5 shrink-0" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {richContent.fileLinks && richContent.fileLinks.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                          <Paperclip className="size-4 text-blue-600" />
+                          Files
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          {richContent.fileLinks.map((file, index) => (
+                            <a
+                              key={`${file.url}-${index}`}
+                              href={file.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex max-w-full items-center gap-2 rounded-md border bg-white px-3 py-2 text-sm text-blue-700 hover:bg-blue-50"
+                            >
+                              <span className="truncate">{file.name || "File"}</span>
+                              <ExternalLink className="size-3.5 shrink-0" />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* Document type */}
               {selectedTask.type === "acknowledge" && (
                 <div className="space-y-4">
@@ -385,6 +485,12 @@ export function TaskChecklist({ tasks, remarks, onUpdateTasks }: Readonly<TaskCh
                 {selectedTask.type === "upload" && (
                   <Button onClick={handleCompleteAndSubmit} size="sm" disabled={confirming}>
                     {confirming ? "Saving..." : "Confirm & Submit"}
+                  </Button>
+                )}
+
+                {selectedTask.type === "task" && (
+                  <Button onClick={handleCompleteAndSubmit} size="sm" disabled={confirming}>
+                    {confirming ? "Saving..." : "Complete & Submit"}
                   </Button>
                 )}
               </>

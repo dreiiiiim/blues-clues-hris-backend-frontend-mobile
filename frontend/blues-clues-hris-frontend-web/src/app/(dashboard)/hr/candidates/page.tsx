@@ -286,7 +286,7 @@ function CandidateCard({
               <p className="text-[10px] text-muted-foreground">Fit Score</p>
             </>
           )}
-          {mode === "sfia" && surveyScore !== null && surveyScore > 0 && (
+          {mode === "sfia" && typeof surveyScore === "number" && surveyScore > 0 && (
             <>
               <p className="mt-1.5 text-xs font-semibold leading-none text-muted-foreground">
                 {Math.round(surveyScore)}%

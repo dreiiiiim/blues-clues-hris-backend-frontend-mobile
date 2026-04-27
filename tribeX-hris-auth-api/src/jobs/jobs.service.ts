@@ -10,6 +10,7 @@ import {
 import { Cron } from '@nestjs/schedule';
 import * as crypto from 'node:crypto';
 import { PDFParse } from 'pdf-parse';
+import * as mammoth from 'mammoth';
 import { SupabaseService } from '../supabase/supabase.service';
 import { AuditService } from '../audit/audit.service';
 import { MailService } from '../mail/mail.service';
@@ -1591,9 +1592,12 @@ export class JobsService {
       try {
         const resumeBuffer = await this.downloadResumeBuffer(dto.resume_storage_path);
         if (resumeBuffer) {
-          const mimeType = dto.resume_storage_path.toLowerCase().endsWith('.pdf')
+          const lowerPath = dto.resume_storage_path.toLowerCase();
+          const mimeType = lowerPath.endsWith('.pdf')
             ? 'application/pdf'
-            : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+            : lowerPath.endsWith('.docx')
+              ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+              : 'application/octet-stream';
           const resumeText = await this.extractResumeText(resumeBuffer, mimeType);
           if (resumeText.trim().length > 0) {
             const allSkills = await this.getAllSfiaSkills();
@@ -2499,7 +2503,7 @@ export class JobsService {
         status: 'ABSENT',
         clock_type: 'ABSENT_NO_CLOCKIN',
         timestamp: `${manilaDate}T23:59:00.000+08:00`,
-        log_status: 'APPROVED',
+        log_status: 'ABSENT',
         absence_reason: null,
         absence_notes: 'Auto-marked by system - no clock-in recorded',
       }));
@@ -2573,9 +2577,15 @@ export class JobsService {
         const result = await parser.getText();
         return result.text ?? '';
       }
-      // DOC (OLE2 binary) and DOCX: decode as latin1 to preserve all bytes,
-      // then strip non-printable chars — equivalent to `cat file | tr -cd '[:print:]'`
-      return buffer.toString('latin1').replace(/[^\x20-\x7E\n\r\t]/g, ' ').replace(/\s+/g, ' ');
+      // DOCX: mammoth extracts clean readable text from the XML inside the ZIP
+      if (
+        mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        mimeType === 'application/docx'
+      ) {
+        const { value } = await mammoth.extractRawText({ buffer });
+        return value ?? '';
+      }
+      return '';
     } catch {
       return '';
     }

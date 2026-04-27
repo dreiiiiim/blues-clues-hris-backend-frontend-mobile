@@ -13,14 +13,25 @@ export type UserRow = {
 export type PunchRow = {
   log_id: string;
   employee_id: string;
-  log_type: "time-in" | "time-out";
+  log_type: "time-in" | "time-out" | "absence";
   timestamp: string;
   latitude: number | null;
   longitude: number | null;
+  location_name?: string | null;
   ip_address: string | null;
   is_mock_location: string;
   log_status: string;
+  absence_reason?: string | null;
+  absence_notes?: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_reason?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
+  edit_reason?: string | null;
 };
+
+export type LocationDisplayMode = "place" | "coordinates";
 
 // Display row after transformation
 export type TimekeepingLog = {
@@ -75,6 +86,21 @@ export function formatHoursFromTimestamps(
   if (!timeIn || !timeOut) return "—";
   const diff = (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3_600_000;
   return formatHoursFromDecimal(diff);
+}
+
+export function formatGpsLocation(
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+  locationName: string | null | undefined,
+  mode: LocationDisplayMode = "place",
+): string {
+  if (mode === "place") {
+    if (locationName && locationName.trim().length > 0) return locationName.trim();
+    if (latitude == null || longitude == null) return "No GPS";
+    return "GPS Location";
+  }
+  if (latitude == null || longitude == null) return "No GPS";
+  return `${latitude.toFixed(4)}, ${longitude.toFixed(4)}`;
 }
 
 export function todayPST(): string {

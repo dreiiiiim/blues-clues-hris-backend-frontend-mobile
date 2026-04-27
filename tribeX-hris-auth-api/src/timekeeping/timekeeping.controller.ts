@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Patch,
   Get,
   Put,
   Param,
@@ -22,6 +23,8 @@ import { ReportAbsenceDto } from './dto/report-absence.dto';
 import { UpsertScheduleDto } from './dto/upsert-schedule.dto';
 import { BulkScheduleDto } from './dto/bulk-schedule.dto';
 import { ScheduleEffectiveDateDto } from './dto/schedule-effective-date.dto';
+import { ReviewAbsenceDto } from './dto/review-absence.dto';
+import { EditAttendanceDto } from './dto/edit-attendance.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
@@ -77,7 +80,68 @@ export class TimekeepingController {
       'Rejected if the employee has already clocked in or already reported absence today.',
   })
   reportAbsence(@Body() dto: ReportAbsenceDto, @Req() req: any) {
-    return this.timekeepingService.reportAbsence(req.user.sub_userid, dto);
+    return this.timekeepingService.reportAbsence(req.user.sub_userid, dto, req);
+  }
+
+  @Get('absence-requests')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({
+    summary: 'HR/System Admin: List employee absence requests',
+    description:
+      'Returns absence entries with review metadata. Defaults to pending if status filter is omitted.',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    example: 'PENDING',
+    description: 'Optional status filter (PENDING, APPROVED, DENIED, ABSENT).',
+  })
+  getAbsenceRequests(@Req() req: any, @Query('status') status?: string) {
+    return this.timekeepingService.getAbsenceRequests(req.user.company_id, status);
+  }
+
+  @Patch('absence-requests/:logId/review')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({
+    summary: 'HR/System Admin: Approve or deny an absence request',
+  })
+  @ApiParam({ name: 'logId', description: 'attendance_time_logs.log_id for absence record' })
+  reviewAbsenceRequest(
+    @Param('logId') logId: string,
+    @Body() dto: ReviewAbsenceDto,
+    @Req() req: any,
+  ) {
+    return this.timekeepingService.reviewAbsenceRequest(
+      logId,
+      dto,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
+  }
+
+  @Patch('attendance/:userId/:date')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({
+    summary: 'HR/System Admin: Edit employee time-in/time-out for a given date',
+  })
+  @ApiParam({ name: 'userId', description: 'user_id of the target employee' })
+  @ApiParam({ name: 'date', description: 'Date in YYYY-MM-DD format', example: '2026-04-24' })
+  editAttendance(
+    @Param('userId') userId: string,
+    @Param('date') date: string,
+    @Body() dto: EditAttendanceDto,
+    @Req() req: any,
+  ) {
+    return this.timekeepingService.editAttendanceForDate(
+      userId,
+      date,
+      dto,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
   }
 
   @Post('auto-mark-absent')
@@ -132,8 +196,8 @@ export class TimekeepingController {
   @UseGuards(RolesGuard)
   @Roles(...HR_AND_ABOVE)
   @ApiOperation({ summary: 'HR/Manager: List employees eligible for timekeeping' })
-  getEmployees(@Req() req: any) {
-    return this.timekeepingService.getEmployeeUsers(req.user.company_id);
+  getEmployees(@Req() req: any, @Query('asOf') asOf?: string) {
+    return this.timekeepingService.getEmployeeUsers(req.user.company_id, asOf);
   }
 
   @Get('timesheets')

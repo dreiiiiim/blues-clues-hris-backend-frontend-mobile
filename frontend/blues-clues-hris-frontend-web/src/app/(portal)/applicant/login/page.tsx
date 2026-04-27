@@ -36,6 +36,7 @@ function ApplicantPortalAuthInner() {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
@@ -49,6 +50,12 @@ function ApplicantPortalAuthInner() {
     setResentEmail(null);
     setConvertedAccount(false);
     setIsLoading(true);
+
+    if (isSignUp && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      setIsLoading(false);
+      return;
+    }
 
     try {
       const companyId = searchParams.get("company") ?? undefined;
@@ -258,14 +265,14 @@ function ApplicantPortalAuthInner() {
             <button
               type="button"
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${!isSignUp ? "bg-background shadow-md text-primary" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => { setIsSignUp(false); setError(""); setSuccessMsg(""); }}
+              onClick={() => { setIsSignUp(false); setError(""); setSuccessMsg(""); setConfirmPassword(""); }}
             >
               Sign In
             </button>
             <button
               type="button"
               className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${isSignUp ? "bg-background shadow-md text-primary" : "text-muted-foreground hover:text-foreground"}`}
-              onClick={() => { setIsSignUp(true); setError(""); setSuccessMsg(""); }}
+              onClick={() => { setIsSignUp(true); setError(""); setSuccessMsg(""); setConfirmPassword(""); }}
             >
               Sign Up
             </button>
@@ -336,6 +343,20 @@ function ApplicantPortalAuthInner() {
                 required
               />
             </div>
+
+            {isSignUp && (
+              <div className="space-y-2">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground ml-1">Confirm Password</label>
+                <PasswordInput
+                  placeholder="••••••••"
+                  className="h-11 bg-background"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  disabled={isLoading}
+                  required
+                />
+              </div>
+            )}
 
             {!isSignUp && (
               <div className="flex items-center gap-2 pt-1">

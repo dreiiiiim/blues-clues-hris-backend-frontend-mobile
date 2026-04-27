@@ -224,6 +224,7 @@ export function ScheduleRosterTable({
   const [search, setSearch]           = useState("");
   const [deptFilter, setDeptFilter]   = useState("all");
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [warningPanel, setWarningPanel] = useState<"custom" | "unset" | null>(null);
 
   const fetchRoster = () => {
     setLoading(true);
@@ -318,6 +319,31 @@ export function ScheduleRosterTable({
 
   const customCount = roster.filter(r => r.schedule?.schedule_source === "individual").length;
   const unsetCount  = roster.filter(r => !r.schedule || r.schedule?.schedule_source === null).length;
+  const warningRows = useMemo(() => {
+    if (warningPanel === "custom") {
+      return roster
+        .filter((r) => r.schedule?.schedule_source === "individual")
+        .sort((a, b) =>
+          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`),
+        );
+    }
+    if (warningPanel === "unset") {
+      return roster
+        .filter((r) => !r.schedule || r.schedule?.schedule_source === null)
+        .sort((a, b) =>
+          `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`),
+        );
+    }
+    return [];
+  }, [roster, warningPanel]);
+
+  const toggleWarningPanel = (panel: "custom" | "unset") => {
+    setWarningPanel((prev) => {
+      const next = prev === panel ? null : panel;
+      setSourceFilter(next ?? "all");
+      return next;
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -329,16 +355,93 @@ export function ScheduleRosterTable({
           {roster.length} employees
         </div>
         {customCount > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-violet-200 bg-violet-50 text-xs font-semibold text-violet-700">
+          <button
+            type="button"
+            onClick={() => toggleWarningPanel("custom")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+              warningPanel === "custom"
+                ? "border-violet-300 bg-violet-100 text-violet-800"
+                : "border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100"
+            }`}
+          >
             {customCount} with custom schedules
-          </div>
+          </button>
         )}
         {unsetCount > 0 && (
-          <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-amber-200 bg-amber-50 text-xs font-semibold text-amber-700">
+          <button
+            type="button"
+            onClick={() => toggleWarningPanel("unset")}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-semibold cursor-pointer transition-colors ${
+              warningPanel === "unset"
+                ? "border-amber-300 bg-amber-100 text-amber-800"
+                : "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100"
+            }`}
+          >
             {unsetCount} without a schedule
-          </div>
+          </button>
         )}
       </div>
+
+      {warningPanel && (
+        <div className={`rounded-xl border overflow-hidden ${
+          warningPanel === "custom"
+            ? "border-violet-200 bg-violet-50/40"
+            : "border-amber-200 bg-amber-50/40"
+        }`}>
+          <div className="px-4 py-3 border-b border-border/60 flex items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+                {warningPanel === "custom" ? "Custom Schedule Employees" : "Employees Without Schedule"}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {warningRows.length} employee{warningRows.length === 1 ? "" : "s"} shown
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 text-xs"
+              onClick={() => {
+                setWarningPanel(null);
+                setSourceFilter("all");
+              }}
+            >
+              Hide
+            </Button>
+          </div>
+          {warningRows.length === 0 ? (
+            <div className="px-4 py-4 text-xs text-muted-foreground">No matching employees.</div>
+          ) : (
+            <div className="divide-y divide-border/60 max-h-56 overflow-y-auto">
+              {warningRows.map((row) => {
+                const name = `${row.first_name} ${row.last_name}`.trim();
+                return (
+                  <div key={row.user_id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold truncate">{name}</p>
+                      <p className="text-[10px] text-muted-foreground truncate">
+                        {row.employee_id}
+                        {row.department_name ? ` · ${row.department_name}` : ""}
+                      </p>
+                    </div>
+                    {canEdit && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        className="h-8 text-xs shrink-0"
+                        onClick={() => onEditEmployee(row.user_id, name, row.schedule)}
+                      >
+                        {row.schedule ? "Edit Schedule" : "Set Schedule"}
+                      </Button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">

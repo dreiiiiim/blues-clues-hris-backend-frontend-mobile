@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
@@ -19,6 +19,7 @@ import {
   ChevronLeft, ChevronRight, Pencil, UserX, UserCheck,
   Filter, Download, Check, Mail, Eye, Hash, User,
   Building2, Calendar, Shield, Loader2, Plus, Trash2,
+  AlertTriangle, Clock3, UsersRound, TimerReset,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,7 +64,16 @@ const STATUS_STYLES: Record<string, string> = {
   Active:   "bg-green-100 text-green-700 border-green-200",
   Inactive: "bg-red-100 text-red-700 border-red-200",
   Pending:  "bg-amber-100 text-amber-700 border-amber-200",
+  Expired:  "bg-red-100 text-red-600 border-red-200",
 };
+
+function effectiveStatus(e: { account_status: string; invite_expires_at: string | null }): string {
+  if (e.account_status === "Pending" && e.invite_expires_at) {
+    const ms = new Date(e.invite_expires_at).getTime() - Date.now();
+    if (ms <= 0) return "Expired";
+  }
+  return e.account_status;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -201,8 +211,9 @@ function RowMenu({
 
 // ── Add User slide-over ───────────────────────────────────────────────────────
 
-function AddUserPanel({ roles, onClose, onCreated }: Readonly<{
+function AddUserPanel({ roles, departments, onClose, onCreated }: Readonly<{
   roles: Role[];
+  departments: Department[];
   onClose: () => void;
   onCreated: (employee: Employee) => void;
 }>) {
@@ -296,7 +307,18 @@ function AddUserPanel({ roles, onClose, onCreated }: Readonly<{
             </select>
             {errors.role_id && <p className="text-xs text-red-500">{errors.role_id}</p>}
           </div>
-          {field("Department ID", "department_id", "text", "Optional")}
+          <div className="space-y-1.5">
+            <label htmlFor="add-user-department" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Department</label>
+            <select
+              id="add-user-department"
+              value={form.department_id}
+              onChange={e => set("department_id", e.target.value)}
+              className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            >
+              <option value="">No department yet</option>
+              {departments.map(d => <option key={d.department_id} value={d.department_id}>{d.department_name}</option>)}
+            </select>
+          </div>
           {field("Start Date", "start_date", "date")}
         </div>
         <div className="px-6 py-5 border-t border-border flex gap-3">
@@ -681,6 +703,18 @@ function ConfirmDeactivate({ employee, onClose, onConfirm }: Readonly<{
   );
 }
 
+function daysUntil(value: string | null): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime() - Date.now();
+  if (!Number.isFinite(ms)) return null;
+  return Math.ceil(ms / 86400000);
+}
+
+function toCsvValue(value: unknown): string {
+  const raw = value == null ? "" : String(value);
+  return `"${raw.replace(/"/g, '""')}"`;
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function AdminUsersPage() {
@@ -697,10 +731,18 @@ export default function AdminUsersPage() {
   const [departments, setDepartments]     = useState<Department[]>([]);
   const [loading, setLoading]             = useState(true);
   const [search, setSearch]               = useState(searchParams.get("q") ?? "");
+  const [inviteFilter, setInviteFilter]   = useState<"" | "expired" | "expiring">(() => {
+    const inv = searchParams.get("invite");
+    return (inv === "expired" || inv === "expiring") ? inv : "";
+  });
 
-  // Sync URL ?q= → local search state
+  // Sync URL params → local state on navigation
   useEffect(() => {
     setSearch(searchParams.get("q") ?? "");
+    const s = searchParams.get("status");
+    if (s) setStatusFilter(new Set([s]));
+    const inv = searchParams.get("invite");
+    setInviteFilter((inv === "expired" || inv === "expiring") ? inv : "");
   }, [searchParams]);
   const [page, setPage]                   = useState(1);
 
@@ -709,20 +751,15 @@ export default function AdminUsersPage() {
   const [editEmployee, setEditEmployee]   = useState<Employee | null>(null);
   const [confirmDeact, setConfirmDeact]   = useState<Employee | null>(null);
   const [showFilter, setShowFilter]       = useState(false);
-  const [statusFilter, setStatusFilter]   = useState<Set<string>>(new Set());
-  const [deptFilter, setDeptFilter]       = useState<string | null>(null);
-  const filterRef                         = useRef<HTMLDivElement>(null);
+  const [statusFilter, setStatusFilter]   = useState<Set<string>>(() => {
+    const s = searchParams.get("status");
+    return s ? new Set([s]) : new Set();
+  });
+  const [deptFilter, setDeptFilter]       = useState<Set<string>>(new Set());
+  const [roleFilter, setRoleFilter]       = useState<Set<string>>(new Set());
   const [newDeptName, setNewDeptName]     = useState("");
   const [deptLoading, setDeptLoading]     = useState(false);
   const [manageDept, setManageDept]       = useState<Department | null>(null);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (filterRef.current && !filterRef.current.contains(e.target as Node)) setShowFilter(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -755,8 +792,17 @@ export default function AdminUsersPage() {
       e.employee_id.toLowerCase().includes(q)
     );
     const matchesStatus = statusFilter.size === 0 || statusFilter.has(e.account_status);
-    const matchesDept = !deptFilter || e.department_id === deptFilter;
-    return matchesSearch && matchesStatus && matchesDept;
+    const matchesDept = deptFilter.size === 0 || (deptFilter.has("__none") && !e.department_id) || (!!e.department_id && deptFilter.has(e.department_id));
+    const matchesRole = roleFilter.size === 0 || (!!e.role_id && roleFilter.has(e.role_id));
+    let matchesInvite = true;
+    if (inviteFilter === "expired") {
+      const days = daysUntil(e.invite_expires_at);
+      matchesInvite = e.account_status === "Pending" && days !== null && days <= 0;
+    } else if (inviteFilter === "expiring") {
+      const days = daysUntil(e.invite_expires_at);
+      matchesInvite = e.account_status === "Pending" && days !== null && days > 0 && days <= 3;
+    }
+    return matchesSearch && matchesStatus && matchesDept && matchesRole && matchesInvite;
   });
 
   const toggleStatus = (status: string) => {
@@ -768,12 +814,41 @@ export default function AdminUsersPage() {
     setPage(1);
   };
 
+  const toggleDept = (deptId: string) => {
+    setDeptFilter(prev => {
+      const next = new Set(prev);
+      next.has(deptId) ? next.delete(deptId) : next.add(deptId);
+      return next;
+    });
+    setPage(1);
+  };
+
+  const toggleRole = (roleId: string) => {
+    setRoleFilter(prev => {
+      const next = new Set(prev);
+      next.has(roleId) ? next.delete(roleId) : next.add(roleId);
+      return next;
+    });
+    setPage(1);
+  };
+
+  const totalFilterCount = statusFilter.size + deptFilter.size + roleFilter.size + (inviteFilter ? 1 : 0);
+
   const totalPages = Math.ceil(filtered.length / ITEMS_PER_PAGE);
   const paged = filtered.slice((page - 1) * ITEMS_PER_PAGE, page * ITEMS_PER_PAGE);
 
   const activeCount   = employees.filter(e => e.account_status === "Active").length;
   const pendingCount  = employees.filter(e => e.account_status === "Pending").length;
   const inactiveCount = employees.filter(e => e.account_status === "Inactive").length;
+  const unassignedCount = employees.filter(e => !e.department_id).length;
+  const neverLoggedInCount = employees.filter(e => e.account_status === "Active" && !e.last_login).length;
+  const expiringInvites = employees
+    .filter(e => e.account_status === "Pending")
+    .map(e => ({ employee: e, days: daysUntil(e.invite_expires_at) }))
+    .filter((row): row is { employee: Employee; days: number } => row.days !== null && row.days <= 3)
+    .sort((a, b) => a.days - b.days);
+  const highAccessRoles = roles.filter(r => /admin|hr|manager/i.test(r.role_name));
+  const highAccessCount = employees.filter(e => highAccessRoles.some(r => r.role_id === e.role_id)).length;
 
   const handleCreated = (employee: Employee) => {
     setEmployees(prev => [employee, ...prev]);
@@ -911,6 +986,33 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleExportCsv = () => {
+    const roleName = (roleId: string | null) => roles.find(r => r.role_id === roleId)?.role_name ?? "";
+    const deptName = (deptId: string | null) => departments.find(d => d.department_id === deptId)?.department_name ?? "";
+    const headers = ["Name", "Email", "Employee ID", "Role", "Department", "Status", "Invite Expires", "Last Login"];
+    const rows = filtered.map(e => [
+      `${e.first_name} ${e.last_name}`,
+      e.email,
+      e.employee_id,
+      roleName(e.role_id),
+      deptName(e.department_id),
+      e.account_status,
+      e.invite_expires_at ?? "",
+      e.last_login ?? "",
+    ]);
+    const csv = [headers, ...rows].map(row => row.map(toCsvValue).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `system-users-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${filtered.length} user${filtered.length === 1 ? "" : "s"}.`);
+  };
+
   const loadedRows = paged.length === 0 ? (
     <tr><td colSpan={8} className="px-5 py-10 text-center text-muted-foreground">No employees found.</td></tr>
   ) : (
@@ -929,7 +1031,7 @@ export default function AdminUsersPage() {
           <td className="px-5 py-4"><span className="font-mono text-xs text-muted-foreground">{e.employee_id}</span></td>
           <td className="px-5 py-4"><span className="text-xs font-semibold text-foreground">{roles.find(r => r.role_id === e.role_id)?.role_name ?? "—"}</span></td>
           <td className="px-5 py-4"><span className="text-xs text-muted-foreground">{departments.find(d => d.department_id === e.department_id)?.department_name ?? (e.department_id ?? "—")}</span></td>
-          <td className="px-5 py-4"><StatusBadge status={e.account_status} /></td>
+          <td className="px-5 py-4"><StatusBadge status={effectiveStatus(e)} /></td>
           <td className="px-5 py-4"><span className="text-xs text-muted-foreground">{formatDate(e.invite_expires_at)}</span></td>
           <td className="px-5 py-4"><span className="text-xs text-muted-foreground">{formatDate(e.last_login)}</span></td>
           <td className="px-5 py-4 text-right" onClick={ev => ev.stopPropagation()}>
@@ -983,6 +1085,229 @@ export default function AdminUsersPage() {
         <StatCard label="Inactive"     value={inactiveCount}       sub="Deactivated accounts" color="text-red-600" />
       </div>
 
+      {showFilter && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-20 sm:justify-end sm:pr-8">
+          <button
+            type="button"
+            aria-label="Close filters"
+            className="absolute inset-0 bg-black/20 backdrop-blur-[1px]"
+            onClick={() => setShowFilter(false)}
+          />
+          <div className="relative w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-card shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+              <div>
+                <h2 className="text-sm font-bold">Filter Users</h2>
+                <p className="mt-0.5 text-xs text-muted-foreground">Narrow results by status, invite state, department, and role.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFilter(false)}
+                className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="max-h-[min(68vh,620px)] overflow-y-auto px-5 py-4 space-y-5">
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {(["Active", "Inactive", "Pending"] as const).map(s => {
+                    const selected = statusFilter.has(s);
+                    const tone = s === "Active"
+                      ? {
+                          selected: "border-green-500 bg-green-600 text-white",
+                          idle: "border-green-200 bg-green-50 text-green-700 hover:bg-green-100",
+                        }
+                      : s === "Inactive"
+                        ? {
+                            selected: "border-red-500 bg-red-600 text-white",
+                            idle: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
+                          }
+                        : {
+                            selected: "border-amber-500 bg-amber-500 text-white",
+                            idle: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100",
+                          };
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => toggleStatus(s)}
+                        className={`h-9 rounded-lg border text-xs font-bold transition-colors ${
+                          selected ? tone.selected : tone.idle
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Invite Status</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { value: "" as const,         label: "All",          selected: "border-slate-500 bg-slate-600 text-white",    idle: "border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100" },
+                    { value: "expired" as const,  label: "Expired",      selected: "border-red-500 bg-red-600 text-white",        idle: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100" },
+                    { value: "expiring" as const, label: "Expiring Soon", selected: "border-amber-500 bg-amber-500 text-white",   idle: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" },
+                  ] as const).map(opt => (
+                    <button
+                      key={opt.value || "all"}
+                      type="button"
+                      onClick={() => { setInviteFilter(opt.value); setPage(1); }}
+                      className={`h-9 rounded-lg border text-xs font-bold transition-colors ${
+                        inviteFilter === opt.value ? opt.selected : opt.idle
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                {inviteFilter && (
+                  <p className="mt-1.5 text-[11px] text-muted-foreground">
+                    {inviteFilter === "expired" ? "Pending users whose invite link has expired." : "Pending users with invite expiring within 3 days."}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</p>
+                <div className="space-y-1.5">
+                  {[
+                    { id: null, label: "All departments" },
+                    { id: "__none", label: "No department" },
+                    ...departments.map(d => ({ id: d.department_id, label: d.department_name })),
+                  ].map(option => {
+                    const selected = option.id === null ? deptFilter.size === 0 : deptFilter.has(option.id);
+                    return (
+                      <button
+                        key={option.id ?? "all"}
+                        type="button"
+                        onClick={() => {
+                          option.id === null ? setDeptFilter(new Set()) : toggleDept(option.id);
+                          setPage(1);
+                        }}
+                        className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-sm transition-colors ${
+                          selected ? "bg-primary/10 text-primary" : "hover:bg-muted/50"
+                        }`}
+                      >
+                        <span className="truncate">{option.label}</span>
+                        {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Role</p>
+                <div className="space-y-1.5">
+                  {[
+                    { id: null, label: "All roles" },
+                    ...roles.map(r => ({ id: r.role_id, label: r.role_name })),
+                  ].map(option => {
+                    const selected = option.id === null ? roleFilter.size === 0 : roleFilter.has(option.id);
+                    return (
+                      <button
+                        key={option.id ?? "all"}
+                        type="button"
+                        onClick={() => {
+                          option.id === null ? setRoleFilter(new Set()) : toggleRole(option.id);
+                          setPage(1);
+                        }}
+                        className={`flex h-9 w-full items-center justify-between rounded-lg px-3 text-left text-sm transition-colors ${
+                          selected ? "bg-primary/10 text-primary" : "hover:bg-muted/50"
+                        }`}
+                      >
+                        <span className="truncate">{option.label}</span>
+                        {selected && <Check className="h-3.5 w-3.5 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 border-t border-border bg-muted/10 px-5 py-4">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => {
+                  setStatusFilter(new Set());
+                  setDeptFilter(new Set());
+                  setRoleFilter(new Set());
+                  setInviteFilter("");
+                  setPage(1);
+                }}
+                disabled={totalFilterCount === 0}
+              >
+                Clear
+              </Button>
+              <Button className="flex-1" onClick={() => setShowFilter(false)}>
+                Apply Filters
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <button
+          type="button"
+          onClick={() => { setStatusFilter(new Set(["Pending"])); setPage(1); }}
+          className="rounded-xl border border-amber-200 bg-amber-50/60 p-4 text-left transition-colors hover:bg-amber-50"
+        >
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-amber-100 p-2 text-amber-700"><Clock3 className="h-4 w-4" /></div>
+            <div>
+              <p className="text-sm font-bold text-amber-950">Invite follow-up</p>
+              <p className="mt-1 text-xs text-amber-800">
+                {expiringInvites.length > 0
+                  ? `${expiringInvites.length} pending invite${expiringInvites.length === 1 ? "" : "s"} expiring within 3 days.`
+                  : "No pending invites need immediate follow-up."}
+              </p>
+            </div>
+          </div>
+        </button>
+        <button
+          type="button"
+          onClick={() => { setDeptFilter(new Set(["__none"])); setSearch(""); setPage(1); }}
+          className="rounded-xl border border-blue-200 bg-blue-50/60 p-4 text-left transition-colors hover:bg-blue-50"
+        >
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-blue-100 p-2 text-blue-700"><Building2 className="h-4 w-4" /></div>
+            <div>
+              <p className="text-sm font-bold text-blue-950">Directory hygiene</p>
+              <p className="mt-1 text-xs text-blue-800">{unassignedCount} user{unassignedCount === 1 ? "" : "s"} without a department assignment.</p>
+            </div>
+          </div>
+        </button>
+        <div className="rounded-xl border border-slate-200 bg-card p-4">
+          <div className="flex items-start gap-3">
+            <div className="rounded-lg bg-slate-100 p-2 text-slate-700"><Shield className="h-4 w-4" /></div>
+            <div>
+              <p className="text-sm font-bold">Access footprint</p>
+              <p className="mt-1 text-xs text-muted-foreground">{highAccessCount} account{highAccessCount === 1 ? "" : "s"} hold admin, HR, or manager access.</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {inviteFilter && (
+        <div className={`flex items-center justify-between rounded-xl border px-4 py-3 text-sm ${inviteFilter === "expired" ? "bg-red-50 border-red-200 text-red-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+          <div className="flex items-center gap-2">
+            {inviteFilter === "expired" ? <TimerReset className="h-4 w-4 shrink-0" /> : <AlertTriangle className="h-4 w-4 shrink-0" />}
+            <span className="font-medium">
+              {inviteFilter === "expired" ? "Showing expired invites only." : "Showing invites expiring within 3 days only."}
+            </span>
+          </div>
+          <button onClick={() => setInviteFilter("")} className="ml-4 shrink-0 cursor-pointer hover:opacity-70 transition-opacity">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       <div className="bg-card border border-border rounded-xl shadow-sm overflow-hidden">
         <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-5 border-b border-border">
           <div>
@@ -1002,64 +1327,19 @@ export default function AdminUsersPage() {
               }}
                 className="pl-9 h-9 w-full sm:w-60" />
             </div>
-            <div className="relative shrink-0" ref={filterRef}>
+            <div className="relative shrink-0">
               <Button variant="outline" size="icon"
-                className={`h-9 w-9 ${statusFilter.size > 0 ? "border-primary text-primary" : ""}`}
+                className={`h-9 w-9 ${totalFilterCount > 0 ? "border-primary text-primary" : ""}`}
                 onClick={() => setShowFilter(v => !v)}>
                 <Filter className="h-4 w-4" />
-                {(statusFilter.size > 0 || deptFilter) && (
+                {totalFilterCount > 0 && (
                   <span className="absolute -top-1.5 -right-1.5 h-4 w-4 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
-                    {statusFilter.size + (deptFilter ? 1 : 0)}
+                    {totalFilterCount}
                   </span>
                 )}
               </Button>
-              {showFilter && (
-                <div className="absolute right-0 top-10 z-50 w-52 bg-card border border-border rounded-lg shadow-lg py-1.5">
-                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Status</p>
-                  {(["Active", "Inactive", "Pending"] as const).map(s => (
-                    <button key={s}
-                      className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
-                      onClick={() => toggleStatus(s)}>
-                      <span>{s}</span>
-                      {statusFilter.has(s) && <Check className="h-3.5 w-3.5 text-primary" />}
-                    </button>
-                  ))}
-                  {departments.length > 0 && (
-                    <>
-                      <div className="border-t border-border my-1" />
-                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</p>
-                      <button
-                        className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
-                        onClick={() => { setDeptFilter(""); setPage(1); }}
-                      >
-                        <span>All departments</span>
-                        {!deptFilter && <Check className="h-3.5 w-3.5 text-primary" />}
-                      </button>
-                      {departments.map(d => (
-                        <button
-                          key={d.department_id}
-                          className="flex items-center justify-between px-3 py-2 w-full hover:bg-muted/50 text-sm text-foreground"
-                          onClick={() => { setDeptFilter(d.department_id); setPage(1); }}
-                        >
-                          <span className="truncate mr-2">{d.department_name}</span>
-                          {deptFilter === d.department_id && <Check className="h-3.5 w-3.5 text-primary shrink-0" />}
-                        </button>
-                      ))}
-                    </>
-                  )}
-                  {(statusFilter.size > 0 || deptFilter) && (
-                    <>
-                      <div className="border-t border-border my-1" />
-                      <button className="px-3 py-2 w-full text-left text-xs text-muted-foreground hover:bg-muted/50"
-                        onClick={() => { setStatusFilter(new Set()); setPage(1); }}>
-                        Clear filters
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
             </div>
-            <Button variant="outline" size="icon" className="h-9 w-9 shrink-0">
+            <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={handleExportCsv} disabled={filtered.length === 0}>
               <Download className="h-4 w-4" />
             </Button>
             <Button variant="outline" className="h-9 gap-1.5 shrink-0" onClick={() => document.getElementById("dept-section")?.scrollIntoView({ behavior: "smooth" })}>
@@ -1105,6 +1385,66 @@ export default function AdminUsersPage() {
             <Button variant="outline" size="sm" className="h-8 gap-1"
               onClick={() => setPage(p => p + 1)} disabled={page === totalPages || totalPages === 0}>
               Next <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-sm font-bold">Expiring Invites</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Pending users who may need a resend.</p>
+          </div>
+          <div className="divide-y divide-border">
+            {expiringInvites.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-muted-foreground">No invite deadlines within 3 days.</p>
+            ) : expiringInvites.slice(0, 4).map(({ employee, days }) => (
+              <div key={employee.user_id} className="flex items-center justify-between gap-3 px-5 py-3">
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{employee.first_name} {employee.last_name}</p>
+                  <p className="truncate text-xs text-muted-foreground">{employee.email}</p>
+                </div>
+                <Button variant="outline" size="sm" className="h-8 shrink-0" onClick={() => handleResendInvite(employee)}>
+                  {days <= 0 ? "Expired" : `${days}d left`}
+                </Button>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-sm font-bold">No Department</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Accounts missing org placement.</p>
+          </div>
+          <div className="divide-y divide-border">
+            {employees.filter(e => !e.department_id).slice(0, 4).map(e => (
+              <button key={e.user_id} onClick={() => setEditEmployee(e)} className="flex w-full items-center gap-3 px-5 py-3 text-left hover:bg-muted/20">
+                <DirectoryAvatar firstName={e.first_name} lastName={e.last_name} avatarUrl={e.avatar_url} />
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold">{e.first_name} {e.last_name}</p>
+                  <p className="truncate text-xs text-muted-foreground">Assign department</p>
+                </div>
+              </button>
+            ))}
+            {unassignedCount === 0 && <p className="px-5 py-6 text-sm text-muted-foreground">Every user has a department.</p>}
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card shadow-sm">
+          <div className="border-b border-border px-5 py-4">
+            <h2 className="text-sm font-bold">Never Logged In</h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">Active accounts with no login history.</p>
+          </div>
+          <div className="px-5 py-5">
+            <div className="flex items-center gap-3">
+              <div className="rounded-lg bg-red-50 p-2 text-red-600"><AlertTriangle className="h-4 w-4" /></div>
+              <div>
+                <p className="text-2xl font-bold">{neverLoggedInCount}</p>
+                <p className="text-xs text-muted-foreground">Review access or contact users.</p>
+              </div>
+            </div>
+            <Button variant="outline" size="sm" className="mt-4 w-full gap-2" onClick={() => { setSearch(""); setStatusFilter(new Set(["Active"])); setPage(1); }}>
+              <UsersRound className="h-4 w-4" /> Review active users
             </Button>
           </div>
         </div>
@@ -1169,7 +1509,7 @@ export default function AdminUsersPage() {
         </div>
       </div>
 
-      {showAdd && <AddUserPanel roles={roles} onClose={() => setShowAdd(false)} onCreated={handleCreated} />}
+      {showAdd && <AddUserPanel roles={roles} departments={departments} onClose={() => setShowAdd(false)} onCreated={handleCreated} />}
       {viewEmployee && (
         <EmployeeProfileSheet
           employee={viewEmployee as EmployeeRecord}

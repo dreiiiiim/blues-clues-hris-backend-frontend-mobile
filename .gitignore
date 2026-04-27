@@ -12,3 +12,4 @@ ui-ux-pro-max-skills/
 .env.production.local
 blues-clues-hris-mobile/.env
 frontend/blues-clues-hris-frontend-web/.env.local
+tribeX-hris-auth-api\test-emails.mjs

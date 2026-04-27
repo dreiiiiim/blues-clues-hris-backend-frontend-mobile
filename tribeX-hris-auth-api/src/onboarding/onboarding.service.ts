@@ -418,6 +418,58 @@ export class OnboardingService {
     return submission;
   }
 
+  async uploadTemplateImage(file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No image uploaded.');
+
+    const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Invalid image type. Only JPG, PNG, WebP, and GIF images are allowed.');
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      throw new BadRequestException('Image is too large. Maximum size is 5MB.');
+    }
+
+    const supabase = this.supabaseService.getClient();
+    const bucket = 'onboarding-template-assets';
+
+    const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+    if (listError) throw new InternalServerErrorException(listError.message);
+
+    const exists = buckets?.some((b) => b.name === bucket);
+    if (!exists) {
+      const { error: createError } = await supabase.storage.createBucket(bucket, {
+        public: true,
+        fileSizeLimit: 5 * 1024 * 1024,
+        allowedMimeTypes: allowedTypes,
+      });
+      if (createError) throw new InternalServerErrorException(createError.message);
+    }
+
+    const safeName = file.originalname
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9._-]/g, '');
+    const filePath = `rich-content/${Date.now()}-${crypto.randomUUID()}-${safeName || 'image'}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(bucket)
+      .upload(filePath, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      });
+
+    if (uploadError) throw new BadRequestException(`Upload failed: ${uploadError.message}`);
+
+    const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(filePath);
+    return {
+      url: publicData.publicUrl,
+      path: filePath,
+      file_name: file.originalname,
+      file_type: file.mimetype,
+      file_size: file.size,
+    };
+  }
+
   async confirmTask(onboardingItemId: string) {
     const supabase = this.supabaseService.getClient();
 
@@ -1354,7 +1406,7 @@ export class OnboardingService {
     return data;
   }
 
-  async addTemplateItem(templateId: string, dto: { type: string; tab_category: string; title: string; description?: string; is_required: boolean }) {
+  async addTemplateItem(templateId: string, dto: { type: string; tab_category: string; title: string; description?: string; is_required: boolean; rich_content?: string }) {
     const supabase = this.supabaseService.getClient();
 
     const { data, error } = await supabase
@@ -1367,6 +1419,7 @@ export class OnboardingService {
         title: dto.title,
         description: dto.description || null,
         is_required: dto.is_required,
+        rich_content: dto.rich_content || null,
       })
       .select()
       .single();
@@ -1399,7 +1452,16 @@ export class OnboardingService {
     return data;
   }
 
-  async updateTemplateItem(itemId: string, dto: { title?: string; description?: string; is_required?: boolean }) {
+  async deleteTemplateItem(itemId: string): Promise<void> {
+    const supabase = this.supabaseService.getClient();
+    const { error } = await supabase
+      .from('template_items')
+      .delete()
+      .eq('item_id', itemId);
+    if (error) throw new BadRequestException(error.message);
+  }
+
+  async updateTemplateItem(itemId: string, dto: { title?: string; description?: string; is_required?: boolean; rich_content?: string }) {
     const supabase = this.supabaseService.getClient();
 
     const { data, error } = await supabase

@@ -6,13 +6,14 @@ import {
   Users, TrendingUp, Timer, BarChart2, MapPin, MapPinOff,
   FileX, CalendarDays, CalendarRange, LayoutGrid, SlidersHorizontal,
   Download, AlertTriangle, Star, Trophy, Award,
-  LogIn, LogOut, CheckCircle2, Shield, Calendar, Building2, Check,
+  LogIn, LogOut, CheckCircle2, Shield, Calendar, Building2, Check, Pencil,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
+import { formatGpsLocation, type LocationDisplayMode } from "@/lib/timekeepingUtils";
 import { ScheduleManagementModal, type DepartmentOption } from "@/components/timekeeping/ScheduleManagementModal";
 import { EmployeeScheduleEditModal } from "@/components/timekeeping/EmployeeScheduleEditModal";
 import { AttendanceCalendarGrid, type CalendarDayData, type CalendarViewMode } from "@/components/timekeeping/AttendanceCalendarGrid";
@@ -29,6 +30,7 @@ type UserRow = {
   department_id: string | null;
   department: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   department_name?: string | null;
+  schedule?: { workdays?: string | string[] | null } | null;
 };
 
 type PunchRow = {
@@ -38,11 +40,18 @@ type PunchRow = {
   timestamp: string;
   latitude: number | null;
   longitude: number | null;
+  location_name?: string | null;
   ip_address: string | null;
   is_mock_location: string;
   log_status: string;
   absence_reason: string | null;
   absence_notes: string | null;
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_reason?: string | null;
+  edited_by?: string | null;
+  edited_at?: string | null;
+  edit_reason?: string | null;
 };
 
 type RosterEntry = {
@@ -56,9 +65,13 @@ type RosterEntry = {
   time_in: string | null;
   time_out: string | null;
   hours_worked: number | null;
-  status: "present" | "late" | "clocked-in" | "absent" | "excused";
+  status: "present" | "late" | "clocked-in" | "absent" | "excused" | "rest-day" | "no-schedule";
   gps_verified: boolean;
+  clock_in_latitude: number | null;
+  clock_in_longitude: number | null;
+  clock_in_location_name: string | null;
   absence_reason: string | null;
+  absence_status: string | null;
 };
 
 type PeriodEntry = {
@@ -85,8 +98,23 @@ type DetailPunch = {
   timestamp: string;
   latitude: number | null;
   longitude: number | null;
+  location_name?: string | null;
   clock_type: string | null;
   log_status: string;
+  absence_reason?: string | null;
+  absence_notes?: string | null;
+  review_reason?: string | null;
+  reviewed_at?: string | null;
+  reviewed_by_name?: string | null;
+  edit_reason?: string | null;
+  edited_at?: string | null;
+};
+
+type AttendanceAudit = {
+  audit_id: string;
+  edited_by: string;
+  edited_at: string;
+  edit_reason: string;
 };
 
 type EmployeeDetail = {
@@ -101,6 +129,24 @@ type EmployeeDetail = {
     is_nightshift: boolean;
   } | null;
   punches: DetailPunch[];
+  attendance_audits?: AttendanceAudit[];
+};
+
+type AbsenceRequest = {
+  log_id: string;
+  user_id: string | null;
+  employee_id: string;
+  first_name: string | null;
+  last_name: string | null;
+  department_name: string | null;
+  timestamp: string;
+  latitude: number | null;
+  longitude: number | null;
+  location_name?: string | null;
+  absence_reason: string | null;
+  absence_notes: string | null;
+  log_status: string;
+  review_reason?: string | null;
 };
 
 type ViewMode = "day" | "week" | "month" | "custom";
@@ -148,10 +194,35 @@ function formatTime(timestamp: string | null): string {
   });
 }
 
+function toTimeInputValue(timestamp: string | null | undefined): string {
+  if (!timestamp) return "";
+  const date = parseTs(timestamp);
+  const hhRaw = date.toLocaleString("en-US", {
+    hour: "2-digit",
+    hour12: false,
+    timeZone: "Asia/Manila",
+  });
+  const hh = String(Number(hhRaw)).padStart(2, "0");
+  const mm = date.toLocaleString("en-US", {
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+  return `${hh}:${mm}`;
+}
+
 function formatHoursLabel(timeIn: string | null, timeOut: string | null): string {
   if (!timeIn || !timeOut) return "—";
   const diff = (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3600000;
   return `${diff.toFixed(2)}h`;
+}
+
+function formatGpsForMode(
+  latitude: number | null | undefined,
+  longitude: number | null | undefined,
+  locationName: string | null | undefined,
+  mode: LocationDisplayMode,
+): string {
+  return formatGpsLocation(latitude, longitude, locationName, mode);
 }
 
 function computeHoursDecimal(timeIn: string | null, timeOut: string | null): number | null {
@@ -164,6 +235,16 @@ function isLate(timeIn: string): boolean {
     parseTs(timeIn).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Manila" }), 10
   );
   return h >= 9;
+}
+
+const WEEKDAY_KEYS = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
+
+function getScheduleDayStatus(schedule: UserRow["schedule"], date: string): "workday" | "rest-day" | "no-schedule" {
+  if (!schedule?.workdays) return "no-schedule";
+  const source = Array.isArray(schedule.workdays) ? schedule.workdays : String(schedule.workdays).split(",");
+  const workdays = new Set(source.map(day => day.trim().slice(0, 3).toUpperCase()).filter(Boolean));
+  if (workdays.size === 0) return "no-schedule";
+  return workdays.has(WEEKDAY_KEYS[new Date(`${date}T12:00:00`).getDay()]) ? "workday" : "rest-day";
 }
 
 function getWeekRange(offset: number = 0): { from: string; to: string; label: string } {
@@ -269,13 +350,18 @@ function EmployeeAvatar({
 
 // ─── Roster builders ──────────────────────────────────────────────────────────
 
-function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
+function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): RosterEntry[] {
   const map: Record<string, { ci: PunchRow | null; co: PunchRow | null; ab: PunchRow | null }> = {};
   for (const p of punches) {
     if (!map[p.employee_id]) map[p.employee_id] = { ci: null, co: null, ab: null };
     if (p.log_type === "time-in"  && !map[p.employee_id].ci) map[p.employee_id].ci = p;
     if (p.log_type === "time-out") map[p.employee_id].co = p;
-    if (p.log_type === "absence")  map[p.employee_id].ab = p;
+    if (
+      p.log_type === "absence" &&
+      String(p.log_status ?? "").toUpperCase() !== "DENIED"
+    ) {
+      map[p.employee_id].ab = p;
+    }
   }
 
   return users.map(u => {
@@ -285,12 +371,13 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
     const ab = e?.ab ?? null;
     const time_in  = ci?.timestamp ?? null;
     const time_out = co?.timestamp ?? null;
-    const gps_verified = !!(ci?.latitude && ci?.longitude);
+    const gps_verified = ci?.latitude != null && ci?.longitude != null;
 
-    let status: RosterEntry["status"] = "absent";
+    const scheduleDayStatus = getScheduleDayStatus(u.schedule, date);
+    let status: RosterEntry["status"] = scheduleDayStatus === "workday" ? "absent" : scheduleDayStatus;
     if (time_in && time_out)     status = isLate(time_in) ? "late" : "present";
     else if (time_in)            status = "clocked-in";
-    else if (ab?.absence_reason) status = "excused";
+    else if (ab?.absence_reason && String(ab.log_status ?? "").toUpperCase() === "APPROVED") status = "excused";
 
     const departmentName =
       (typeof u.department_name === "string" && u.department_name.trim()) ||
@@ -306,7 +393,13 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[]): RosterEntry[] {
       department_id: u.department_id ?? null,
       department_name: departmentName,
       time_in, time_out, hours_worked: computeHoursDecimal(time_in, time_out),
-      status, gps_verified, absence_reason: ab?.absence_reason ?? null,
+      status,
+      gps_verified,
+      clock_in_latitude: ci?.latitude ?? null,
+      clock_in_longitude: ci?.longitude ?? null,
+      clock_in_location_name: ci?.location_name ?? null,
+      absence_reason: ab?.absence_reason ?? null,
+      absence_status: ab?.log_status ?? null,
     };
   });
 }
@@ -372,12 +465,13 @@ function buildPeriodRoster(users: UserRow[], punches: PunchRow[], from: string, 
 
 function computeStats(roster: RosterEntry[]) {
   const total   = roster.length;
+  const scheduledTotal = roster.filter(r => r.status !== "rest-day" && r.status !== "no-schedule").length;
   const present = roster.filter(r => r.status === "present" || r.status === "clocked-in").length;
   const late    = roster.filter(r => r.status === "late").length;
   const absent  = roster.filter(r => r.status === "absent" || r.status === "excused").length;
   const totalHours = roster.reduce((s, r) => s + (r.hours_worked ?? 0), 0);
   const avgHours   = present > 0 ? totalHours / present : 0;
-  const attendance_rate = total > 0 ? Math.round(((present + late) / total) * 100) : 0;
+  const attendance_rate = scheduledTotal > 0 ? Math.round(((present + late) / scheduledTotal) * 100) : 0;
   return { total, present, late, absent, totalHours, avgHours, attendance_rate };
 }
 
@@ -445,6 +539,8 @@ const STATUS_CONFIG: Record<RosterEntry["status"], { label: string; className: s
   "clocked-in": { label: "Clocked In", className: "bg-blue-100 text-blue-700 border border-blue-200" },
   "absent":     { label: "Absent",     className: "bg-red-100 text-red-700 border border-red-200" },
   "excused":    { label: "Excused",    className: "bg-purple-100 text-purple-700 border border-purple-200" },
+  "rest-day":   { label: "Rest Day",   className: "bg-sky-100 text-sky-700 border border-sky-200" },
+  "no-schedule":{ label: "No Schedule",className: "bg-slate-100 text-slate-700 border border-slate-200" },
 };
 
 function StatusBadge({ status }: Readonly<{ status: RosterEntry["status"] }>) {
@@ -785,6 +881,7 @@ function EmployeeSlideOver({
   dashboardFilter,
   dashboardFrom,
   dashboardTo,
+  locationDisplayMode,
   canEditSchedule,
   onClose,
   onEditSchedule,
@@ -796,6 +893,7 @@ function EmployeeSlideOver({
   dashboardFilter: ViewMode;
   dashboardFrom: string;
   dashboardTo: string;
+  locationDisplayMode: LocationDisplayMode;
   canEditSchedule: boolean;
   onClose: () => void;
   onEditSchedule: (employeeId: string, name: string, schedule: any) => void;
@@ -807,8 +905,20 @@ function EmployeeSlideOver({
   const [fetching, setFetching] = useState(false);
   const [expandedWeeks, setExpandedWeeks] = useState<Set<string>>(new Set());
   const [avatarFailed, setAvatarFailed] = useState(false);
+  const [editAttendanceOpen, setEditAttendanceOpen] = useState(false);
+  const [editTimeIn, setEditTimeIn] = useState("");
+  const [editTimeOut, setEditTimeOut] = useState("");
+  const [editReason, setEditReason] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const summaryDate = dashboardFilter === "day" ? dashboardFrom : dashboardTo;
+
+  const fetchDayDetail = useCallback(async () => {
+    const res = await authFetch(`${API_BASE_URL}/timekeeping/timesheets/${userId}/${summaryDate}`);
+    if (!res.ok) return null;
+    return (await res.json()) as EmployeeDetail;
+  }, [summaryDate, userId]);
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setMounted(true));
@@ -818,12 +928,11 @@ function EmployeeSlideOver({
   // Fetch detail for selected date (day mode) or range end date (period modes)
   useEffect(() => {
     setFetching(true);
-    authFetch(`${API_BASE_URL}/timekeeping/timesheets/${userId}/${summaryDate}`)
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => setTodayDetail(data as EmployeeDetail | null))
+    fetchDayDetail()
+      .then((data) => setTodayDetail(data))
       .catch(() => setTodayDetail(null))
       .finally(() => setFetching(false));
-  }, [userId, summaryDate]);
+  }, [fetchDayDetail]);
 
   // Fetch range data for Schedule & Attendance Details tabs
   useEffect(() => {
@@ -837,9 +946,62 @@ function EmployeeSlideOver({
       .finally(() => setFetching(false));
   }, [dashboardFrom, dashboardTo, dashboardFilter]);
 
+  useEffect(() => {
+    const punches = todayDetail?.punches ?? [];
+    const timeIn = punches.find((p) => p.log_type === "time-in") ?? null;
+    const timeOut = punches.find((p) => p.log_type === "time-out") ?? null;
+    setEditTimeIn(toTimeInputValue(timeIn?.timestamp));
+    setEditTimeOut(toTimeInputValue(timeOut?.timestamp));
+  }, [todayDetail]);
+
   const handleClose = () => {
     setMounted(false);
     setTimeout(onClose, 260);
+  };
+
+  const submitAttendanceEdit = async () => {
+    const trimmedReason = editReason.trim();
+    if (!trimmedReason) {
+      setEditError("Edit reason is required.");
+      return;
+    }
+    if (!editTimeIn && !editTimeOut) {
+      setEditError("Provide at least a time-in or time-out value.");
+      return;
+    }
+
+    setEditSubmitting(true);
+    setEditError(null);
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/timekeeping/attendance/${userId}/${summaryDate}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            time_in: editTimeIn || undefined,
+            time_out: editTimeOut || undefined,
+            edit_reason: trimmedReason,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({} as { message?: string }));
+        throw new Error(err.message || "Failed to update attendance.");
+      }
+
+      const refreshed = await fetchDayDetail();
+      setTodayDetail(refreshed);
+      setEditAttendanceOpen(false);
+      setEditReason("");
+    } catch (error) {
+      setEditError(
+        error instanceof Error ? error.message : "Failed to update attendance.",
+      );
+    } finally {
+      setEditSubmitting(false);
+    }
   };
 
   const initials = name
@@ -997,6 +1159,75 @@ function EmployeeSlideOver({
 
   return (
     <>
+      {editAttendanceOpen && (
+        <div className="fixed inset-0 z-[70] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-border">
+              <p className="text-sm font-bold">Edit Attendance</p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {name} · {summaryDate}
+              </p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs text-muted-foreground">Time In</label>
+                  <Input
+                    type="time"
+                    value={editTimeIn}
+                    onChange={(e) => setEditTimeIn(e.target.value)}
+                    className="h-9 mt-1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground">Time Out</label>
+                  <Input
+                    type="time"
+                    value={editTimeOut}
+                    onChange={(e) => setEditTimeOut(e.target.value)}
+                    className="h-9 mt-1"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground">Edit Reason (required)</label>
+                <textarea
+                  value={editReason}
+                  onChange={(e) => setEditReason(e.target.value)}
+                  maxLength={500}
+                  className="mt-1 w-full min-h-24 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  placeholder="Describe why this attendance correction is needed..."
+                />
+              </div>
+              {editError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {editError}
+                </p>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-border flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setEditAttendanceOpen(false);
+                  setEditError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void submitAttendanceEdit()}
+                disabled={editSubmitting}
+              >
+                {editSubmitting ? "Saving..." : "Save Attendance"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Backdrop */}
       <div
         className={`fixed inset-0 bg-black/40 z-40 backdrop-blur-sm transition-opacity duration-200 ${
@@ -1074,6 +1305,21 @@ function EmployeeSlideOver({
                     ? `Summary for ${summaryDateLabel}`
                     : `Day snapshot: ${summaryDateLabel}`}
                 </p>
+                <div className="flex items-center justify-end">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs"
+                    onClick={() => {
+                      setEditError(null);
+                      setEditAttendanceOpen(true);
+                    }}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit Attendance
+                  </Button>
+                </div>
                 <div className="grid grid-cols-3 gap-2.5">
                   {[
                     {
@@ -1165,10 +1411,15 @@ function EmployeeSlideOver({
                                   {formatTime(p.timestamp)}
                                 </p>
                               </div>
-                              {p.latitude && p.longitude ? (
+                              {p.latitude != null && p.longitude != null ? (
                                 <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
                                   <MapPin className="h-3 w-3 text-green-600" />
-                                  {p.latitude.toFixed(4)}, {p.longitude.toFixed(4)}
+                                  {formatGpsForMode(
+                                    p.latitude,
+                                    p.longitude,
+                                    p.location_name,
+                                    locationDisplayMode,
+                                  )}
                                 </p>
                               ) : (
                                 <p className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
@@ -1185,6 +1436,40 @@ function EmployeeSlideOver({
                                 >
                                   {p.clock_type}
                                 </span>
+                              )}
+                              {p.log_type === "absence" && (
+                                <div className="mt-1.5 space-y-1.5">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-purple-100 text-purple-700 border-purple-200">
+                                      {p.absence_reason ?? "Absence"}
+                                    </span>
+                                    {p.log_status && (
+                                      <span
+                                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded border ${
+                                          p.log_status === "APPROVED"
+                                            ? "bg-green-100 text-green-700 border-green-200"
+                                            : p.log_status === "PENDING"
+                                            ? "bg-amber-100 text-amber-700 border-amber-200"
+                                            : p.log_status === "DENIED"
+                                            ? "bg-red-100 text-red-700 border-red-200"
+                                            : "bg-slate-100 text-slate-600 border-slate-200"
+                                        }`}
+                                      >
+                                        {p.log_status}
+                                      </span>
+                                    )}
+                                  </div>
+                                  {(p.reviewed_by_name || p.review_reason) && (
+                                    <div className="text-[10px] text-muted-foreground space-y-0.5 pl-1 border-l-2 border-border">
+                                      {p.reviewed_by_name && (
+                                        <p>Reviewed by <span className="font-semibold text-foreground">{p.reviewed_by_name}</span></p>
+                                      )}
+                                      {p.review_reason && (
+                                        <p className="italic">&ldquo;{p.review_reason}&rdquo;</p>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
                               )}
                             </div>
                           </div>
@@ -1203,6 +1488,38 @@ function EmployeeSlideOver({
                         Range summary above covers {selectedRangeLabel}.
                       </p>
                     )}
+                  </div>
+                )}
+
+                {todayDetail?.attendance_audits && todayDetail.attendance_audits.length > 0 && (
+                  <div>
+                    <p className="text-[9px] font-bold text-muted-foreground uppercase tracking-widest mb-2.5">
+                      Attendance Edit Audit
+                    </p>
+                    <div className="rounded-xl border border-border overflow-hidden">
+                      {todayDetail.attendance_audits.map((audit) => (
+                        <div
+                          key={audit.audit_id}
+                          className="px-4 py-3 border-b border-border/40 last:border-b-0"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold">Correction Applied</p>
+                            <p className="text-[10px] text-muted-foreground">
+                              {new Date(audit.edited_at).toLocaleString("en-US", {
+                                month: "short",
+                                day: "numeric",
+                                year: "numeric",
+                                hour: "numeric",
+                                minute: "2-digit",
+                              })}
+                            </p>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-1">
+                            {audit.edit_reason}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -1378,9 +1695,25 @@ const FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "present",    label: "Present" },
   { value: "absent",     label: "Absent" },
   { value: "excused",    label: "Excused" },
+  { value: "rest-day",   label: "Rest Day" },
+  { value: "no-schedule",label: "No Schedule" },
   { value: "late",       label: "Late" },
   { value: "clocked-in", label: "Clocked In" },
 ];
+
+function statusFilterClass(value: StatusFilter, active: boolean): string {
+  if (value === "all") return active ? "bg-primary text-primary-foreground border-primary" : "bg-background text-muted-foreground border-border hover:border-primary/50";
+  const tones: Record<RosterEntry["status"], { active: string; idle: string }> = {
+    "present":    { active: "bg-green-600 text-white border-green-600", idle: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100" },
+    "late":       { active: "bg-amber-500 text-white border-amber-500", idle: "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100" },
+    "clocked-in": { active: "bg-blue-600 text-white border-blue-600", idle: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100" },
+    "absent":     { active: "bg-red-600 text-white border-red-600", idle: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100" },
+    "excused":    { active: "bg-purple-600 text-white border-purple-600", idle: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100" },
+    "rest-day":   { active: "bg-sky-600 text-white border-sky-600", idle: "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" },
+    "no-schedule":{ active: "bg-slate-600 text-white border-slate-600", idle: "bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100" },
+  };
+  return active ? tones[value].active : tones[value].idle;
+}
 
 const ITEMS_PER_PAGE = 8;
 
@@ -1458,9 +1791,18 @@ export default function HRTimekeepingPage() {
   const [scheduleModalPreset, setScheduleModalPreset] = useState<ScheduleModalPreset>(null);
   const [editScheduleUser, setEditScheduleUser]       = useState<{ employeeId: string; name: string; schedule: any; effectiveLabel?: string } | null>(null);
   const [scheduleRosterRefreshKey, setScheduleRosterRefreshKey] = useState(0);
+  const [absenceRequests, setAbsenceRequests] = useState<AbsenceRequest[]>([]);
+  const [absenceRequestsLoading, setAbsenceRequestsLoading] = useState(false);
+  const [reviewTarget, setReviewTarget] = useState<{
+    request: AbsenceRequest;
+    action: "approve" | "deny";
+  } | null>(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
 
   // Main panel toggle
   const [mainPanel, setMainPanel] = useState<"attendance" | "schedules">("attendance");
+  const [locationDisplayMode, setLocationDisplayMode] = useState<LocationDisplayMode>("place");
 
   // Calendar grid view
   const [calendarMode, setCalendarMode]               = useState<CalendarViewMode>("month");
@@ -1484,6 +1826,15 @@ export default function HRTimekeepingPage() {
     return `${fmt(from)} – ${fmt(to)}`;
   }, [from, to]);
 
+  const refreshAbsenceRequests = useCallback(() => {
+    setAbsenceRequestsLoading(true);
+    return authFetch(`${API_BASE_URL}/timekeeping/absence-requests`)
+      .then((r) => (r.ok ? (r.json() as Promise<AbsenceRequest[]>) : Promise.resolve([])))
+      .then((rows) => setAbsenceRequests(rows))
+      .catch(() => setAbsenceRequests([]))
+      .finally(() => setAbsenceRequestsLoading(false));
+  }, []);
+
   const refreshTimekeepingData = useCallback((resetPage: boolean = true) => {
     if (viewMode === "custom" && (!customFrom || !customTo)) return;
 
@@ -1492,7 +1843,7 @@ export default function HRTimekeepingPage() {
     if (resetPage) setPage(1);
 
     return Promise.all([
-      authFetch(`${API_BASE_URL}/timekeeping/employees`)
+      authFetch(`${API_BASE_URL}/timekeeping/employees?asOf=${from}`)
         .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<UserRow[]>; }),
       authFetch(`${API_BASE_URL}/timekeeping/timesheets?from=${from}&to=${to}`)
         .then(r => { if (!r.ok) throw new Error(); return r.json() as Promise<PunchRow[]>; }),
@@ -1501,7 +1852,7 @@ export default function HRTimekeepingPage() {
         setUsers(u);
         setAllPunches(p);
         if (viewMode === "day") {
-          setRoster(buildFullRoster(u, p));
+          setRoster(buildFullRoster(u, p, from));
           setPeriodData([]);
         } else {
           setPeriodData(buildPeriodRoster(u, p, from, to));
@@ -1516,6 +1867,11 @@ export default function HRTimekeepingPage() {
     void refreshTimekeepingData();
   }, [refreshTimekeepingData]);
 
+  useEffect(() => {
+    if (mainPanel !== "attendance") return;
+    void refreshAbsenceRequests();
+  }, [mainPanel, refreshAbsenceRequests]);
+
   // Open drill-down panel — slide-over fetches its own data per selected period
   const openDrill = useCallback((
     userId: string,
@@ -1525,6 +1881,40 @@ export default function HRTimekeepingPage() {
   ) => {
     setDrillUser({ userId, employeeId, name, avatarUrl: avatarUrl ?? null });
   }, []);
+
+  const submitAbsenceReview = useCallback(async () => {
+    if (!reviewTarget) return;
+    const trimmedReason = reviewReason.trim();
+    if (!trimmedReason) return;
+
+    setReviewSubmitting(true);
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/timekeeping/absence-requests/${reviewTarget.request.log_id}/review`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: reviewTarget.action,
+            review_reason: trimmedReason,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({} as { message?: string }));
+        throw new Error(err.message || "Failed to review absence request.");
+      }
+
+      setReviewTarget(null);
+      setReviewReason("");
+      await Promise.all([refreshAbsenceRequests(), refreshTimekeepingData(false)]);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setReviewSubmitting(false);
+    }
+  }, [refreshAbsenceRequests, refreshTimekeepingData, reviewReason, reviewTarget]);
 
   const stats       = useMemo(() => computeStats(roster), [roster]);
   const periodStats = useMemo(() => computePeriodStats(periodData), [periodData]);
@@ -1607,25 +1997,31 @@ export default function HRTimekeepingPage() {
   const calendarDays = useMemo<CalendarDayData[]>(() => {
     const today = toDateString(new Date());
     const employeeIds = new Set(filteredUsersForCalendar.map((u) => u.employee_id));
-    const dateMap: Record<string, { hasPresent: boolean; hasLate: boolean; hasAbsent: boolean }> = {};
+    const dateMap: Record<string, { presentIds: Set<string>; lateIds: Set<string>; absentIds: Set<string> }> = {};
 
     for (const punch of calendarPunches) {
       if (!employeeIds.has(punch.employee_id)) continue;
       const date = punch.timestamp.split("T")[0];
-      if (!dateMap[date]) dateMap[date] = { hasPresent: false, hasLate: false, hasAbsent: false };
+      if (!dateMap[date]) dateMap[date] = { presentIds: new Set(), lateIds: new Set(), absentIds: new Set() };
       if (punch.log_type === "time-in") {
-        dateMap[date].hasPresent = true;
-        if (isLate(punch.timestamp)) dateMap[date].hasLate = true;
+        dateMap[date].presentIds.add(punch.employee_id);
+        if (isLate(punch.timestamp)) dateMap[date].lateIds.add(punch.employee_id);
       }
-      if (punch.log_type === "absence") dateMap[date].hasAbsent = true;
+      if (punch.log_type === "absence") dateMap[date].absentIds.add(punch.employee_id);
     }
+
+    const totalEmployees = filteredUsersForCalendar.length;
 
     return listDatesInRange(calendarRange.from, calendarRange.to).map((date): CalendarDayData => {
       const day = dateMap[date];
       if (date > today) return { date, status: "future" };
-      if (day?.hasLate) return { date, status: "late" };
-      if (day?.hasPresent) return { date, status: "present" };
-      if (day?.hasAbsent) return { date, status: "absent" };
+      const presentTotal = day?.presentIds.size ?? 0;
+      const late = day?.lateIds.size ?? 0;
+      const absent = day?.absentIds.size ?? 0;
+      const summary = { present: presentTotal - late, late, absent, total: totalEmployees };
+      if (late > 0) return { date, status: "late", summary };
+      if (presentTotal > 0) return { date, status: "present", summary };
+      if (absent > 0) return { date, status: "absent", summary };
       return { date, status: "no-schedule" };
     });
   }, [calendarPunches, filteredUsersForCalendar, calendarRange.from, calendarRange.to]);
@@ -1711,18 +2107,40 @@ export default function HRTimekeepingPage() {
             <div className="flex items-center gap-1.5 text-purple-600">
               <FileX className="h-3.5 w-3.5 shrink-0" />
               <span className="text-[10px] font-semibold">{row.absence_reason}</span>
+              {row.absence_status && (
+                <span
+                  className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${
+                    row.absence_status === "APPROVED"
+                      ? "bg-purple-100 text-purple-700 border-purple-200"
+                      : row.absence_status === "PENDING"
+                      ? "bg-amber-100 text-amber-700 border-amber-200"
+                      : row.absence_status === "DENIED"
+                      ? "bg-red-100 text-red-700 border-red-200"
+                      : "bg-slate-100 text-slate-600 border-slate-200"
+                  }`}
+                >
+                  {row.absence_status}
+                </span>
+              )}
             </div>
           ) : (
             <span className="text-muted-foreground text-xs">—</span>
           )}
         </td>
         <td className="px-6 py-4">
-          {row.status === "absent" || row.status === "excused" ? (
+          {row.status === "absent" || row.status === "excused" || row.status === "rest-day" || row.status === "no-schedule" ? (
             <span className="text-muted-foreground text-xs">—</span>
           ) : row.gps_verified ? (
             <div className="flex items-center gap-1.5 text-green-600">
               <MapPin className="h-3.5 w-3.5" />
-              <span className="text-[10px] font-bold uppercase tracking-wide">Verified</span>
+              <span className="text-[10px] font-semibold leading-4">
+                {formatGpsForMode(
+                  row.clock_in_latitude,
+                  row.clock_in_longitude,
+                  row.clock_in_location_name,
+                  locationDisplayMode,
+                )}
+              </span>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 text-muted-foreground">
@@ -1834,6 +2252,57 @@ export default function HRTimekeepingPage() {
         />
       )}
 
+      {reviewTarget && (
+        <div className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-2xl border border-border bg-card shadow-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-border">
+              <p className="text-sm font-bold">
+                {reviewTarget.action === "approve" ? "Approve" : "Deny"} Absence Request
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {reviewTarget.request.first_name} {reviewTarget.request.last_name} · {reviewTarget.request.employee_id}
+              </p>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <p className="text-xs text-muted-foreground">
+                Reason: <span className="font-semibold text-foreground">{reviewTarget.request.absence_reason ?? "—"}</span>
+              </p>
+              <textarea
+                value={reviewReason}
+                onChange={(e) => setReviewReason(e.target.value)}
+                maxLength={500}
+                placeholder="Enter review reason (required)..."
+                className="w-full min-h-24 rounded-lg border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+            </div>
+            <div className="px-5 py-4 border-t border-border flex items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setReviewTarget(null);
+                  setReviewReason("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void submitAbsenceReview()}
+                disabled={reviewSubmitting || reviewReason.trim().length < 3}
+                className={reviewTarget.action === "approve" ? "" : "bg-red-600 hover:bg-red-700"}
+              >
+                {reviewSubmitting
+                  ? "Saving..."
+                  : reviewTarget.action === "approve"
+                  ? "Approve Request"
+                  : "Deny Request"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Slide-Over */}
       {drillUser && (
         <EmployeeSlideOver
@@ -1844,6 +2313,7 @@ export default function HRTimekeepingPage() {
           dashboardFilter={viewMode}
           dashboardFrom={from}
           dashboardTo={to}
+          locationDisplayMode={locationDisplayMode}
           canEditSchedule={true}
           onClose={() => setDrillUser(null)}
           onEditSchedule={(empId, empName, sched) => setEditScheduleUser({
@@ -2062,6 +2532,30 @@ export default function HRTimekeepingPage() {
 
         {/* Right: Schedule + Export */}
         <div className="flex items-center gap-2">
+          {mainPanel === "attendance" && (
+            <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
+              <button
+                onClick={() => setLocationDisplayMode("place")}
+                className={`px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                  locationDisplayMode === "place"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                }`}
+              >
+                Place
+              </button>
+              <button
+                onClick={() => setLocationDisplayMode("coordinates")}
+                className={`px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
+                  locationDisplayMode === "coordinates"
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+                }`}
+              >
+                Coordinates
+              </button>
+            </div>
+          )}
           <Button
             variant="outline"
             size="sm"
@@ -2136,13 +2630,141 @@ export default function HRTimekeepingPage() {
         </div>
       )}
 
-      {/* ── Calendar Grid View ──────────────────────────────────────────────── */}
+      {/* ── Pending Absence Requests ────────────────────────────────────────── */}
+      <Card className="border-border overflow-hidden">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-xl bg-amber-100 border border-amber-200 flex items-center justify-center shrink-0">
+              <AlertTriangle className="h-4 w-4 text-amber-600" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-bold text-amber-900">Pending Absence Requests</p>
+                {!absenceRequestsLoading && absenceRequests.length > 0 && (
+                  <span className="h-5 min-w-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {absenceRequests.length}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-amber-700/80 mt-0.5">Employee-reported absences awaiting your review</p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="h-8 text-xs border-amber-200 text-amber-700 hover:bg-amber-100 hover:border-amber-300 cursor-pointer shrink-0"
+            onClick={() => void refreshAbsenceRequests()}
+          >
+            Refresh
+          </Button>
+        </div>
+
+        {/* Body */}
+        {absenceRequestsLoading ? (
+          <div className="px-5 py-6 flex items-center gap-3 text-sm text-muted-foreground">
+            <div className="h-4 w-4 rounded-full border-2 border-amber-400/40 border-t-amber-500 animate-spin shrink-0" />
+            Loading pending requests...
+          </div>
+        ) : absenceRequests.length === 0 ? (
+          <div className="px-5 py-8 flex flex-col items-center gap-2 text-center">
+            <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mb-1">
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+            </div>
+            <p className="text-sm font-semibold text-foreground">All caught up!</p>
+            <p className="text-xs text-muted-foreground">No pending absence requests at this time.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-border">
+            {absenceRequests.slice(0, 8).map((request) => {
+              const initials = `${request.first_name?.[0] ?? ""}${request.last_name?.[0] ?? ""}`.toUpperCase();
+              const reasonLower = (request.absence_reason ?? "").toLowerCase();
+              const reasonColor = reasonLower.includes("sick") || reasonLower.includes("medical")
+                ? "bg-blue-100 text-blue-700 border-blue-200"
+                : reasonLower.includes("emergency")
+                  ? "bg-red-100 text-red-700 border-red-200"
+                  : reasonLower.includes("personal")
+                    ? "bg-violet-100 text-violet-700 border-violet-200"
+                    : "bg-amber-100 text-amber-700 border-amber-200";
+
+              return (
+                <div key={request.log_id} className="px-5 py-4 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-muted/30 transition-colors">
+                  {/* Avatar + info */}
+                  <div className="flex items-start gap-3 min-w-0 flex-1">
+                    <div className="h-9 w-9 rounded-full bg-slate-100 border border-border flex items-center justify-center shrink-0 text-xs font-bold text-slate-600">
+                      {initials}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-foreground">
+                          {request.first_name} {request.last_name}
+                        </p>
+                        <span className="text-[10px] font-mono text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                          {request.employee_id}
+                        </span>
+                        {request.absence_reason && (
+                          <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full ${reasonColor}`}>
+                            {request.absence_reason}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                        <Clock className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <p className="text-xs text-muted-foreground">
+                          {new Date(request.timestamp).toLocaleString("en-US", {
+                            month: "short", day: "numeric", year: "numeric",
+                            hour: "numeric", minute: "2-digit",
+                          })}
+                        </p>
+                        <span className="text-muted-foreground/40 text-xs">·</span>
+                        <MapPin className="h-3 w-3 text-muted-foreground shrink-0" />
+                        <p className="text-xs text-muted-foreground truncate max-w-40">
+                          {formatGpsForMode(
+                            request.latitude,
+                            request.longitude,
+                            request.location_name ?? null,
+                            locationDisplayMode,
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-2 shrink-0 sm:ml-auto">
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 px-4 text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 cursor-pointer"
+                      onClick={() => { setReviewReason(""); setReviewTarget({ request, action: "approve" }); }}
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                      Approve
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="h-8 px-4 text-xs bg-red-600 hover:bg-red-700 text-white font-bold gap-1.5 cursor-pointer"
+                      onClick={() => { setReviewReason(""); setReviewTarget({ request, action: "deny" }); }}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                      Deny
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
+
       {showCalendar && (
         <div className="bg-card border border-border rounded-2xl p-6 shadow-sm animate-in fade-in duration-300">
           <div className="flex items-center justify-between mb-4">
             <div>
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Attendance Calendar</p>
-              <p className="text-sm font-semibold text-foreground mt-0.5">Company-wide attendance overview — click a day to drill in</p>
+              <p className="text-sm font-semibold text-foreground mt-0.5">Company-wide attendance overview - click a day to preview the daily summary</p>
             </div>
           </div>
           <AttendanceCalendarGrid
@@ -2181,9 +2803,7 @@ export default function HRTimekeepingPage() {
                   key={opt.value}
                   onClick={() => { setStatusFilter(opt.value); setPage(1); }}
                   className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide border transition-colors cursor-pointer ${
-                    statusFilter === opt.value
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/50"
+                    statusFilterClass(opt.value, statusFilter === opt.value)
                   }`}
                 >
                   {opt.label}
@@ -2368,6 +2988,3 @@ export default function HRTimekeepingPage() {
     </div>
   );
 }
-
-
-

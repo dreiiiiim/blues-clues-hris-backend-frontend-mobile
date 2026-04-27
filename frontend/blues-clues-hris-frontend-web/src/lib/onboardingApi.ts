@@ -225,7 +225,15 @@ export async function createPosition(department_id: string, position_name: strin
   return res.json();
 }
 
-export async function addTemplateItem(templateId: string, item: { type: string; tab_category: string; title: string; description?: string; is_required: boolean }): Promise<TemplateItem> {
+export async function deleteTemplateItem(itemId: string): Promise<void> {
+  const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/template-items/${itemId}`, {
+    method: 'DELETE',
+    headers: headers(),
+  });
+  if (!res.ok) throw new Error('Failed to delete template item');
+}
+
+export async function addTemplateItem(templateId: string, item: { type: string; tab_category: string; title: string; description?: string; is_required: boolean; rich_content?: string }): Promise<TemplateItem> {
   const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/templates/${templateId}/items`, {
     method: 'POST',
     headers: headers(),
@@ -235,7 +243,26 @@ export async function addTemplateItem(templateId: string, item: { type: string; 
   return res.json();
 }
 
-export async function updateTemplateItem(itemId: string, updates: { title?: string; description?: string; is_required?: boolean }): Promise<TemplateItem> {
+export async function uploadTemplateImage(file: File): Promise<{ url: string; path: string; file_name: string; file_type: string; file_size: number }> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/template-assets/images`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getAccessToken()}` },
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    const msg = Array.isArray(body?.message) ? body.message.join(', ') : (body?.message || 'Failed to upload image');
+    throw new Error(msg);
+  }
+
+  return res.json();
+}
+
+export async function updateTemplateItem(itemId: string, updates: { title?: string; description?: string; is_required?: boolean; rich_content?: string }): Promise<TemplateItem> {
   const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/template-items/${itemId}`, {
     method: 'PATCH',
     headers: headers(),

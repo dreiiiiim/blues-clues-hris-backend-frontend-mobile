@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { authFetch } from "@/lib/authApi";
 import { API_BASE_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
@@ -18,7 +18,7 @@ import {
   Lock, Pencil, Loader2, CheckCircle2, AlertTriangle, Hash,
   Building2, Calendar, Shield, Mail, Phone, Globe, Heart,
   Home, Banknote, AtSign, Clock, ChevronRight, Eye, EyeOff,
-  UserCheck, UsersRound,
+  UserCheck, UsersRound, LogIn, LogOut, TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -63,6 +63,48 @@ export interface OnboardingInfo {
   progress_percentage: number;
   status: string;
 }
+
+// ─── Timekeeping Tab Types ─────────────────────────────────────────────────────
+
+type TkPunchRow = {
+  log_id: string;
+  employee_id: string;
+  log_type: "time-in" | "time-out" | "absence";
+  timestamp: string;
+  clock_type?: string | null;
+  log_status?: string | null;
+  absence_reason?: string | null;
+};
+
+type TkTodayDetail = {
+  date: string;
+  schedule: {
+    start_time: string;
+    end_time: string;
+    workdays: string[] | string;
+    is_nightshift: boolean;
+  } | null;
+  punches: Array<{
+    log_id: string;
+    log_type: "time-in" | "time-out" | "absence";
+    timestamp: string;
+    clock_type?: string | null;
+    log_status?: string | null;
+    absence_reason?: string | null;
+  }>;
+};
+
+type TkScheduleRow = {
+  workdays: string | string[] | null;
+  start_time: string | null;
+  end_time: string | null;
+  break_start?: string | null;
+  break_end?: string | null;
+  is_nightshift: boolean | null;
+  schedule_source?: "bulk" | "department" | "individual" | "default" | null;
+  updated_by_name?: string | null;
+  updated_at?: string | null;
+};
 
 export type ViewerRole = "System Admin" | "HR" | "Manager";
 
@@ -113,6 +155,34 @@ function fmtDateTime(dateStr: string | null | undefined) {
   if (!dateStr) return "Never";
   const d = new Date(dateStr);
   return Number.isNaN(d.getTime()) ? "Unknown" : d.toLocaleString("en-US", { year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+}
+
+function parseTkWorkdays(workdays: string | string[] | null | undefined): string[] {
+  if (!workdays) return [];
+  if (Array.isArray(workdays)) return workdays;
+  try { return JSON.parse(workdays); } catch { return workdays.split(",").map(s => s.trim()).filter(Boolean); }
+}
+
+function fmtShiftTime(timeStr: string | null | undefined): string {
+  if (!timeStr) return "—";
+  const parts = timeStr.split(":");
+  const h = parseInt(parts[0] ?? "0", 10);
+  const m = parseInt(parts[1] ?? "0", 10);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, "0")} ${ampm}`;
+}
+
+function fmtPunchTime(ts: string | null | undefined): string {
+  if (!ts) return "—";
+  const normalized = ts.includes("Z") || ts.includes("+") ? ts : ts + "Z";
+  return new Date(normalized).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" });
+}
+
+function fmtHours(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  return mm > 0 ? `${hh}h ${mm}m` : `${hh}h`;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -281,12 +351,13 @@ function ConfirmEditDialog({
 // ─── Tab Definitions ──────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "overview",   label: "Overview",   icon: User },
-  { id: "personal",   label: "Personal",   icon: Shield },
-  { id: "contact",    label: "Contact",    icon: MapPin },
-  { id: "bank",       label: "Bank",       icon: CreditCard },
-  { id: "emergency",  label: "Emergency",  icon: UsersRound },
-  { id: "onboarding", label: "Onboarding", icon: ClipboardList },
+  { id: "overview",    label: "Overview",    icon: User },
+  { id: "personal",    label: "Personal",    icon: Shield },
+  { id: "contact",     label: "Contact",     icon: MapPin },
+  { id: "bank",        label: "Bank",        icon: CreditCard },
+  { id: "emergency",   label: "Emergency",   icon: UsersRound },
+  { id: "onboarding",  label: "Onboarding",  icon: ClipboardList },
+  { id: "timekeeping", label: "Timekeeping", icon: Clock },
 ] as const;
 
 type TabId = typeof TABS[number]["id"];
@@ -347,6 +418,13 @@ export function EmployeeProfileSheet({
   const [confirmBank, setConfirmBank] = useState(false);
   const [savingBank, setSavingBank] = useState(false);
 
+  // Timekeeping tab state
+  const [tkToday, setTkToday]             = useState<TkTodayDetail | null>(null);
+  const [tkSchedule, setTkSchedule]       = useState<TkScheduleRow | null>(null);
+  const [tkMonthPunches, setTkMonthPunches] = useState<TkPunchRow[]>([]);
+  const [tkLoading, setTkLoading]         = useState(false);
+  const [tkLoaded, setTkLoaded]           = useState(false);
+
   // Fetch full extended profile on open
   useEffect(() => {
     setLoadingProfile(true);
@@ -380,6 +458,109 @@ export function EmployeeProfileSheet({
       .catch(() => {/* silently use initialEmployee data */})
       .finally(() => setLoadingProfile(false));
   }, [initialEmployee.user_id]);
+
+  // Load timekeeping data lazily when the tab is first opened
+  useEffect(() => {
+    if (activeTab !== "timekeeping" || tkLoaded) return;
+
+    const today = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+    const monthStart = today.slice(0, 8) + "01";
+
+    setTkLoading(true);
+    Promise.all([
+      apiFetch<TkTodayDetail>(`/timekeeping/timesheets/${profile.user_id}/${today}`).catch(() => null),
+      apiFetch<TkScheduleRow | null>(`/timekeeping/employees/${profile.user_id}/schedule`).catch(() => null),
+      apiFetch<TkPunchRow[]>(`/timekeeping/timesheets?from=${monthStart}&to=${today}`).catch(() => [] as TkPunchRow[]),
+    ]).then(([todayData, schedData, allPunches]) => {
+      setTkToday(todayData ?? null);
+      setTkSchedule(schedData ?? null);
+      setTkMonthPunches(
+        (allPunches ?? []).filter(p => p.employee_id === profile.employee_id)
+      );
+      setTkLoaded(true);
+    }).finally(() => setTkLoading(false));
+  }, [activeTab, tkLoaded, profile.user_id, profile.employee_id]);
+
+  // Derive today's clock status from raw punch data
+  const tkDerived = useMemo(() => {
+    const timeInPunch = tkToday?.punches.find(p => p.log_type === "time-in") ?? null;
+    const timeOutPunch = [...(tkToday?.punches ?? [])].reverse().find(p => p.log_type === "time-out") ?? null;
+    const absencePunch = tkToday?.punches.find(p => p.log_type === "absence") ?? null;
+    const isLate = timeInPunch?.clock_type === "LATE";
+
+    const schedule = tkToday?.schedule ?? tkSchedule;
+    const workdays = parseTkWorkdays(schedule?.workdays);
+    const DAY_ABBREVS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const todayAbbrev = DAY_ABBREVS[new Date().getDay()];
+    const isWorkDay = workdays.length === 0 || workdays.some(d =>
+      d.toLowerCase().slice(0, 3) === todayAbbrev.toLowerCase()
+    );
+
+    let status: "completed" | "in-progress" | "absent" | "no-punch" | "rest-day";
+    if (absencePunch)                       status = "absent";
+    else if (timeInPunch && timeOutPunch)   status = "completed";
+    else if (timeInPunch)                   status = "in-progress";
+    else if (!isWorkDay)                    status = "rest-day";
+    else                                    status = "no-punch";
+
+    let hoursWorked: number | null = null;
+    if (timeInPunch && timeOutPunch) {
+      const inTs  = timeInPunch.timestamp;
+      const outTs = timeOutPunch.timestamp;
+      const inD  = new Date(inTs.includes("Z")  || inTs.includes("+")  ? inTs  : inTs  + "Z");
+      const outD = new Date(outTs.includes("Z") || outTs.includes("+") ? outTs : outTs + "Z");
+      hoursWorked = (outD.getTime() - inD.getTime()) / 3600000;
+    }
+
+    return { timeInPunch, timeOutPunch, absencePunch, isLate, status, isWorkDay, hoursWorked, schedule };
+  }, [tkToday, tkSchedule]);
+
+  // Aggregate this-month stats from raw punches for this employee
+  const tkMonthStats = useMemo(() => {
+    if (tkMonthPunches.length === 0) return null;
+
+    type DayData = { ci: string | null; co: string | null; late: boolean };
+    const dayMap: Record<string, DayData> = {};
+
+    for (const p of tkMonthPunches) {
+      const d = p.timestamp.split("T")[0]!;
+      if (!dayMap[d]) dayMap[d] = { ci: null, co: null, late: false };
+      if (p.log_type === "time-in" && !dayMap[d]!.ci) {
+        dayMap[d]!.ci = p.timestamp;
+        const ts = p.timestamp.includes("Z") || p.timestamp.includes("+") ? p.timestamp : p.timestamp + "Z";
+        const h  = parseInt(new Date(ts).toLocaleString("en-US", { hour: "numeric", hour12: false, timeZone: "Asia/Manila" }), 10);
+        dayMap[d]!.late = h >= 9;
+      }
+      if (p.log_type === "time-out") dayMap[d]!.co = p.timestamp;
+    }
+
+    let days_present = 0, days_late = 0, total_hours = 0;
+    for (const d of Object.values(dayMap)) {
+      if (d.ci && d.co) {
+        days_present++;
+        if (d.late) days_late++;
+        const inD  = new Date(d.ci.includes("Z")  ? d.ci  : d.ci  + "Z");
+        const outD = new Date(d.co.includes("Z") ? d.co : d.co + "Z");
+        total_hours += (outD.getTime() - inD.getTime()) / 3600000;
+      }
+    }
+
+    // Count Mon–Fri work days from 1st of month up to today
+    const now = new Date();
+    let workDayCount = 0;
+    const monthStart2 = new Date(now.getFullYear(), now.getMonth(), 1);
+    let cur = new Date(monthStart2);
+    while (cur <= now) {
+      const dow = cur.getDay();
+      if (dow !== 0 && dow !== 6) workDayCount++;
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    const days_absent     = Math.max(0, workDayCount - days_present);
+    const attendance_rate = workDayCount > 0 ? Math.round((days_present / workDayCount) * 100) : 0;
+
+    return { days_present, days_late, days_absent, total_hours, attendance_rate };
+  }, [tkMonthPunches]);
 
   const displayName = [profile.first_name, profile.middle_name, profile.last_name].filter(Boolean).join(" ");
   const roleName = roles.find(r => r.role_id === profile.role_id)?.role_name ?? "—";
@@ -929,6 +1110,246 @@ export function EmployeeProfileSheet({
                           <p className="text-xs text-amber-700 mt-0.5">Onboarding is still in progress or pending approval.</p>
                         </div>
                       </div>
+                    )}
+                  </div>
+                )}
+
+                {/* ── Timekeeping ───────────────────────────────────────────── */}
+                {activeTab === "timekeeping" && (
+                  <div className="space-y-4">
+                    {tkLoading ? (
+                      <div className="flex items-center justify-center py-12 gap-2 text-muted-foreground">
+                        <Loader2 className="h-5 w-5 animate-spin" />
+                        <span className="text-sm">Loading timekeeping data…</span>
+                      </div>
+                    ) : (
+                      <>
+                        {/* ── Today's Attendance ─────────────────────────── */}
+                        <div className="bg-card border border-border rounded-xl overflow-hidden">
+                          {/* Card header with status badge */}
+                          <div className="px-5 py-3.5 border-b border-border flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="h-6 w-6 rounded-md bg-primary/10 flex items-center justify-center">
+                                <Clock className="h-3.5 w-3.5 text-primary" />
+                              </div>
+                              <h3 className="text-sm font-bold text-foreground">Today's Attendance</h3>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              {(() => {
+                                const cfg = {
+                                  completed:    { label: "Completed",   cls: "bg-green-100 text-green-700 border-green-200" },
+                                  "in-progress":{ label: "In Progress", cls: "bg-blue-100 text-blue-700 border-blue-200" },
+                                  absent:       { label: "Absent",      cls: "bg-red-100 text-red-700 border-red-200" },
+                                  "no-punch":   { label: "No Record",   cls: "bg-gray-100 text-gray-600 border-gray-200" },
+                                  "rest-day":   { label: "Rest Day",    cls: "bg-purple-100 text-purple-700 border-purple-200" },
+                                }[tkDerived.status];
+                                return (
+                                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${cfg.cls}`}>
+                                    {cfg.label}
+                                  </span>
+                                );
+                              })()}
+                              {tkDerived.isLate && tkDerived.status !== "absent" && tkDerived.status !== "rest-day" && (
+                                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-amber-100 text-amber-700 border-amber-200">
+                                  Late
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Card body */}
+                          <div className="px-5 py-4">
+                            {tkDerived.status === "absent" && tkDerived.absencePunch ? (
+                              <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-red-600 mb-1">Absence Reported</p>
+                                <p className="text-sm text-red-700">{tkDerived.absencePunch.absence_reason || "No reason specified"}</p>
+                                {tkDerived.absencePunch.log_status && (
+                                  <p className="text-xs text-red-500 mt-1 capitalize">{tkDerived.absencePunch.log_status.toLowerCase()}</p>
+                                )}
+                              </div>
+                            ) : tkDerived.status === "rest-day" ? (
+                              <p className="text-sm text-muted-foreground italic">Not scheduled to work today.</p>
+                            ) : tkDerived.status === "no-punch" ? (
+                              <div className="flex items-center gap-2 text-muted-foreground">
+                                <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                                <p className="text-sm">No punch recorded for today.</p>
+                              </div>
+                            ) : (
+                              <div className="space-y-3">
+                                <div className="grid grid-cols-3 gap-3">
+                                  {/* Time In */}
+                                  <div className="rounded-lg bg-muted/40 border border-border p-3 text-center">
+                                    <LogIn className="h-4 w-4 text-green-600 mx-auto mb-1.5" />
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Time In</p>
+                                    <p className="text-sm font-bold text-foreground mt-0.5">
+                                      {fmtPunchTime(tkDerived.timeInPunch?.timestamp)}
+                                    </p>
+                                  </div>
+                                  {/* Time Out */}
+                                  <div className="rounded-lg bg-muted/40 border border-border p-3 text-center">
+                                    <LogOut className="h-4 w-4 text-red-500 mx-auto mb-1.5" />
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Time Out</p>
+                                    <p className="text-sm font-bold text-foreground mt-0.5">
+                                      {tkDerived.timeOutPunch
+                                        ? fmtPunchTime(tkDerived.timeOutPunch.timestamp)
+                                        : <span className="text-muted-foreground/60">—</span>}
+                                    </p>
+                                  </div>
+                                  {/* Hours */}
+                                  <div className="rounded-lg bg-muted/40 border border-border p-3 text-center">
+                                    <Clock className="h-4 w-4 text-blue-500 mx-auto mb-1.5" />
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Hours</p>
+                                    <p className="text-sm font-bold text-foreground mt-0.5">
+                                      {tkDerived.hoursWorked !== null
+                                        ? fmtHours(tkDerived.hoursWorked)
+                                        : <span className="text-muted-foreground/60">—</span>}
+                                    </p>
+                                  </div>
+                                </div>
+                                {/* Scheduled shift reference */}
+                                {tkDerived.schedule && (
+                                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                                    <Calendar className="h-3.5 w-3.5 shrink-0" />
+                                    <span>
+                                      Scheduled: {fmtShiftTime(tkDerived.schedule.start_time)} — {fmtShiftTime(tkDerived.schedule.end_time)}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* ── Work Schedule ──────────────────────────────── */}
+                        <div className="bg-card border border-border rounded-xl p-5">
+                          <SectionHeader title="Work Schedule" icon={ClipboardList} />
+                          {!tkSchedule ? (
+                            <div className="flex items-center gap-2 text-muted-foreground">
+                              <AlertTriangle className="h-4 w-4 text-amber-500 shrink-0" />
+                              <p className="text-sm italic">No schedule assigned.</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              {/* Work day chips */}
+                              <div>
+                                <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">Work Days</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {(["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const).map(day => {
+                                    const wd = parseTkWorkdays(tkSchedule.workdays);
+                                    const active = wd.some(w => w.toLowerCase().slice(0, 3) === day.toLowerCase());
+                                    return (
+                                      <span key={day} className={`px-2.5 py-1 rounded-md text-[11px] font-bold uppercase border transition-colors ${
+                                        active
+                                          ? "bg-primary text-primary-foreground border-primary"
+                                          : "bg-muted/40 text-muted-foreground/40 border-border"
+                                      }`}>
+                                        {day}
+                                      </span>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Shift & break */}
+                              <div className="space-y-0.5">
+                                <InfoRow
+                                  icon={Clock}
+                                  label="Shift"
+                                  value={`${fmtShiftTime(tkSchedule.start_time)} — ${fmtShiftTime(tkSchedule.end_time)}`}
+                                />
+                                {(tkSchedule.break_start || tkSchedule.break_end) && (
+                                  <InfoRow
+                                    icon={Calendar}
+                                    label="Break"
+                                    value={`${fmtShiftTime(tkSchedule.break_start)} — ${fmtShiftTime(tkSchedule.break_end)}`}
+                                  />
+                                )}
+                              </div>
+
+                              {/* Badges */}
+                              <div className="flex flex-wrap gap-2">
+                                {tkSchedule.is_nightshift && (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-indigo-100 text-indigo-700 border-indigo-200">
+                                    Night Shift
+                                  </span>
+                                )}
+                                {tkSchedule.schedule_source && (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border bg-muted text-muted-foreground border-border">
+                                    {({ bulk: "Company", department: "Department", individual: "Custom", default: "Default" } as Record<string, string>)[tkSchedule.schedule_source] ?? tkSchedule.schedule_source} Schedule
+                                  </span>
+                                )}
+                              </div>
+
+                              {tkSchedule.updated_by_name && (
+                                <p className="text-[10px] text-muted-foreground">
+                                  Updated by {tkSchedule.updated_by_name}
+                                  {tkSchedule.updated_at ? ` on ${fmt(tkSchedule.updated_at)}` : ""}
+                                </p>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* ── This Month Stats ───────────────────────────── */}
+                        {tkMonthStats && (
+                          <div className="bg-card border border-border rounded-xl p-5">
+                            <SectionHeader title="This Month" icon={TrendingUp} />
+                            <div className="space-y-4">
+                              {/* Stat blocks */}
+                              <div className="grid grid-cols-3 gap-3">
+                                {[
+                                  { label: "Present", value: tkMonthStats.days_present, cls: "text-green-600", bg: "bg-green-50 border-green-200" },
+                                  { label: "Late",    value: tkMonthStats.days_late,    cls: "text-amber-600", bg: "bg-amber-50 border-amber-200" },
+                                  { label: "Absent",  value: tkMonthStats.days_absent,  cls: "text-red-600",   bg: "bg-red-50 border-red-200" },
+                                ].map(({ label, value, cls, bg }) => (
+                                  <div key={label} className={`rounded-lg border ${bg} p-3 text-center`}>
+                                    <p className={`text-2xl font-bold ${cls}`}>{value}</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mt-0.5">{label}</p>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Attendance rate bar */}
+                              <div>
+                                <div className="flex items-center justify-between mb-1.5">
+                                  <p className="text-xs font-semibold text-muted-foreground">Attendance Rate</p>
+                                  <p className={`text-sm font-bold ${
+                                    tkMonthStats.attendance_rate >= 95 ? "text-green-600" :
+                                    tkMonthStats.attendance_rate >= 80 ? "text-amber-600" : "text-red-600"
+                                  }`}>{tkMonthStats.attendance_rate}%</p>
+                                </div>
+                                <div className="h-2 w-full bg-muted rounded-full overflow-hidden">
+                                  <div
+                                    className={`h-full rounded-full transition-all duration-500 ${
+                                      tkMonthStats.attendance_rate >= 95 ? "bg-green-500" :
+                                      tkMonthStats.attendance_rate >= 80 ? "bg-amber-500" : "bg-red-500"
+                                    }`}
+                                    style={{ width: `${tkMonthStats.attendance_rate}%` }}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Total hours */}
+                              <div className="flex items-center justify-between rounded-lg bg-muted/40 border border-border px-4 py-2.5">
+                                <div className="flex items-center gap-2 text-muted-foreground">
+                                  <Clock className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="text-xs font-medium">Total Hours This Month</span>
+                                </div>
+                                <span className="text-sm font-bold text-foreground">{fmtHours(tkMonthStats.total_hours)}</span>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* No data at all */}
+                        {tkLoaded && !tkToday && !tkSchedule && (
+                          <div className="rounded-xl border border-border bg-muted/20 px-5 py-10 text-center">
+                            <Clock className="h-8 w-8 text-muted-foreground/30 mx-auto mb-3" />
+                            <p className="text-sm font-medium text-muted-foreground">No timekeeping data found.</p>
+                            <p className="text-xs text-muted-foreground mt-1">Employee may not have an active schedule.</p>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}

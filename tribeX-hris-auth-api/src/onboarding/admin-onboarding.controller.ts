@@ -1,5 +1,7 @@
-import { Controller, Get, Post, Patch, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, HttpCode, HttpStatus, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { OnboardingService } from './onboarding.service';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { AssignTemplateDto } from './dto/assign-template.dto';
@@ -56,23 +58,39 @@ export class AdminOnboardingController {
     return this.onboardingService.getDepartments();
   }
 
+  @Post('template-assets/images')
+  @Roles('System Admin')
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  @ApiOperation({ summary: 'Upload an image asset for onboarding template rich content' })
+  uploadTemplateImage(@UploadedFile() file: Express.Multer.File) {
+    return this.onboardingService.uploadTemplateImage(file);
+  }
+
   @Post('templates/:templateId/items')
   @Roles('System Admin')
   @ApiOperation({ summary: 'Add a new item to an existing template' })
   addTemplateItem(
     @Param('templateId') templateId: string,
-    @Body() body: { type: string; tab_category: string; title: string; description?: string; is_required: boolean },
+    @Body() body: { type: string; tab_category: string; title: string; description?: string; is_required: boolean; rich_content?: string },
   ) {
     return this.onboardingService.addTemplateItem(templateId, body);
   }
 
   @Patch('template-items/:itemId')
   @Roles('System Admin')
-  @ApiOperation({ summary: 'Update a template item (title, description, is_required)' })
+  @ApiOperation({ summary: 'Update a template item (title, description, is_required, rich_content)' })
   updateTemplateItem(
     @Param('itemId') itemId: string,
-    @Body() body: { title?: string; description?: string; is_required?: boolean },
+    @Body() body: { title?: string; description?: string; is_required?: boolean; rich_content?: string },
   ) {
     return this.onboardingService.updateTemplateItem(itemId, body);
+  }
+
+  @Delete('template-items/:itemId')
+  @Roles('System Admin')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Delete a template item' })
+  deleteTemplateItem(@Param('itemId') itemId: string) {
+    return this.onboardingService.deleteTemplateItem(itemId);
   }
 }

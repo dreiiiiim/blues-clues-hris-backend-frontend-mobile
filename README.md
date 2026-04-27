@@ -1,11 +1,17 @@
 # BluesClues HRIS
 
-A monorepo containing the authentication API and manager/applicant dashboard for the BluesClues HR Information System. Purely para sa devs lang to check progress ng lahat and para madali iconnect front at backend.
+Monorepo: authentication API + manager/applicant dashboard + mobile app for BluesClues HR Information System. Purely para sa devs lang to check progress ng lahat and para madali iconnect front at backend.
 
 GDocs Link:
 https://docs.google.com/document/d/1QbcjtozYNobPMb_ffn4uEWH5RwJ_TpOB4eTlkHVu4oE/edit?tab=t.0
 
-**Stack:** NestJS 11 · Next.js 16 · React Native (Expo) · Supabase · JWT · Tailwind CSS · shadcn/ui
+**Stack at a glance:** NestJS 11 · Next.js 16 · React 19 · React Native (Expo 54) · Supabase · JWT · Tailwind 4 · shadcn/ui · Resend
+
+> **Do we need AWS?** **No.** Supabase covers DB + storage + auth. Railway hosts backend. Resend handles email. See [Infrastructure](#infrastructure) for full breakdown.
+
+For deeper rules (code style per project, DB rules, secrets policy, gotchas), see **[RULES_AND_GUIDELINES.md](./RULES_AND_GUIDELINES.md)**.
+
+Last updated: 2026-04-27.
 
 ---
 
@@ -17,6 +23,81 @@ blues-clues-hris-backend-frontend-mobile/
 ├── frontend/blues-clues-hris-frontend-web/        # Next.js frontend — runs on port 3000
 └── blues-clues-hris-mobile/                       # Expo React Native app
 ```
+
+Each project has own `package.json` + `node_modules`. No workspace tooling — install deps per-project.
+
+---
+
+## Tech Stack (Detailed)
+
+### Backend — `tribeX-hris-auth-api/`
+
+| Layer         | Tech                                        | Version |
+| ------------- | ------------------------------------------- | ------- |
+| Framework     | NestJS                                      | 11.x    |
+| Language      | TypeScript                                  | 5.7     |
+| Runtime       | Node.js                                     | 20+     |
+| Auth          | `@nestjs/jwt` + `passport-jwt` + `bcryptjs` | —       |
+| DB Client     | `@supabase/supabase-js`                     | 2.97    |
+| Email         | `resend` (primary) + Nodemailer/Gmail SMTP  | 6.9     |
+| API Docs      | `@nestjs/swagger` + `swagger-ui-express`    | 11.x    |
+| Validation    | `class-validator` + `class-transformer`     | —       |
+| Rate Limiting | `@nestjs/throttler`                         | 6.5     |
+| Cron          | `@nestjs/schedule`                          | 6.1     |
+| File Parsing  | `pdf-parse`, `mammoth` (resume parsing)     | —       |
+| Testing       | Jest + Supertest                            | 30.x    |
+
+**Modules:** `auth`, `users`, `applicants`, `jobs`, `onboarding`, `timekeeping`, `notifications`, `mail`, `audit`, `supabase`.
+
+### Frontend — `frontend/blues-clues-hris-frontend-web/`
+
+| Layer       | Tech                         | Version |
+| ----------- | ---------------------------- | ------- |
+| Framework   | Next.js (App Router)         | 16.1    |
+| UI Lib      | React                        | 19.2    |
+| Styling     | Tailwind CSS                 | 4.x     |
+| Components  | shadcn/ui (Radix primitives) | —       |
+| Theme       | `next-themes` (dark mode)    | 0.4     |
+| Icons       | `lucide-react`               | —       |
+| Toasts      | `sonner`                     | 2.0     |
+| Drag & Drop | `@dnd-kit/core` + sortable   | 6.3     |
+| OAuth       | `@react-oauth/google`        | 0.13    |
+| Testing     | Jest + Testing Library       | 30.x    |
+
+### Mobile — `blues-clues-hris-mobile/`
+
+| Layer      | Tech                                   | Version |
+| ---------- | -------------------------------------- | ------- |
+| Framework  | Expo (managed)                         | 54      |
+| RN Version | React Native                           | 0.81    |
+| Styling    | NativeWind (Tailwind for RN)           | 4.2     |
+| Navigation | `@react-navigation/*` (drawer + stack) | 7.x     |
+| Storage    | `@react-native-async-storage`          | 2.2     |
+| Animation  | `react-native-reanimated`              | 4.1     |
+
+---
+
+## Infrastructure
+
+| Service        | Used For                                     | Notes                              |
+| -------------- | -------------------------------------------- | ---------------------------------- |
+| **Supabase**   | Postgres DB, auth tables, file storage, RLS  | Project ref `xvofqboilmzlhrnkyyif` |
+| **Railway**    | Backend deploy (NestJS)                      | Prod URL below                     |
+| **Vercel**     | Frontend deploy (Next.js) — recommended      | —                                  |
+| **Resend**     | Transactional email (primary)                | API key in backend `.env`          |
+| **Gmail SMTP** | Email fallback / legacy templates            | App Password, not real password    |
+| **Expo Go**    | Mobile dev + OTA preview                     | Same Wi-Fi for localhost           |
+
+**Why no AWS:**
+- Supabase = managed Postgres + Storage + Auth (replaces RDS + S3 + Cognito)
+- Railway = container deploy with logs/env (replaces ECS / Elastic Beanstalk)
+- Resend = transactional email (replaces SES)
+
+Adding AWS = more DevOps work + more bills + more surface area. Stick with current stack unless we hit a real wall (e.g., scale limits or a feature only AWS provides).
+
+**Prod URLs:**
+- Backend: `https://blues-clues-hris-backend-frontend-mobile-production.up.railway.app`
+- Swagger (local): `http://localhost:5000/api/docs`
 
 ---
 
@@ -249,13 +330,17 @@ git rebase origin/main
 
 Use [Conventional Commits](https://www.conventionalcommits.org/):
 
-| Prefix      | When to use                                |
-| ----------- | ------------------------------------------ |
-| `feat:`     | Adding new functionality                   |
-| `fix:`      | Fixing a bug                               |
-| `refactor:` | Restructuring code without behavior change |
-| `chore:`    | Deps, config, tooling changes              |
-| `test:`     | Adding or updating tests                   |
+| Prefix      | When to use                                       |
+| ----------- | ------------------------------------------------- |
+| `feat:`     | New functionality                                 |
+| `fix:`      | Bug fix                                           |
+| `refactor:` | Restructuring code without behavior change        |
+| `chore:`    | Deps, config, tooling changes                     |
+| `test:`     | Adding or updating tests                          |
+| `docs:`     | Documentation only                                |
+| `ux:`       | UX/UI polish (used in repo, e.g. `ux(sfia): ...`) |
+
+Subject ≤ 72 chars. Imperative mood ("add", not "added"). Scope optional: `feat(mail): ...`.
 
 **Examples from this repo:**
 
@@ -356,7 +441,36 @@ Full API reference: `http://localhost:5000/api/docs`
 
 A task is considered done only when:
 
-- Code is merged to `main` via PR with at least 1 approval
-- `npm run lint` passes in affected projects
-- No regressions introduced to existing functionality
-- Any behavior or config changes are reflected in documentation
+- Code merged to `main` via PR with ≥1 approval
+- `npm run lint` passes in all affected projects
+- Manual smoke test on the feature passes
+- No regressions in adjacent areas
+- Docs updated (README / `RULES_AND_GUIDELINES.md` / Swagger) if behavior or config changed
+- Works in **both light and dark mode** (frontend/mobile)
+- Tested against Railway backend, not just localhost
+
+---
+
+## Common Gotchas
+
+- **Mobile localhost:** phone + machine on **same Wi-Fi**. Use machine's IPv4 from `ipconfig` (look under Wi-Fi adapter).
+- **Expo cache:** always `npx expo start -c` after `.env` change. Stale cache causes silent failures.
+- **Next.js env:** restart dev server after editing `.env.local`. Only `NEXT_PUBLIC_*` vars reach the browser.
+- **Supabase RLS:** if a query returns empty in prod but works locally → RLS policy mismatch. Check policies first, not the query.
+- **Email failures silent:** SMTP/Resend errors currently swallowed on applicant verification flow. Open issue.
+- **`time_logs` table:** missing in some Supabase envs. Verify before timekeeping work.
+- **Service-role key:** server-only. Never bundle into frontend or mobile.
+
+---
+
+## Where to Find Things
+
+| Need                    | Location                                            |
+| ----------------------- | --------------------------------------------------- |
+| API reference           | `http://localhost:5000/api/docs` (Swagger)          |
+| Project plan / spec     | GDocs link at top                                   |
+| Deeper dev rules        | [`RULES_AND_GUIDELINES.md`](./RULES_AND_GUIDELINES.md) |
+| SQL migrations          | `tribeX-hris-auth-api/sql/`                         |
+| Email templates         | `tribeX-hris-auth-api/src/mail/`                    |
+| Shared types (frontend) | `frontend/.../src/types/`                           |
+| API clients (frontend)  | `frontend/.../src/lib/*Api.ts`                      |
