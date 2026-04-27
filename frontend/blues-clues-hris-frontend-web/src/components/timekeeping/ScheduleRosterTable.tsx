@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { Search, CalendarDays, Users, RefreshCw } from "lucide-react";
+import { Search, CalendarDays, Users, RefreshCw, ChevronLeft, ChevronRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { authFetch } from "@/lib/authApi";
@@ -10,7 +10,8 @@ import { API_BASE_URL } from "@/lib/api";
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type ScheduleSource = "bulk" | "department" | "individual" | "default" | null;
-type SourceFilter = "all" | "custom" | "standard" | "department" | "default" | "unset";
+type AssignmentFilter = "all" | "custom" | "department" | "company" | "unset";
+type AssignmentKind = "custom" | "department" | "company" | "unset";
 
 type RosterEntry = {
   user_id: string;
@@ -65,22 +66,6 @@ function normalizeScheduleSource(
     return source;
   }
   return hasSchedule ? "default" : null;
-}
-
-const KNOWN_TEMPLATES: Array<{ start: string; end: string; name: string }> = [
-  { start: "09:00", end: "18:00", name: "Standard" },
-  { start: "07:00", end: "16:00", name: "Early" },
-  { start: "12:00", end: "21:00", name: "Late" },
-  { start: "21:00", end: "06:00", name: "Night" },
-  { start: "09:00", end: "13:00", name: "Half Day AM" },
-  { start: "13:00", end: "18:00", name: "Half Day PM" },
-];
-
-function resolveTemplateName(startTime: string | null, endTime: string | null): string {
-  if (!startTime || !endTime) return "Bulk";
-  const st = startTime.substring(0, 5);
-  const et = endTime.substring(0, 5);
-  return KNOWN_TEMPLATES.find(t => t.start === st && t.end === et)?.name ?? "Bulk";
 }
 
 function normalizeRosterEntry(row: RosterEntry): RosterEntry {
@@ -141,43 +126,42 @@ function EmployeeAvatar({
 
 // ─── Source Badge ─────────────────────────────────────────────────────────────
 
-function SourceBadge({ source, startTime, endTime }: {
-  readonly source: ScheduleSource;
-  readonly startTime?: string | null;
-  readonly endTime?: string | null;
+function getAssignmentKind(row: Pick<RosterEntry, "department_id" | "schedule">): AssignmentKind {
+  const source = row.schedule?.schedule_source ?? null;
+  if (!row.schedule || source === null) return "unset";
+  if (source === "individual") return "custom";
+  if (source === "department") return "department";
+  if (source === "bulk" && row.department_id) return "department";
+  return "company";
+}
+
+function AssignmentBadge({ kind }: {
+  readonly kind: AssignmentKind;
 }) {
-  if (source === "individual") {
+  if (kind === "custom") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-violet-100 text-violet-700 border border-violet-200 whitespace-nowrap">
-        Custom
+        Custom Schedule
       </span>
     );
   }
-  if (source === "bulk") {
-    const name = resolveTemplateName(startTime ?? null, endTime ?? null);
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-sky-100 text-sky-700 border border-sky-200 whitespace-nowrap">
-        {name}
-      </span>
-    );
-  }
-  if (source === "department") {
+  if (kind === "department") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-200 whitespace-nowrap">
-        Department
+        Department Schedule
       </span>
     );
   }
-  if (source === "default") {
+  if (kind === "company") {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200 whitespace-nowrap">
-        Company Default
+        Whole Company Default
       </span>
     );
   }
   return (
     <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-slate-100 text-slate-400 border border-slate-200 whitespace-nowrap">
-      Unset
+      No Schedule
     </span>
   );
 }
@@ -218,13 +202,15 @@ export function ScheduleRosterTable({
   onEditEmployee: (userId: string, name: string, schedule: RosterEntry["schedule"]) => void;
   onEditDepartment?: (departmentId: string, departmentName: string, schedule: RosterEntry["schedule"]) => void;
 }>) {
+  const PAGE_SIZE = 8;
   const [roster, setRoster]           = useState<RosterEntry[]>([]);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState<string | null>(null);
   const [search, setSearch]           = useState("");
   const [deptFilter, setDeptFilter]   = useState("all");
-  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>("all");
   const [warningPanel, setWarningPanel] = useState<"custom" | "unset" | null>(null);
+  const [page, setPage]               = useState(1);
 
   const fetchRoster = () => {
     setLoading(true);
@@ -249,17 +235,15 @@ export function ScheduleRosterTable({
       const name = `${r.first_name} ${r.last_name}`.toLowerCase();
       const matchSearch = !q || name.includes(q) || r.employee_id.toLowerCase().includes(q);
       const matchDept   = deptFilter === "all" || r.department_name === deptFilter;
-      const source = r.schedule?.schedule_source ?? null;
+      const assignment = getAssignmentKind(r);
       const matchSource =
-        sourceFilter === "all" ? true :
-        sourceFilter === "custom" ? source === "individual" :
-        sourceFilter === "standard" ? source === "bulk" || source === "default" || source === "department" :
-        sourceFilter === "department" ? source === "department" :
-        sourceFilter === "default" ? source === "default" :
-        !r.schedule || source === null;
+        assignmentFilter === "all" ? true :
+        assignmentFilter === assignment;
       return matchSearch && matchDept && matchSource;
     });
-  }, [roster, search, deptFilter, sourceFilter]);
+  }, [roster, search, deptFilter, assignmentFilter]);
+
+  useEffect(() => { setPage(1); }, [search, deptFilter, assignmentFilter, warningPanel]);
 
   const departmentSchedules = useMemo(() => {
     type DepartmentSummary = {
@@ -317,28 +301,30 @@ export function ScheduleRosterTable({
     );
   }, [roster]);
 
-  const customCount = roster.filter(r => r.schedule?.schedule_source === "individual").length;
-  const departmentCount = roster.filter(r => r.schedule?.schedule_source === "department").length;
-  const defaultCount = roster.filter(r => r.schedule?.schedule_source === "default" || r.schedule?.schedule_source === "bulk").length;
-  const unsetCount  = roster.filter(r => !r.schedule || r.schedule?.schedule_source === null).length;
+  const customCount = roster.filter(r => getAssignmentKind(r) === "custom").length;
+  const departmentCount = roster.filter(r => getAssignmentKind(r) === "department").length;
+  const defaultCount = roster.filter(r => getAssignmentKind(r) === "company").length;
+  const unsetCount  = roster.filter(r => getAssignmentKind(r) === "unset").length;
   const totalCount = Math.max(roster.length, 1);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pagedRows = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const coverageSegments = [
     { key: "custom", label: "Custom", count: customCount, className: "bg-violet-500" },
     { key: "department", label: "Department", count: departmentCount, className: "bg-emerald-500" },
-    { key: "default", label: "Default", count: defaultCount, className: "bg-blue-500" },
+    { key: "default", label: "Company", count: defaultCount, className: "bg-blue-500" },
     { key: "unset", label: "Unset", count: unsetCount, className: "bg-amber-400" },
   ];
   const warningRows = useMemo(() => {
     if (warningPanel === "custom") {
       return roster
-        .filter((r) => r.schedule?.schedule_source === "individual")
+        .filter((r) => getAssignmentKind(r) === "custom")
         .sort((a, b) =>
           `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`),
         );
     }
     if (warningPanel === "unset") {
       return roster
-        .filter((r) => !r.schedule || r.schedule?.schedule_source === null)
+        .filter((r) => getAssignmentKind(r) === "unset")
         .sort((a, b) =>
           `${a.first_name} ${a.last_name}`.localeCompare(`${b.first_name} ${b.last_name}`),
         );
@@ -349,7 +335,7 @@ export function ScheduleRosterTable({
   const toggleWarningPanel = (panel: "custom" | "unset") => {
     setWarningPanel((prev) => {
       const next = prev === panel ? null : panel;
-      setSourceFilter(next ?? "all");
+      setAssignmentFilter(next ?? "all");
       return next;
     });
   };
@@ -373,8 +359,8 @@ export function ScheduleRosterTable({
                 segment.count > 0 ? (
                   <span
                     key={segment.key}
-                    className={segment.className}
-                    style={{ width: `${(segment.count / totalCount) * 100}%` }}
+                    className={`${segment.className} shrink-0`}
+                    style={{ flexBasis: `${(segment.count / totalCount) * 100}%` }}
                     title={`${segment.label}: ${segment.count}`}
                   />
                 ) : null
@@ -440,7 +426,7 @@ export function ScheduleRosterTable({
               className="h-8 text-xs"
               onClick={() => {
                 setWarningPanel(null);
-                setSourceFilter("all");
+                setAssignmentFilter("all");
               }}
             >
               Hide
@@ -458,7 +444,7 @@ export function ScheduleRosterTable({
                       <p className="text-sm font-semibold truncate">{name}</p>
                       <p className="text-[10px] text-muted-foreground truncate">
                         {row.employee_id}
-                        {row.department_name ? ` · ${row.department_name}` : ""}
+                        {row.department_name ? ` — ${row.department_name}` : ""}
                       </p>
                     </div>
                     {canEdit && (
@@ -501,16 +487,15 @@ export function ScheduleRosterTable({
         </select>
 
         <select
-          value={sourceFilter}
-          onChange={e => setSourceFilter(e.target.value as SourceFilter)}
+          value={assignmentFilter}
+          onChange={e => setAssignmentFilter(e.target.value as AssignmentFilter)}
           className="h-9 px-3 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
         >
-          <option value="all">All Sources</option>
-          <option value="custom">Custom only</option>
-          <option value="standard">Standard only</option>
-          <option value="department">Department only</option>
-          <option value="default">Company default only</option>
-          <option value="unset">Unset only</option>
+          <option value="all">All Assignments</option>
+          <option value="custom">Custom schedule</option>
+          <option value="department">Department schedule</option>
+          <option value="company">Whole company default</option>
+          <option value="unset">No schedule</option>
         </select>
 
         <Button
@@ -528,7 +513,7 @@ export function ScheduleRosterTable({
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-muted/20">
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-            Org-wide assignments · {departmentSchedules.length} departments
+            Org-wide assignments ({departmentSchedules.length} departments)
           </p>
         </div>
         {loading ? (
@@ -552,7 +537,7 @@ export function ScheduleRosterTable({
                   <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Shift</th>
                   <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Break</th>
                   <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Work Days</th>
-                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Source</th>
+                  <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Assignment</th>
                   {canEdit && onEditDepartment && (
                     <th className="px-4 py-3 text-right text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Action</th>
                   )}
@@ -594,11 +579,7 @@ export function ScheduleRosterTable({
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <SourceBadge
-                          source={sched?.schedule_source ?? null}
-                          startTime={sched?.start_time}
-                          endTime={sched?.end_time}
-                        />
+                        <AssignmentBadge kind={sched ? "department" : "unset"} />
                       </td>
                       {canEdit && onEditDepartment && (
                         <td className="px-4 py-3 text-right">
@@ -624,7 +605,7 @@ export function ScheduleRosterTable({
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-muted/20">
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-            Per-employee overrides · {filtered.length} employees
+            Per-employee overrides ({filtered.length} employees)
           </p>
         </div>
         {loading ? (
@@ -634,16 +615,16 @@ export function ScheduleRosterTable({
         ) : filtered.length === 0 ? (
           <div className="py-16 text-center text-sm text-muted-foreground">No employees match your filters.</div>
         ) : (
-          <div className="max-h-[34rem] overflow-auto">
+          <div>
           <table className="w-full text-sm">
-            <thead className="sticky top-0 z-10 bg-muted/30 backdrop-blur">
+            <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Employee</th>
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Department</th>
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Shift</th>
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Break</th>
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Work Days</th>
-                <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Source</th>
+                <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Assignment</th>
                 <th className="px-4 py-3 text-left text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Last Updated By</th>
                 {canEdit && (
                   <th className="px-4 py-3 text-right text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Action</th>
@@ -651,7 +632,7 @@ export function ScheduleRosterTable({
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {filtered.map(row => {
+              {pagedRows.map(row => {
                 const s = row.schedule;
                 const workdays = parseWorkdays(s?.workdays ?? null);
                 const name = `${row.first_name} ${row.last_name}`.trim();
@@ -711,11 +692,7 @@ export function ScheduleRosterTable({
 
                     {/* Source */}
                     <td className="px-4 py-3">
-                      <SourceBadge
-                        source={s?.schedule_source ?? null}
-                        startTime={s?.start_time}
-                        endTime={s?.end_time}
-                      />
+                      <AssignmentBadge kind={getAssignmentKind(row)} />
                     </td>
 
                     {/* Last Updated By */}
@@ -753,16 +730,40 @@ export function ScheduleRosterTable({
           </table>
           </div>
         )}
+        {!loading && !error && filtered.length > 0 && (
+          <div className="px-4 py-3 border-t border-border bg-muted/10 flex items-center justify-between gap-3 flex-wrap">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+              Showing {(page - 1) * PAGE_SIZE + 1}–{Math.min(page * PAGE_SIZE, filtered.length)} of {filtered.length}
+              {customCount > 0 && (
+                <> <span className="text-border mx-1">|</span> <span className="text-violet-600">{customCount} custom</span></>
+              )}
+            </p>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.max(1, p - 1))}
+                disabled={page === 1}
+                className="h-8 gap-1 text-xs"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" /> Prev
+              </Button>
+              <span className="text-xs font-semibold text-foreground tabular-nums">
+                Page {page} of {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+                className="h-8 gap-1 text-xs"
+              >
+                Next <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
-
-      {!loading && !error && (
-        <p className="text-[10px] text-muted-foreground">
-          Showing {filtered.length} of {roster.length} employees
-          {customCount > 0 && (
-            <> · <span className="text-violet-600 font-semibold">{customCount} with custom (individually-set) schedules</span></>
-          )}
-        </p>
-      )}
     </div>
   );
 }

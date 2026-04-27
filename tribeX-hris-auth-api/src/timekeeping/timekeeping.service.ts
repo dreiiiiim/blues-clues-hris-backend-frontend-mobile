@@ -123,6 +123,26 @@ function normalizeCompanyDefaultScheduleRow(
   };
 }
 
+function applyCompanyDefaultOverlay(
+  row: ScheduleRow,
+  companyDefault: CompanyDefaultScheduleRow | null,
+  force = false,
+): ScheduleRow {
+  if ((!force && row.schedule_source !== 'default') || !companyDefault) return row;
+  return {
+    ...row,
+    start_time: companyDefault.start_time,
+    end_time: companyDefault.end_time,
+    break_start: companyDefault.break_start ?? row.break_start,
+    break_end: companyDefault.break_end ?? row.break_end,
+    workdays: companyDefault.workdays,
+    is_nightshift: companyDefault.is_nightshift,
+    schedule_source: 'default',
+    updated_by_name: companyDefault.updated_by_name ?? row.updated_by_name,
+    updated_at: companyDefault.updated_at ?? row.updated_at,
+  };
+}
+
 function normalizeDepartmentName(name: unknown): string | null {
   if (typeof name !== 'string') return null;
   const normalized = name.trim();
@@ -1952,10 +1972,72 @@ export class TimekeepingService {
 
     if (error) throw new Error(error.message);
 
+    await this.syncCompanyDefaultScheduleRows(companyId, data);
+
     this.logger.log(
       `Company default schedule saved - company_id: ${companyId}, effective_from: ${effectiveFrom}, by: ${updatedByName}`,
     );
     return normalizeCompanyDefaultScheduleRow(data)!;
+  }
+
+  private async syncCompanyDefaultScheduleRows(
+    companyId: string,
+    companyDefault: CompanyDefaultScheduleRow,
+  ): Promise<void> {
+    const supabase = this.supabaseService.getClient();
+    const effectiveFrom = companyDefault.effective_from ?? this.getManilaDateString();
+
+    const { data: employees, error: employeesError } = await supabase
+      .from('user_profile')
+      .select('employee_id, department_id')
+      .eq('company_id', companyId)
+      .not('employee_id', 'is', null)
+      .is('department_id', null);
+
+    if (employeesError) throw new Error(employeesError.message);
+
+    const employeeIds = (employees ?? [])
+      .map((employee: { employee_id?: string | null }) => employee.employee_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    if (employeeIds.length === 0) return;
+
+    const { data: schedules, error: schedulesError } = await supabase
+      .from('schedules')
+      .select('employee_id, schedule_source')
+      .in('employee_id', employeeIds)
+      .lte('effective_from', effectiveFrom)
+      .neq('schedule_source', 'individual');
+
+    if (schedulesError) throw new Error(schedulesError.message);
+
+    const scheduledIds = new Set(
+      (schedules ?? [])
+        .map((schedule: { employee_id?: string | null }) => schedule.employee_id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    );
+
+    if (scheduledIds.size === 0) return;
+
+    const rows = Array.from(scheduledIds).map((employeeId) => ({
+      employee_id: employeeId,
+      effective_from: effectiveFrom,
+      start_time: companyDefault.start_time,
+      end_time: companyDefault.end_time,
+      break_start: companyDefault.break_start ?? '00:00',
+      break_end: companyDefault.break_end ?? '00:00',
+      workdays: companyDefault.workdays,
+      is_nightshift: companyDefault.is_nightshift ?? false,
+      schedule_source: 'default' as const,
+      updated_by_name: companyDefault.updated_by_name ?? null,
+      updated_at: companyDefault.updated_at ?? new Date().toISOString(),
+    }));
+
+    const { error: upsertError } = await supabase
+      .from('schedules')
+      .upsert(rows, { onConflict: 'employee_id,effective_from' });
+
+    if (upsertError) throw new Error(upsertError.message);
   }
 
   private async findDepartmentBaselineSchedule(
@@ -1999,6 +2081,42 @@ export class TimekeepingService {
 
     if (departmentScheduleError) throw new Error(departmentScheduleError.message);
     return normalizeScheduleRow(departmentSchedule ?? null);
+  }
+
+  private async findCompanyBaselineSchedule(
+    companyId: string,
+    effectiveFrom: string,
+  ): Promise<ScheduleRow | null> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: employees, error: employeesError } = await supabase
+      .from('user_profile')
+      .select('employee_id')
+      .eq('company_id', companyId)
+      .not('employee_id', 'is', null)
+      .limit(1000);
+
+    if (employeesError) throw new Error(employeesError.message);
+
+    const employeeIds = (employees ?? [])
+      .map((employee: { employee_id?: string | null }) => employee.employee_id)
+      .filter((id): id is string => typeof id === 'string' && id.length > 0);
+
+    if (employeeIds.length === 0) return null;
+
+    const { data: companySchedule, error: companyScheduleError } = await supabase
+      .from('schedules')
+      .select(SCHEDULE_SELECT_FIELDS)
+      .in('employee_id', employeeIds)
+      .neq('schedule_source', 'individual')
+      .lte('effective_from', effectiveFrom)
+      .order('effective_from', { ascending: false })
+      .order('updated_at', { ascending: false })
+      .limit(1)
+      .maybeSingle<ScheduleRow>();
+
+    if (companyScheduleError) throw new Error(companyScheduleError.message);
+    return normalizeScheduleRow(companySchedule ?? null);
   }
 
   private async upsertInheritedSchedule(params: {
@@ -2051,7 +2169,7 @@ export class TimekeepingService {
     departmentId?: string | null;
     effectiveDate?: string | null;
     updatedByName?: string | null;
-  }): Promise<{ source: 'department' | 'company-default' | 'preserved-individual' | 'none' }> {
+  }): Promise<{ source: 'department' | 'company-default' | 'company-baseline' | 'preserved-individual' | 'none' }> {
     const effectiveFrom = params.effectiveDate
       ? this.ensureIsoDate(params.effectiveDate)
       : this.getManilaDateString();
@@ -2081,20 +2199,35 @@ export class TimekeepingService {
     }
 
     const companyDefault = await this.getCompanyDefaultSchedule(params.companyId);
-    if (!companyDefault) return { source: 'none' };
-    const defaultEffectiveFrom =
-      companyDefault.effective_from && companyDefault.effective_from > effectiveFrom
-        ? companyDefault.effective_from
-        : effectiveFrom;
+    if (companyDefault) {
+      const defaultEffectiveFrom =
+        companyDefault.effective_from && companyDefault.effective_from > effectiveFrom
+          ? companyDefault.effective_from
+          : effectiveFrom;
 
-    await this.upsertInheritedSchedule({
-      employeeId: params.employeeId,
-      effectiveFrom: defaultEffectiveFrom,
-      schedule: companyDefault,
-      scheduleSource: 'default',
-      updatedByName: params.updatedByName ?? null,
-    });
-    return { source: 'company-default' };
+      await this.upsertInheritedSchedule({
+        employeeId: params.employeeId,
+        effectiveFrom: defaultEffectiveFrom,
+        schedule: companyDefault,
+        scheduleSource: 'default',
+        updatedByName: params.updatedByName ?? null,
+      });
+      return { source: 'company-default' };
+    }
+
+    const companyBaseline = await this.findCompanyBaselineSchedule(params.companyId, effectiveFrom);
+    if (companyBaseline) {
+      await this.upsertInheritedSchedule({
+        employeeId: params.employeeId,
+        effectiveFrom,
+        schedule: companyBaseline,
+        scheduleSource: 'bulk',
+        updatedByName: params.updatedByName ?? null,
+      });
+      return { source: 'company-baseline' };
+    }
+
+    return { source: 'none' };
   }
 
   async backfillCompanyDefaultSchedule(
@@ -2124,7 +2257,9 @@ export class TimekeepingService {
     let affected = 0;
 
     for (const employee of employees) {
-      if (scheduleMap.has(employee.employee_id)) continue;
+      const existing = scheduleMap.get(employee.employee_id);
+      if (existing?.schedule_source === 'individual') continue;
+      if (existing?.schedule_source === 'bulk') continue;
       await this.upsertInheritedSchedule({
         employeeId: employee.employee_id,
         effectiveFrom,
@@ -2149,7 +2284,7 @@ export class TimekeepingService {
     const [{ data: profile, error: profileError }, { data: updater }] = await Promise.all([
       supabase
         .from('user_profile')
-        .select('employee_id, company_id')
+        .select('employee_id, company_id, department_id')
         .eq('user_id', targetUserId)
         .maybeSingle(),
       supabase
@@ -2309,6 +2444,78 @@ export class TimekeepingService {
     return normalizeScheduleRow(data)!;
   }
 
+  async resetEmployeeScheduleToCompanyDefault(
+    targetUserId: string,
+    dto: ScheduleEffectiveDateDto,
+    companyId: string,
+    updaterUserId: string,
+  ): Promise<ScheduleRow> {
+    const supabase = this.supabaseService.getClient();
+    const effectiveFrom = this.resolveEffectiveDate(dto.effective_date);
+
+    const [{ data: profile, error: profileError }, { data: updater }] =
+      await Promise.all([
+        supabase
+          .from('user_profile')
+          .select('employee_id, company_id')
+          .eq('user_id', targetUserId)
+          .maybeSingle(),
+        supabase
+          .from('user_profile')
+          .select('first_name, last_name')
+          .eq('user_id', updaterUserId)
+          .maybeSingle(),
+      ]);
+
+    if (profileError) throw new Error(profileError.message);
+    if (!profile) throw new NotFoundException('Employee not found.');
+    if (profile.company_id !== companyId) {
+      throw new NotFoundException('Employee not found in your company.');
+    }
+    if (!profile.employee_id) {
+      throw new BadRequestException(
+        'Employee does not have an employee_id assigned.',
+      );
+    }
+
+    const companyDefault = await this.getCompanyDefaultSchedule(companyId);
+    if (!companyDefault) {
+      throw new BadRequestException('No company default schedule has been configured.');
+    }
+
+    const updatedByName = updater
+      ? `${updater.first_name ?? ''} ${updater.last_name ?? ''}`.trim() || null
+      : null;
+
+    const { data, error } = await supabase
+      .from('schedules')
+      .upsert(
+        {
+          employee_id: profile.employee_id,
+          effective_from: effectiveFrom,
+          start_time: companyDefault.start_time,
+          end_time: companyDefault.end_time,
+          break_start: companyDefault.break_start ?? '00:00',
+          break_end: companyDefault.break_end ?? '00:00',
+          workdays: companyDefault.workdays,
+          is_nightshift: companyDefault.is_nightshift ?? false,
+          schedule_source: 'default',
+          updated_by_name: updatedByName,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: 'employee_id,effective_from' },
+      )
+      .select(SCHEDULE_SELECT_FIELDS)
+      .single<ScheduleRow>();
+
+    if (error) throw new Error(error.message);
+
+    this.logger.log(
+      `Schedule reset to company default - employee_id: ${profile.employee_id}, effective_from: ${effectiveFrom}, by: ${updatedByName}`,
+    );
+    return normalizeScheduleRow(data)!;
+  }
+
   async bulkAssignSchedule(
     dto: BulkScheduleDto,
     companyId: string,
@@ -2419,6 +2626,28 @@ export class TimekeepingService {
 
     if (error) throw new Error(error.message);
 
+    if (dto.scope === 'company') {
+      const companyDefaultRow: CompanyDefaultScheduleRow = {
+        company_id: companyId,
+        effective_from: effectiveFrom,
+        start_time: dto.schedule.start_time,
+        end_time: dto.schedule.end_time,
+        break_start: dto.schedule.break_start ?? '00:00',
+        break_end: dto.schedule.break_end ?? '00:00',
+        workdays: dto.schedule.workdays,
+        is_nightshift: dto.schedule.is_nightshift,
+        updated_by: updaterUserId,
+        updated_by_name: updatedByName,
+        updated_at: now,
+      };
+      const { error: defaultError } = await supabase
+        .from('timekeeping_company_default_schedules')
+        .upsert(companyDefaultRow, { onConflict: 'company_id' });
+
+      if (defaultError) throw new Error(defaultError.message);
+      await this.syncCompanyDefaultScheduleRows(companyId, companyDefaultRow);
+    }
+
     this.logger.log(`Bulk schedule assigned — ${rows.length} employees, scope: ${dto.scope}, by: ${updatedByName}`);
     return { affected: rows.length };
   }
@@ -2431,7 +2660,7 @@ export class TimekeepingService {
 
     const { data: profile, error } = await supabase
       .from('user_profile')
-      .select('employee_id, company_id')
+      .select('employee_id, company_id, department_id')
       .eq('user_id', targetUserId)
       .maybeSingle();
 
@@ -2439,7 +2668,15 @@ export class TimekeepingService {
     if (!profile || profile.company_id !== companyId) return null;
     if (!profile.employee_id) return null;
 
-    return this.getScheduleForEmployee(profile.employee_id, this.getManilaDateString());
+    const [schedule, companyDefault] = await Promise.all([
+      this.getScheduleForEmployee(profile.employee_id, this.getManilaDateString()),
+      this.getCompanyDefaultSchedule(companyId),
+    ]);
+    if (!schedule) return null;
+    const shouldOverlayCompanyDefault =
+      schedule.schedule_source === 'default' ||
+      (schedule.schedule_source === 'bulk' && !profile.department_id);
+    return applyCompanyDefaultOverlay(schedule, companyDefault, shouldOverlayCompanyDefault);
   }
 
   async getAllSchedules(companyId: string): Promise<
@@ -2454,35 +2691,55 @@ export class TimekeepingService {
       schedule: ScheduleRow | null;
     }[]
   > {
-    const supabase = this.supabaseService.getClient();
     const employees = await this.getEmployeeUsers(companyId);
 
     const employeeIds = employees.map(e => e.employee_id).filter(Boolean);
     if (employeeIds.length === 0) return [];
 
-    const scheduleMap = await this.getScheduleMapForEmployeesAsOf(
-      employeeIds,
-      this.getManilaDateString(),
-    );
+    const [scheduleMap, companyDefault] = await Promise.all([
+      this.getScheduleMapForEmployeesAsOf(employeeIds, this.getManilaDateString()),
+      this.getCompanyDefaultSchedule(companyId),
+    ]);
 
-    return employees.map(e => ({
-      user_id: e.user_id,
-      employee_id: e.employee_id,
-      first_name: e.first_name,
-      last_name: e.last_name,
-      avatar_url: e.avatar_url ?? null,
-      department_id: e.department_id ?? null,
-      department_name: normalizeDepartmentName(
-        (e as EmployeeUserRow).department_name,
-      ),
-      schedule: scheduleMap.get(e.employee_id) ?? null,
-    }));
+    return employees.map(e => {
+      const raw = scheduleMap.get(e.employee_id) ?? null;
+      const shouldOverlayCompanyDefault =
+        raw?.schedule_source === 'default' ||
+        (raw?.schedule_source === 'bulk' && !e.department_id);
+      return {
+        user_id: e.user_id,
+        employee_id: e.employee_id,
+        first_name: e.first_name,
+        last_name: e.last_name,
+        avatar_url: e.avatar_url ?? null,
+        department_id: e.department_id ?? null,
+        department_name: normalizeDepartmentName(
+          (e as EmployeeUserRow).department_name,
+        ),
+        schedule: raw ? applyCompanyDefaultOverlay(raw, companyDefault, shouldOverlayCompanyDefault) : null,
+      };
+    });
   }
 
   async getMySchedule(userId: string): Promise<ScheduleRow | null> {
-    const employeeId = await this.getEmployeeId(userId);
-    if (!employeeId) return null;
-    return this.getScheduleForEmployee(employeeId, this.getManilaDateString());
+    const supabase = this.supabaseService.getClient();
+    const { data: profile, error } = await supabase
+      .from('user_profile')
+      .select('employee_id, company_id, department_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!profile?.employee_id) return null;
+
+    const [schedule, companyDefault] = await Promise.all([
+      this.getScheduleForEmployee(profile.employee_id, this.getManilaDateString()),
+      profile.company_id ? this.getCompanyDefaultSchedule(profile.company_id) : Promise.resolve(null),
+    ]);
+    if (!schedule) return null;
+    const shouldOverlayCompanyDefault =
+      schedule.schedule_source === 'default' ||
+      (schedule.schedule_source === 'bulk' && !profile.department_id);
+    return applyCompanyDefaultOverlay(schedule, companyDefault, shouldOverlayCompanyDefault);
   }
 
   async getMyStats(

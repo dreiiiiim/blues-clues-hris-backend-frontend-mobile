@@ -356,6 +356,27 @@ export class TimekeepingController {
     );
   }
 
+  @Post('employees/:userId/schedule/reset-company-default')
+  @UseGuards(RolesGuard)
+  @Roles(...SCHEDULE_MANAGERS)
+  @ApiOperation({
+    summary:
+      "HR/System Admin: Reset an employee's custom schedule back to the whole company default schedule",
+  })
+  @ApiParam({ name: 'userId', description: 'user_id of the target employee' })
+  resetScheduleToCompanyDefault(
+    @Param('userId') userId: string,
+    @Body() dto: ScheduleEffectiveDateDto,
+    @Req() req: any,
+  ) {
+    return this.timekeepingService.resetEmployeeScheduleToCompanyDefault(
+      userId,
+      dto,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
+  }
+
   @Post('schedules/bulk')
   @UseGuards(RolesGuard)
   @Roles(...SCHEDULE_MANAGERS)

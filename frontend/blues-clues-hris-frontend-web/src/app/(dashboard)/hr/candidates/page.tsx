@@ -7,13 +7,20 @@ import {
   Briefcase,
   ChevronDown,
   ChevronUp,
+  ExternalLink,
+  Eye,
+  FileText,
   GripVertical,
   Loader2,
+  Mail,
+  Phone,
   Star,
   TrendingUp,
   Trophy,
   Users,
+  X,
 } from "lucide-react";
+import { getApplicationDetail, type ApplicationDetail } from "@/lib/authApi";
 import {
   type CandidateJobOption,
   type RankedCandidate,
@@ -213,6 +220,7 @@ function CandidateCard({
   onDragOver,
   onDrop,
   onDragEnd,
+  onViewProfile,
 }: Readonly<{
   candidate: RankedCandidate;
   rank: number;
@@ -224,6 +232,7 @@ function CandidateCard({
   onDragOver: (e: React.DragEvent) => void;
   onDrop: () => void;
   onDragEnd: () => void;
+  onViewProfile: () => void;
 }>) {
   const [expanded, setExpanded] = useState(false);
   const normalizedStatus = normalizeStatus(candidate.status);
@@ -296,6 +305,20 @@ function CandidateCard({
           )}
         </div>
 
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={(event) => {
+            event.stopPropagation();
+            onViewProfile();
+          }}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          Profile
+        </Button>
+
         <button
           onClick={() => setExpanded((value) => !value)}
           className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
@@ -305,6 +328,165 @@ function CandidateCard({
       </div>
 
       {expanded && <FitVisualization skills={candidate.skill_breakdown} />}
+    </div>
+  );
+}
+
+function openResume(url: string, name?: string | null) {
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (opened) opened.opener = null;
+  if (!opened && name) {
+    window.location.href = url;
+  }
+}
+
+function CandidateProfileModal({
+  applicationId,
+  onClose,
+}: Readonly<{
+  applicationId: string;
+  onClose: () => void;
+}>) {
+  const [detail, setDetail] = useState<ApplicationDetail | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getApplicationDetail(applicationId)
+      .then((data) => {
+        if (!cancelled) setDetail(data);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load applicant profile");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [applicationId]);
+
+  const profile = detail?.applicant_profile;
+  const applicantName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "Applicant Profile";
+
+  return (
+    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Profile</p>
+            <h3 className="mt-1 text-lg font-bold">{applicantName}</h3>
+            {profile?.email && <p className="text-xs text-muted-foreground">{profile.email}</p>}
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="overflow-y-auto p-5">
+          {loading ? (
+            <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Loading applicant profile...
+            </div>
+          ) : error ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+          ) : detail && profile ? (
+            <div className="space-y-5">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Code</p>
+                  <p className="mt-1 font-mono text-sm font-bold">{profile.applicant_code ?? "Not assigned"}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applied</p>
+                  <p className="mt-1 text-sm font-semibold">{new Date(detail.applied_at).toLocaleDateString()}</p>
+                </div>
+                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Email</p>
+                  <p className="mt-1 flex items-center gap-2 text-sm font-semibold">
+                    <Mail className="h-3.5 w-3.5 text-muted-foreground" />
+                    {profile.email}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Phone</p>
+                  <p className="mt-1 flex items-center gap-2 text-sm font-semibold">
+                    <Phone className="h-3.5 w-3.5 text-muted-foreground" />
+                    {profile.phone_number ?? "Not provided"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-background p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Resume</p>
+                  {detail.resume_upload?.signed_url ? (
+                    <div className="mt-3 space-y-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 gap-2"
+                        onClick={() => openResume(detail.resume_upload!.signed_url, detail.resume_upload!.file_name)}
+                      >
+                        <FileText className="h-4 w-4" />
+                        View SFIA Resume
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                      <p className="truncate text-xs text-muted-foreground" title={detail.resume_upload.file_name}>
+                        {detail.resume_upload.file_name}
+                      </p>
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">No SFIA resume uploaded.</p>
+                  )}
+                </div>
+
+                <div className="rounded-xl border border-border bg-background p-4">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Profile Resume</p>
+                  {profile.resume_url ? (
+                    <div className="mt-3 space-y-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-9 gap-2"
+                        onClick={() => openResume(profile.resume_url!, profile.resume_name)}
+                      >
+                        <FileText className="h-4 w-4" />
+                        View Profile Resume
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                      {profile.resume_name && (
+                        <p className="truncate text-xs text-muted-foreground" title={profile.resume_name}>
+                          {profile.resume_name}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="mt-3 text-sm text-muted-foreground">No profile resume uploaded.</p>
+                  )}
+                </div>
+              </div>
+
+              {detail.answers.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
+                  {detail.answers.map((answer) => (
+                    <div key={answer.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3">
+                      <p className="text-xs font-semibold">{answer.application_questions.question_text}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{String(answer.answer_value ?? "No answer")}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -323,6 +505,7 @@ export default function CandidateEvaluationPage() {
   const [dragIndex, setDragIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [surveyScores, setSurveyScores] = useState<Record<string, number>>({});
+  const [profileApplicationId, setProfileApplicationId] = useState<string | null>(null);
 
   const selectedJob = useMemo(
     () => jobs.find((job) => job.job_posting_id === selectedJobId) ?? null,
@@ -663,6 +846,7 @@ export default function CandidateEvaluationPage() {
                   setDragIndex(null);
                   setDragOverIndex(null);
                 }}
+                onViewProfile={() => setProfileApplicationId(candidate.application_id)}
               />
             )}
           />
@@ -674,6 +858,12 @@ export default function CandidateEvaluationPage() {
           </p>
         </div>
       </div>
+      {profileApplicationId && (
+        <CandidateProfileModal
+          applicationId={profileApplicationId}
+          onClose={() => setProfileApplicationId(null)}
+        />
+      )}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, CalendarRange, CalendarClock, List,
   AlertTriangle, X, CheckCircle2, FileX,
   Stethoscope, Zap, Home, User, Palmtree, BadgeCheck, HelpCircle,
-  Timer, Sun,
+  Timer, Sun, ArrowRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -219,8 +219,8 @@ function countInclusiveDays(from: string, to: string): number {
 
 const ITEMS_PER_PAGE = 7;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-// Matches the backend's getTodayWorkdayCode() mapping exactly
-const SCHED_DAY_CODE = ["SUN", "MON", "TUES", "WED", "THURS", "FRI", "SAT"] as const;
+// Must match the canonical 3-letter codes used by the backend (MON/TUE/WED/THU/FRI/SAT/SUN)
+const SCHED_DAY_CODE = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
 type AbsenceDateMode = "today" | "range";
 
 function formatSchedTime(t: string | null | undefined): string {
@@ -867,9 +867,6 @@ export default function EmployeeTimekeepingPage() {
   const [absenceError, setAbsenceError]       = useState<string | null>(null);
   const [absenceSuccess, setAbsenceSuccess]   = useState(false);
 
-  // Performance stats
-  const [myStats, setMyStats]     = useState<{ attendance_rate: number; days_present: number; days_late: number; days_absent: number; hours_worked: number } | null>(null);
-
   // My schedule
   const [mySchedule, setMySchedule] = useState<{
     workdays: string | string[] | null;
@@ -958,8 +955,6 @@ export default function EmployeeTimekeepingPage() {
       .catch(() => setFetchError(true))
       .finally(() => setSheetLoading(false));
 
-    fetchMyStats();
-
     // My schedule
     authFetch(`${API_BASE_URL}/timekeeping/my-schedule`)
       .then(r => r.ok ? r.json() : null)
@@ -967,22 +962,10 @@ export default function EmployeeTimekeepingPage() {
       .catch(() => {});
   }, []);
 
-  async function fetchMyStats() {
-    const now = new Date();
-    const from = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
-    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-    const data = await authFetch(`${API_BASE_URL}/timekeeping/my-stats?from=${from}&to=${to}`)
-      .then(r => r.ok ? r.json() : null)
-      .catch(() => null);
-    if (data) setMyStats(data);
-  }
-
   async function refreshData() {
     const [s, t] = await Promise.all([
       authFetch(`${API_BASE_URL}/timekeeping/my-status`).then(r => r.json()),
       authFetch(`${API_BASE_URL}/timekeeping/my-timesheet`).then(r => r.json()),
-      fetchMyStats(),
     ]);
     setStatus(s);
     setTimesheet(t);
@@ -1126,11 +1109,17 @@ export default function EmployeeTimekeepingPage() {
   }, [canTimeIn, hasReportedAbsence, hasSchedule, mySchedule, now, status?.time_in, today, workdaySet]);
 
   const monthlySummary = useMemo(() => {
-    const currentDate = today;
-    const [yearStr, monthStr, dayStr] = currentDate.split("-");
-    const year = Number.parseInt(yearStr, 10);
-    const month = Number.parseInt(monthStr, 10);
-    const currentDay = Number.parseInt(dayStr, 10);
+    const year = calMonth.year;
+    const month = calMonth.month + 1;
+    const yearStr = String(year);
+    const monthStr = String(month).padStart(2, "0");
+    const currentMonthKey = today.slice(0, 7);
+    const summaryMonthKey = `${yearStr}-${monthStr}`;
+    const currentDay = summaryMonthKey === currentMonthKey
+      ? Number.parseInt(today.slice(8, 10), 10)
+      : summaryMonthKey < currentMonthKey
+        ? new Date(year, month, 0).getDate()
+        : 0;
 
     const scheduledHoursPerDay = computeScheduledHoursPerDay(mySchedule);
     const daysInMonth = new Date(year, month, 0).getDate();
@@ -1148,26 +1137,55 @@ export default function EmployeeTimekeepingPage() {
     }
 
     const expectedHours = scheduledDaysInMonth * scheduledHoursPerDay;
-    const workedHours = myStats?.hours_worked ?? 0;
+    let daysPresent = 0;
+    let daysLate = 0;
+    let daysAbsent = 0;
+    let workedHours = 0;
+
+    for (const entry of timesheet) {
+      if (!entry.date.startsWith(`${yearStr}-${monthStr}-`)) continue;
+      const status = getEntryStatus(entry, mySchedule);
+      if (status === "late") {
+        daysLate += 1;
+        daysPresent += 1;
+      } else if (status === "on-time" || status === "in-progress") {
+        daysPresent += 1;
+      } else if (status === "absent") {
+        daysAbsent += 1;
+      }
+
+      if (entry.time_in && entry.time_out) {
+        const diff = parseTs(entry.time_out.timestamp).getTime() - parseTs(entry.time_in.timestamp).getTime();
+        if (diff > 0) workedHours += diff / 3_600_000;
+      }
+    }
+
+    workedHours = Math.round(workedHours * 100) / 100;
     const remainingHours = Math.max(expectedHours - workedHours, 0);
     const progress = expectedHours > 0 ? Math.min((workedHours / expectedHours) * 100, 100) : 0;
+    const totalCountedDays = daysPresent + daysAbsent;
+    const attendanceRate = totalCountedDays > 0 ? (daysPresent / totalCountedDays) * 100 : 0;
 
     return {
+      attendanceRate,
+      daysPresent,
+      daysLate,
+      daysAbsent,
       expectedHours,
       workedHours,
       remainingHours,
       remainingWorkdays,
       progress,
     };
-  }, [mySchedule, myStats?.hours_worked, today, workdaySet]);
+  }, [calMonth.month, calMonth.year, mySchedule, timesheet, today, workdaySet]);
 
   const monthSummaryLabel = useMemo(
     () =>
-      new Date(`${today}T00:00:00`).toLocaleDateString("en-US", {
+      new Date(calMonth.year, calMonth.month, 1).toLocaleDateString("en-US", {
         month: "long",
         year: "numeric",
       }),
-    [today],
+    [calMonth.month, calMonth.year],
   );
 
 
@@ -2196,25 +2214,65 @@ export default function EmployeeTimekeepingPage() {
       {/* â"€â"€ My Schedule â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {mySchedule && (
         <Card className="border-border overflow-hidden">
-          <div className="px-6 py-4 bg-muted/20 border-b border-border flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-primary/10">
-              <CalendarDays className="h-4 w-4 text-primary" />
+          <div className="px-5 py-4 border-b border-border bg-[linear-gradient(155deg,rgba(37,99,235,0.07),rgba(15,23,42,0.00))] flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="h-10 w-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+                <CalendarDays className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="font-bold text-sm">My Work Schedule</h2>
+                <p className="text-xs text-muted-foreground">Assigned shift and workdays</p>
+              </div>
             </div>
-            <div>
-              <h2 className="font-bold text-sm">My Work Schedule</h2>
-              <p className="text-xs text-muted-foreground">Your assigned shift</p>
+            <div className="flex items-center gap-2">
+              {mySchedule.is_nightshift && (
+                <Badge className="text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
+                  Night Shift
+                </Badge>
+              )}
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1.5 text-xs"
+                onClick={() => {
+                  const [year, month] = today.split("-").map(Number);
+                  setCalMonth({ year, month: month - 1 });
+                  setView("calendar");
+                }}
+              >
+                <CalendarClock className="h-3.5 w-3.5" />
+                Today
+              </Button>
             </div>
-            {mySchedule.is_nightshift && (
-              <Badge className="ml-auto text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">
-                Night Shift
-              </Badge>
-            )}
           </div>
-          <div className="p-5 space-y-4">
-            {/* Workday pills */}
-            <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Workdays</p>
-              <div className="flex gap-1.5 flex-wrap">
+          <div className="p-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <div className="rounded-xl border border-border bg-background p-4">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Shift</p>
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-green-700">Starts</p>
+                  <p className="text-2xl font-black tabular-nums">{formatScheduleClock(mySchedule.start_time)}</p>
+                </div>
+                <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-red-600">Ends</p>
+                  <p className="text-2xl font-black tabular-nums">{formatScheduleClock(mySchedule.end_time)}</p>
+                </div>
+              </div>
+              {(mySchedule.break_start || mySchedule.break_end) && (
+                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
+                  <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Break Window</p>
+                  <p className="text-sm font-semibold tabular-nums">
+                    {formatScheduleClock(mySchedule.break_start)} - {formatScheduleClock(mySchedule.break_end)}
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-border bg-muted/10 p-4">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Workdays</p>
+              <div className="grid grid-cols-7 gap-1.5">
                 {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map(day => {
                   const arr = Array.isArray(mySchedule.workdays)
                     ? (mySchedule.workdays as string[]).map(d => d.trim().toUpperCase())
@@ -2223,45 +2281,24 @@ export default function EmployeeTimekeepingPage() {
                   return (
                     <span
                       key={day}
-                      className={`px-2.5 py-1 rounded-full text-xs font-bold border transition-colors ${
+                      title={day}
+                      className={`h-9 rounded-lg text-[10px] font-bold border flex items-center justify-center transition-colors ${
                         isActive
-                          ? "bg-primary text-white border-primary"
-                          : "bg-muted/50 text-muted-foreground border-border"
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-background text-muted-foreground border-border"
                       }`}
                     >
-                      {day}
+                      {day.slice(0, 3)}
                     </span>
                   );
                 })}
               </div>
             </div>
-
-            {/* Shift times */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="p-3 rounded-lg bg-green-50 border border-green-200">
-                <p className="text-[10px] font-bold text-green-700 uppercase tracking-wider mb-0.5">Start Time</p>
-                <p className="text-lg font-bold text-foreground tabular-nums">{formatScheduleClock(mySchedule.start_time)}</p>
-              </div>
-              <div className="p-3 rounded-lg bg-red-50 border border-red-200">
-                <p className="text-[10px] font-bold text-red-600 uppercase tracking-wider mb-0.5">End Time</p>
-                <p className="text-lg font-bold text-foreground tabular-nums">{formatScheduleClock(mySchedule.end_time)}</p>
-              </div>
-            </div>
-
-            {/* Break window */}
-            {(mySchedule.break_start || mySchedule.break_end) && (
-              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-                <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider mb-0.5">Break Window</p>
-                <p className="text-sm font-semibold text-foreground tabular-nums">
-                  {formatScheduleClock(mySchedule.break_start)} - {formatScheduleClock(mySchedule.break_end)}
-                </p>
-              </div>
-            )}
           </div>
         </Card>
       )}
 
-      {myStats && (
+      {!sheetLoading && (
         <Card className="border-border overflow-hidden">
           <div className="p-5 md:p-6 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
@@ -2273,28 +2310,28 @@ export default function EmployeeTimekeepingPage() {
                 </p>
               </div>
               <span className="inline-flex items-center px-2.5 py-1 rounded-full border border-green-200 bg-green-50 text-green-700 text-xs font-bold w-fit">
-                {myStats.attendance_rate.toFixed(1)}% attendance rate
+                {monthlySummary.attendanceRate.toFixed(1)}% attendance rate
               </span>
             </div>
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="p-4 rounded-xl border bg-green-50 border-green-200">
-                <p className="text-3xl font-black text-green-700 leading-none tabular-nums">{myStats.days_present}</p>
+                <p className="text-3xl font-black text-green-700 leading-none tabular-nums">{monthlySummary.daysPresent}</p>
                 <p className="text-[11px] font-bold text-green-700 uppercase tracking-wider mt-2">Days Present</p>
                 <p className="text-xs text-muted-foreground mt-1">On time</p>
               </div>
               <div className="p-4 rounded-xl border bg-amber-50 border-amber-200">
-                <p className="text-3xl font-black text-amber-700 leading-none tabular-nums">{myStats.days_late}</p>
+                <p className="text-3xl font-black text-amber-700 leading-none tabular-nums">{monthlySummary.daysLate}</p>
                 <p className="text-[11px] font-bold text-amber-700 uppercase tracking-wider mt-2">Days Late</p>
                 <p className="text-xs text-muted-foreground mt-1">Late arrivals</p>
               </div>
               <div className="p-4 rounded-xl border bg-red-50 border-red-200">
-                <p className="text-3xl font-black text-red-700 leading-none tabular-nums">{myStats.days_absent}</p>
+                <p className="text-3xl font-black text-red-700 leading-none tabular-nums">{monthlySummary.daysAbsent}</p>
                 <p className="text-[11px] font-bold text-red-700 uppercase tracking-wider mt-2">Days Absent</p>
                 <p className="text-xs text-muted-foreground mt-1">Unexcused + denied</p>
               </div>
               <div className="p-4 rounded-xl border bg-blue-50 border-blue-200">
-                <p className="text-3xl font-black text-blue-700 leading-none tabular-nums">{myStats.hours_worked.toFixed(1)}h</p>
+                <p className="text-3xl font-black text-blue-700 leading-none tabular-nums">{monthlySummary.workedHours.toFixed(1)}h</p>
                 <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider mt-2">Total Hours</p>
                 <p className="text-xs text-muted-foreground mt-1">
                   {monthlySummary.expectedHours > 0

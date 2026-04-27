@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { X, Building2, Globe, Clock, ChevronDown, CheckCircle2, Users, Search } from "lucide-react";
+import { X, Building2, Clock, ChevronDown, CheckCircle2, Users, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { authFetch } from "@/lib/authApi";
@@ -158,7 +158,7 @@ export function ScheduleManagementModal({
     : ["MON","TUE","WED","THU","FRI"];
   const initialTemplateId = resolveInitialTemplateId(initialSchedule ?? undefined, initialParsedDays);
 
-  const [scope, setScope]                     = useState<ApplyScope>(initialScope ?? "company");
+  const [scope, setScope]                     = useState<ApplyScope>(initialScope === "company" ? "department" : (initialScope ?? "department"));
   const [selectedDept, setSelectedDept]       = useState(initialDeptName);
   const [selectedDeptId, setSelectedDeptId]   = useState(initialDeptId);
   const [skipIndividual, setSkipIndividual]   = useState(true); // default: skip individually-set schedules
@@ -241,7 +241,6 @@ export function ScheduleManagementModal({
   }, [employees, selectedDeptId]);
 
   const affectedCount =
-    scope === "company"    ? employeeCount :
     scope === "department" ? departmentEmployeeCount :
     selectedEmployeeIds.size;
 
@@ -307,7 +306,6 @@ export function ScheduleManagementModal({
 
   if (done) {
     const scopeLabel =
-      scope === "company"    ? "All employees have" :
       scope === "department" ? `${selectedDept} department has` :
       `${affectedResult ?? selectedEmployeeIds.size} selected employee${(affectedResult ?? selectedEmployeeIds.size) !== 1 ? "s have" : " has"}`;
 
@@ -360,9 +358,8 @@ export function ScheduleManagementModal({
           {/* ── Scope selector ────────────────────────────────────────────── */}
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Apply To</p>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {([
-                { id: "company",    label: "Whole Company", icon: Globe,     desc: `${employeeCount} employees` },
                 { id: "department", label: "Department",    icon: Building2, desc: `${departments.length} dept${departments.length !== 1 ? "s" : ""}` },
                 { id: "employees",  label: "Employees",     icon: Users,     desc: selectedEmployeeIds.size > 0 ? `${selectedEmployeeIds.size} selected` : "pick employees" },
               ] as { id: ApplyScope; label: string; icon: React.ElementType; desc: string }[]).map(({ id, label, icon: Icon, desc }) => (

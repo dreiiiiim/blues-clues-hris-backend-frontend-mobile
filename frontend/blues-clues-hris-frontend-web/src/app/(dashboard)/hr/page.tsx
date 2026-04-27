@@ -14,7 +14,7 @@ import {
   MoreHorizontal, Filter, Download,
   Search, ChevronLeft, ChevronRight, UserX,
   UserCheck, Check, Pencil, AtSign, Loader2, X,
-  Users, UserPlus, Briefcase, FileText, CalendarCheck, Bell,
+  Users, UserPlus, Briefcase, FileText, CalendarCheck, CalendarClock, Bell,
   ArrowRight, Clock, Shield, Building2, Calendar, Hash, User, Eye,
 } from "lucide-react";
 
@@ -1170,24 +1170,32 @@ export default function HRDashboardPage() {
       {/* ── Today's Attendance Card ──────────────────────────────────────────── */}
       <Card className="border-border/70 shadow-sm">
         <CardContent className="p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
             <div>
               <h2 className="font-bold text-sm tracking-tight">Today&apos;s Attendance</h2>
               <p className="text-[11px] text-muted-foreground">
                 {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
               </p>
             </div>
-            {!attendanceError && !loadingWidgets && (
-              <div className="flex items-center gap-2">
-                <div className="w-32 h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${getAttendanceBarColor(attendanceRate)}`}
-                    style={{ width: `${attendanceRate}%` }}
-                  />
+            <div className="flex items-center gap-3">
+              {!attendanceError && !loadingWidgets && (
+                <div className="flex items-center gap-2">
+                  <div className="w-32 h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${getAttendanceBarColor(attendanceRate)}`}
+                      style={{ width: `${attendanceRate}%` }}
+                    />
+                  </div>
+                  <span className={`text-sm font-bold ${attendanceColor}`}>{attendanceRate}%</span>
                 </div>
-                <span className={`text-sm font-bold ${attendanceColor}`}>{attendanceRate}%</span>
-              </div>
-            )}
+              )}
+              <Button asChild variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
+                <Link href="/hr/timekeeping">
+                  <CalendarClock className="h-3.5 w-3.5" />
+                  Timekeeping Today
+                </Link>
+              </Button>
+            </div>
           </div>
 
           <AttendanceContent loading={loadingWidgets} error={attendanceError} stats={attendanceStats} />

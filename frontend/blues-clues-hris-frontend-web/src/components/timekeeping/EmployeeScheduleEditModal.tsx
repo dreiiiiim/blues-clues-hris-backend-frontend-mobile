@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, CheckCircle2 } from "lucide-react";
+import { X, CheckCircle2, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -78,13 +78,13 @@ function TimePicker({
   const MINS = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)_auto] items-center gap-1 w-full">
       <select
         value={h12}
         onChange={e => emit(parseInt(e.target.value, 10), mm, period)}
         disabled={disabled}
         aria-label="Hour"
-        className={`${SELECT_CLS} w-14 text-center`}
+        className={`${SELECT_CLS} w-full min-w-0 text-center`}
       >
         {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
       </select>
@@ -94,7 +94,7 @@ function TimePicker({
         onChange={e => emit(h12, e.target.value, period)}
         disabled={disabled}
         aria-label="Minute"
-        className={`${SELECT_CLS} w-14 text-center`}
+        className={`${SELECT_CLS} w-full min-w-0 text-center`}
       >
         {MINS.map(m => <option key={m} value={m}>{m}</option>)}
       </select>
@@ -105,7 +105,7 @@ function TimePicker({
             type="button"
             disabled={disabled}
             onClick={() => emit(h12, mm, p)}
-            className={`px-2 text-xs font-bold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
+            className={`w-8 text-xs font-bold transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 ${
               period === p
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:bg-muted"
@@ -263,7 +263,8 @@ export function EmployeeScheduleEditModal({
   const [halfDay,      setHalfDay]      = useState<HalfDayMode>("none");
   const [submitting,   setSubmitting]   = useState(false);
   const [resettingToDepartment, setResettingToDepartment] = useState(false);
-  const [confirmDepartmentReset, setConfirmDepartmentReset] = useState(false);
+  const [resettingToCompany, setResettingToCompany] = useState(false);
+  const [confirmReset, setConfirmReset] = useState<"department" | "company" | null>(null);
   const [done,         setDone]         = useState(false);
   const [doneTitle,    setDoneTitle]    = useState("Schedule Updated");
   const [doneMessage,  setDoneMessage]  = useState<string>(
@@ -357,7 +358,7 @@ export function EmployeeScheduleEditModal({
 
   const applyTemplate = (id: string) => {
     if (readOnly) return;
-    setConfirmDepartmentReset(false);
+    setConfirmReset(null);
     setTemplateId(id);
     const t = QUICK_TEMPLATES.find(q => q.id === id);
     if (t && id !== "custom") {
@@ -371,7 +372,7 @@ export function EmployeeScheduleEditModal({
 
   const applyHalfDay = (mode: HalfDayMode) => {
     if (readOnly) return;
-    setConfirmDepartmentReset(false);
+    setConfirmReset(null);
     setHalfDay(mode);
     if (mode === "am")   { setStartTime("09:00"); setEndTime("13:00"); setBreakStart("12:00"); setBreakEnd("12:30"); }
     if (mode === "pm")   { setStartTime("13:00"); setEndTime("18:00"); setBreakStart("15:30"); setBreakEnd("16:00"); }
@@ -455,6 +456,38 @@ export function EmployeeScheduleEditModal({
     }
   };
 
+  const handleResetToCompanyDefault = async () => {
+    if (readOnly) return;
+    if (effectiveDate < todayInManila) {
+      setSaveError("Effectivity date cannot be in the past.");
+      return;
+    }
+    setSaveError(null);
+    setResettingToCompany(true);
+    try {
+      const res = await authFetch(
+        `${API_BASE_URL}/timekeeping/employees/${employeeId}/schedule/reset-company-default`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ effective_date: effectiveDate }),
+        },
+      );
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({})) as { message?: string };
+        throw new Error(err?.message || "Failed to reset schedule to the whole company default.");
+      }
+      setDoneTitle("Company Schedule Applied");
+      setDoneMessage(`${employeeName}'s schedule now follows the whole company default (effective ${effectiveDate}).`);
+      setDone(true);
+      onSaved?.();
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : "An error occurred.");
+    } finally {
+      setResettingToCompany(false);
+    }
+  };
+
   if (done) {
     return (
       <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -470,24 +503,35 @@ export function EmployeeScheduleEditModal({
     );
   }
 
-  const busy = loadingSchedule || submitting || resettingToDepartment;
+  const busy = loadingSchedule || submitting || resettingToDepartment || resettingToCompany;
 
   return (
     <div className="fixed inset-0 z-70 flex items-center justify-center bg-black/40 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md mx-4 animate-in fade-in duration-300 flex flex-col max-h-[90vh]">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-xl mx-4 animate-in fade-in duration-300 flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0 gap-3">
-          <div>
-            <h2 className="text-base font-bold">{readOnly ? "View Schedule" : "Edit Schedule"}</h2>
-            <p className="text-xs text-muted-foreground font-mono mt-0.5">{employeeName} &middot; {employeeId}</p>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0 gap-3">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            {/* Inline avatar */}
+            <div className="h-9 w-9 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 border border-primary/20">
+              {`${employeeName.split(" ")[0]?.charAt(0) ?? ""}${employeeName.split(" ").slice(-1)[0]?.charAt(0) ?? ""}`.toUpperCase() || "?"}
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="text-sm font-bold">{readOnly ? "View Schedule" : "Edit Schedule"}</h2>
+                {readOnly && (
+                  <span className="text-[10px] font-bold uppercase tracking-widest bg-blue-100 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded-md">
+                    View only
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground mt-0.5 truncate">
+                <span className="font-semibold text-foreground">{employeeName}</span>
+                <span className="font-mono text-[10px] ml-2 text-muted-foreground">{employeeId}</span>
+              </p>
+            </div>
           </div>
-          {readOnly && (
-            <span className="text-[10px] font-bold uppercase tracking-widest bg-blue-100 text-blue-700 border border-blue-200 px-2 py-1 rounded-md">
-              View only
-            </span>
-          )}
-          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors cursor-pointer ml-auto">
+          <button onClick={onClose} className="p-2 rounded-lg hover:bg-muted transition-colors cursor-pointer shrink-0">
             <X className="h-4 w-4 text-muted-foreground" />
           </button>
         </div>
@@ -496,40 +540,48 @@ export function EmployeeScheduleEditModal({
 
           {/* Info banner */}
           {(effectiveLabel || readOnly || updatedBy || formattedUpdatedAt || scheduleSource) && (
-            <div className="p-3 rounded-lg border border-border bg-muted/20 space-y-1.5">
-              {effectiveLabel && (
-                <p className="text-xs text-muted-foreground">
-                  Viewing period: <span className="font-semibold text-foreground">{effectiveLabel}</span>
-                </p>
-              )}
-              {scheduleSource && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground">Source:</span>
-                  {scheduleSource === "individual" ? (
-                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-violet-100 text-violet-700 border border-violet-200">Custom (Individual)</span>
-                  ) : scheduleSource === "department" ? (
-                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-200">Department</span>
-                  ) : scheduleSource === "bulk" ? (
-                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-sky-100 text-sky-700 border border-sky-200">Standard (Bulk)</span>
-                  ) : (
-                    <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">Default</span>
-                  )}
-                </div>
-              )}
+            <div className="rounded-xl border border-border bg-muted/20 overflow-hidden">
+              <div className="flex flex-wrap divide-x divide-border">
+                {effectiveLabel && (
+                  <div className="px-3 py-2.5 flex-1 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Period</p>
+                    <p className="text-xs font-semibold text-foreground truncate">{effectiveLabel}</p>
+                  </div>
+                )}
+                {scheduleSource && (
+                  <div className="px-3 py-2.5 flex-1 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Assignment</p>
+                    {scheduleSource === "individual" ? (
+                      <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-violet-100 text-violet-700 border border-violet-200">Custom</span>
+                    ) : scheduleSource === "department" ? (
+                      <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-200">Department</span>
+                    ) : scheduleSource === "bulk" ? (
+                      <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 border border-emerald-200">Inherited</span>
+                    ) : (
+                      <span className="text-[10px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-md bg-blue-100 text-blue-700 border border-blue-200">Company Default</span>
+                    )}
+                  </div>
+                )}
+                {(updatedBy || formattedUpdatedAt) && (
+                  <div className="px-3 py-2.5 flex-1 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-0.5">Last Updated</p>
+                    <p className="text-xs text-muted-foreground truncate">
+                      {formattedUpdatedAt ?? "recently"}{updatedBy ? ` by ${updatedBy}` : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
               {readOnly && (
-                <p className="text-xs text-blue-700">View only: editing is limited to HR and System Admin.</p>
-              )}
-              {(updatedBy || formattedUpdatedAt) && (
-                <p className="text-xs text-muted-foreground">
-                  Last updated {formattedUpdatedAt ?? "recently"}{updatedBy ? ` by ${updatedBy}` : ""}
-                </p>
+                <div className="px-3 py-2 border-t border-border bg-blue-50/50">
+                  <p className="text-[10px] text-blue-700 font-medium">View only — editing limited to HR and System Admin.</p>
+                </div>
               )}
             </div>
           )}
 
           {/* Effectivity date + Quick Template side by side */}
           {!readOnly && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid gap-3 sm:grid-cols-[0.9fr_1.1fr]">
               <div>
                 <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1.5">
                   Effective Date
@@ -577,9 +629,9 @@ export function EmployeeScheduleEditModal({
             </div>
           )}
 
-          {/* Half-day presets */}
+          {/* Half-day presets — segmented control */}
           {!readOnly && (
-            <div className="flex items-center gap-1.5">
+            <div className="inline-flex p-1 rounded-full bg-muted border border-border gap-0.5">
               {([
                 { id: "none", label: "Full Day" },
                 { id: "am",   label: "AM Half"  },
@@ -591,10 +643,10 @@ export function EmployeeScheduleEditModal({
                   onClick={() => applyHalfDay(preset.id)}
                   disabled={loadingSchedule}
                   className={[
-                    "px-3 py-1 rounded-full text-xs font-bold border transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
+                    "px-3 py-1 rounded-full text-xs font-bold transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed",
                     halfDay === preset.id
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground",
+                      ? "bg-background shadow-sm text-foreground"
+                      : "text-muted-foreground hover:text-foreground",
                   ].join(" ")}
                 >
                   {preset.label}
@@ -604,10 +656,10 @@ export function EmployeeScheduleEditModal({
           )}
 
           {/* Department reset confirmation */}
-          {!readOnly && confirmDepartmentReset && (
+          {!readOnly && confirmReset && (
             <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 space-y-2">
               <p className="text-xs font-semibold text-amber-900">
-                Apply department schedule for this employee on {effectiveDate}?
+                Apply {confirmReset === "department" ? "department schedule" : "whole company default"} for this employee on {effectiveDate}?
               </p>
               <p className="text-[11px] text-amber-800">
                 This will replace any custom schedule on the selected effectivity date.
@@ -617,7 +669,7 @@ export function EmployeeScheduleEditModal({
                   type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setConfirmDepartmentReset(false)}
+                  onClick={() => setConfirmReset(null)}
                 >
                   Keep Custom
                 </Button>
@@ -626,19 +678,22 @@ export function EmployeeScheduleEditModal({
                   size="sm"
                   variant="secondary"
                   onClick={async () => {
-                    await handleResetToDepartment();
-                    setConfirmDepartmentReset(false);
+                    if (confirmReset === "department") await handleResetToDepartment();
+                    if (confirmReset === "company") await handleResetToCompanyDefault();
+                    setConfirmReset(null);
                   }}
                   disabled={busy}
                 >
-                  {resettingToDepartment ? "Applying..." : "Confirm Reset"}
+                  {resettingToDepartment || resettingToCompany ? "Applying..." : "Confirm Reset"}
                 </Button>
               </div>
             </div>
           )}
 
           {/* Time fields */}
-          <div className="grid grid-cols-2 gap-x-3 gap-y-3">
+          <div className="rounded-xl border border-border bg-muted/10 p-3.5 space-y-3">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Working Hours</p>
+          <div className="grid gap-3 sm:grid-cols-2">
             {([
               { label: "Start Time",  value: startTime,  onChange: (v: string) => { setStartTime(v);  setTemplateId("custom"); } },
               { label: "End Time",    value: endTime,    onChange: (v: string) => { setEndTime(v);    setTemplateId("custom"); } },
@@ -654,6 +709,7 @@ export function EmployeeScheduleEditModal({
                 />
               </div>
             ))}
+          </div>
           </div>
 
           {/* Work days */}
@@ -681,16 +737,16 @@ export function EmployeeScheduleEditModal({
           </div>
 
 
-          {/* Schedule preview */}
-          <div className="rounded-xl bg-primary/5 border border-primary/15 px-3.5 py-3 flex items-center gap-3 flex-wrap">
+          {/* Schedule preview — signature element */}
+          <div className="rounded-xl bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 border border-primary/15 px-4 py-3.5 flex items-center gap-3 flex-wrap">
             <div className="flex items-center gap-1.5 font-semibold text-sm text-foreground">
               <span>{formatScheduleClock(startTime)}</span>
-              <span className="text-muted-foreground text-xs">&rarr;</span>
+              <ArrowRight className="h-3 w-3 text-muted-foreground" />
               <span>{formatScheduleClock(endTime)}</span>
             </div>
-            <span className="text-muted-foreground/40 text-xs hidden sm:inline">|</span>
+            <span className="text-border text-xs hidden sm:inline">|</span>
             <p className="text-xs text-muted-foreground">
-              Break {formatScheduleClock(breakStart)} &ndash; {formatScheduleClock(breakEnd)}
+              Break {formatScheduleClock(breakStart)} – {formatScheduleClock(breakEnd)}
             </p>
             <div className="ml-auto flex items-center gap-1 flex-wrap">
               {WEEKDAYS.filter(d => workdays.includes(d)).map(d => (
@@ -721,16 +777,26 @@ export function EmployeeScheduleEditModal({
               <Button variant="outline" onClick={onClose} className="cursor-pointer">Close</Button>
             </div>
           ) : (
-            <div className="flex items-center gap-2 flex-wrap">
-              <button
-                type="button"
-                onClick={() => setConfirmDepartmentReset(true)}
-                disabled={busy}
-                className="text-xs text-amber-700 hover:text-amber-800 hover:underline cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-              >
-                Reset to Department
-              </button>
-              <div className="flex gap-2 ml-auto">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset("department")}
+                  disabled={busy}
+                  className="h-8 rounded-md px-2.5 text-xs font-semibold text-amber-700 hover:bg-amber-50 hover:text-amber-800 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Reset to Department
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmReset("company")}
+                  disabled={busy}
+                  className="h-8 rounded-md px-2.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 hover:text-blue-800 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  Reset to Company Default
+                </button>
+              </div>
+              <div className="flex gap-2 sm:ml-auto">
                 <Button variant="outline" onClick={onClose} className="cursor-pointer">Cancel</Button>
                 <Button
                   onClick={handleSave}

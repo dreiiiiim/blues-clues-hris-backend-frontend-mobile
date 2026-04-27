@@ -2691,7 +2691,7 @@ export default function HRTimekeepingPage() {
         </div>
 
         {/* Display + Actions */}
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex w-full items-center justify-start gap-2 flex-wrap xl:w-auto xl:justify-end">
           {mainPanel === "attendance" && <div className="hidden md:block h-6 w-px bg-border" />}
           {mainPanel === "attendance" && (
             <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
@@ -2733,7 +2733,7 @@ export default function HRTimekeepingPage() {
           <Button
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 cursor-pointer"
+            className="h-9 gap-1.5 cursor-pointer whitespace-nowrap"
             onClick={() => {
               setScheduleModalPreset(null);
               setShowScheduleModal(true);
@@ -2745,7 +2745,7 @@ export default function HRTimekeepingPage() {
           <Button
             variant="outline"
             size="sm"
-            className="h-9 gap-1.5 cursor-pointer border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 transition-colors duration-200 disabled:opacity-40"
+            className="h-9 gap-1.5 cursor-pointer whitespace-nowrap border-emerald-300 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800 hover:border-emerald-400 transition-colors duration-200 disabled:opacity-40"
             disabled={activeList.length === 0 || loading}
             onClick={() => downloadCSV(activeList as any, isDayView, isDayView ? formatDisplayDate(selectedDate) : periodLabel)}
           >
@@ -3029,11 +3029,11 @@ export default function HRTimekeepingPage() {
               <span className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary/20 bg-primary/5 text-xs font-bold text-primary">
                 <Building2 className="h-3 w-3" />
                 {departments.find(d => d.id === deptFilter)?.name}
-                <span className="text-muted-foreground font-normal">·</span>
+                <span className="text-border font-normal">|</span>
                 <span>{deptSummary.count} emp</span>
-                <span className="text-muted-foreground font-normal">·</span>
+                <span className="text-border font-normal">|</span>
                 <span>{deptSummary.totalHours.toFixed(1)}h</span>
-                <span className="text-muted-foreground font-normal">·</span>
+                <span className="text-border font-normal">|</span>
                 <span className={deptSummary.rate >= 80 ? "text-green-600" : deptSummary.rate >= 60 ? "text-amber-500" : "text-red-500"}>
                   {deptSummary.rate}%
                 </span>
