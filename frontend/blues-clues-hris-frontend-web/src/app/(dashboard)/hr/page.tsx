@@ -15,7 +15,7 @@ import {
   Search, ChevronLeft, ChevronRight, UserX,
   UserCheck, Check, Pencil, AtSign, Loader2, X,
   Users, UserPlus, Briefcase, FileText, CalendarCheck, CalendarClock, Bell,
-  ArrowRight, Clock, Shield, Building2, Calendar, Hash, User, Eye,
+  MoveRight, Clock, Shield, Building2, Calendar, Hash, User, Eye,
 } from "lucide-react";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1062,7 +1062,7 @@ export default function HRDashboardPage() {
               </Link>
               <Link href="/hr/jobs">
                 <button className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold bg-white/10 border border-white/20 hover:bg-white/20 transition-colors backdrop-blur">
-                  <ArrowRight className="h-4 w-4" /> View Pipeline
+                  <MoveRight className="h-4 w-4" /> View Pipeline
                 </button>
               </Link>
             </div>
@@ -1132,7 +1132,7 @@ export default function HRDashboardPage() {
                 <p className="text-[11px] text-muted-foreground">{openJobs.length} active posting{openJobs.length === 1 ? "" : "s"}</p>
               </div>
               <Link href="/hr/jobs" className="text-xs text-primary font-semibold flex items-center gap-1 hover:underline">
-                View All <ArrowRight className="h-3 w-3" />
+                View All <MoveRight className="h-3 w-3" />
               </Link>
             </div>
             <div className="px-5 py-3 divide-y divide-border">
@@ -1157,7 +1157,7 @@ export default function HRDashboardPage() {
                 )}
               </div>
               <Link href="/hr/jobs" className="text-xs text-primary font-semibold flex items-center gap-1 hover:underline">
-                View All <ArrowRight className="h-3 w-3" />
+                View All <MoveRight className="h-3 w-3" />
               </Link>
             </div>
             <div className="px-5 py-3 divide-y divide-border">

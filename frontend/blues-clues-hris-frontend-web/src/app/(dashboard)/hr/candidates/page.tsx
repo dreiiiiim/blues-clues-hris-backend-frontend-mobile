@@ -282,42 +282,43 @@ function CandidateCard({
           {normalizedStatus}
         </span>
 
-        <div className="shrink-0 text-right">
-          <p className={`text-lg font-bold leading-none ${fitTextColor(displayScore)}`}>
-            {Math.round(displayScore)}%
-          </p>
-          <p className="mt-0.5 text-[10px] text-muted-foreground">{scoreLabel}</p>
+        <div className="shrink-0 text-right space-y-1">
+          <div>
+            <p className={`text-base font-bold leading-none ${displayScore === 0 ? "text-muted-foreground" : fitTextColor(displayScore)}`}>
+              {Math.round(displayScore)}%
+            </p>
+            <p className="mt-0.5 text-[10px] text-muted-foreground">{scoreLabel}</p>
+          </div>
           {mode === "manual" && candidate.sfia_match_percentage !== null && (
-            <>
-              <p className="mt-1.5 text-xs font-semibold leading-none text-muted-foreground">
+            <div>
+              <p className={`text-xs font-semibold leading-none ${fitTextColor(Math.round(candidate.sfia_match_percentage))}`}>
                 {Math.round(candidate.sfia_match_percentage)}%
               </p>
               <p className="text-[10px] text-muted-foreground">Fit Score</p>
-            </>
+            </div>
           )}
           {mode === "sfia" && typeof surveyScore === "number" && surveyScore > 0 && (
-            <>
-              <p className="mt-1.5 text-xs font-semibold leading-none text-muted-foreground">
+            <div>
+              <p className="text-xs font-semibold leading-none text-muted-foreground">
                 {Math.round(surveyScore)}%
               </p>
               <p className="text-[10px] text-muted-foreground">Survey</p>
-            </>
+            </div>
           )}
         </div>
 
-        <Button
+        <button
           type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
+          aria-label="View applicant profile"
+          title="View Profile"
           onClick={(event) => {
             event.stopPropagation();
             onViewProfile();
           }}
+          className="h-8 w-8 rounded-lg flex items-center justify-center border border-border bg-background text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-colors cursor-pointer shrink-0"
         >
           <Eye className="h-3.5 w-3.5" />
-          Profile
-        </Button>
+        </button>
 
         <button
           onClick={() => setExpanded((value) => !value)}
@@ -377,12 +378,23 @@ function CandidateProfileModal({
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
       <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
         <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Profile</p>
-            <h3 className="mt-1 text-lg font-bold">{applicantName}</h3>
-            {profile?.email && <p className="text-xs text-muted-foreground">{profile.email}</p>}
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="h-12 w-12 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0 border border-primary/20">
+              {profile
+                ? `${profile.first_name?.charAt(0) ?? ""}${profile.last_name?.charAt(0) ?? ""}`.toUpperCase() || "?"
+                : "?"}
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Profile</p>
+              <h3 className="mt-0.5 text-lg font-bold truncate">{applicantName}</h3>
+              {profile?.email && (
+                <p className="text-xs text-muted-foreground truncate max-w-xs" title={profile.email}>
+                  {profile.email}
+                </p>
+              )}
+            </div>
           </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground">
+          <button type="button" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 cursor-pointer">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -406,11 +418,11 @@ function CandidateProfileModal({
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applied</p>
                   <p className="mt-1 text-sm font-semibold">{new Date(detail.applied_at).toLocaleDateString()}</p>
                 </div>
-                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
+                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 min-w-0">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Email</p>
-                  <p className="mt-1 flex items-center gap-2 text-sm font-semibold">
-                    <Mail className="h-3.5 w-3.5 text-muted-foreground" />
-                    {profile.email}
+                  <p className="mt-1 flex items-center gap-2 text-sm font-semibold min-w-0">
+                    <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="truncate" title={profile.email}>{profile.email}</span>
                   </p>
                 </div>
                 <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
@@ -467,7 +479,10 @@ function CandidateProfileModal({
                       )}
                     </div>
                   ) : (
-                    <p className="mt-3 text-sm text-muted-foreground">No profile resume uploaded.</p>
+                    <div className="mt-3 flex flex-col items-center gap-1.5 py-3 text-center">
+                      <FileText className="h-7 w-7 text-muted-foreground/25" />
+                      <p className="text-xs text-muted-foreground">No resume uploaded</p>
+                    </div>
                   )}
                 </div>
               </div>

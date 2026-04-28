@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import {
   Search, MapPin, Clock, Building2, Briefcase,
   DollarSign, SlidersHorizontal, Bookmark, CheckCircle,
-  Loader2, Calendar, CalendarX2, X, ArrowRight, Zap,
+  Loader2, Calendar, CalendarX2, X, MoveRight, Zap,
   Sparkles, TrendingUp, Users, ChevronRight, Check, Upload, Trash2,
 } from "lucide-react";
 import {
@@ -1082,7 +1082,7 @@ export default function ApplicantJobsPage() {
                       >
                         <Zap className="h-4 w-4" />
                         Apply Now
-                        <ArrowRight className="h-4 w-4" />
+                        <MoveRight className="h-4 w-4" />
                       </button>
                     )}
                   </div>
@@ -1185,7 +1185,7 @@ export default function ApplicantJobsPage() {
                         onClick={() => handleApply(displayedJob)}
                         className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-all hover:-translate-y-px shadow-sm hover:shadow cursor-pointer"
                       >
-                        Apply Now <ArrowRight className="h-3.5 w-3.5" />
+                        Apply Now <MoveRight className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, CheckCircle2, ArrowRight } from "lucide-react";
+import { X, CheckCircle2, MoveRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -692,24 +692,34 @@ export function EmployeeScheduleEditModal({
 
           {/* Time fields */}
           <div className="rounded-xl border border-border bg-muted/10 p-3.5 space-y-3">
-          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Working Hours</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            {([
-              { label: "Start Time",  value: startTime,  onChange: (v: string) => { setStartTime(v);  setTemplateId("custom"); } },
-              { label: "End Time",    value: endTime,    onChange: (v: string) => { setEndTime(v);    setTemplateId("custom"); } },
-              { label: "Break Start", value: breakStart, onChange: (v: string) => setBreakStart(v) },
-              { label: "Break End",   value: breakEnd,   onChange: (v: string) => setBreakEnd(v)   },
-            ] as const).map(field => (
-              <div key={field.label}>
-                <label className="text-xs text-muted-foreground mb-1.5 block">{field.label}</label>
-                <TimePicker
-                  value={field.value}
-                  onChange={field.onChange}
-                  disabled={readOnly || loadingSchedule}
-                />
-              </div>
-            ))}
-          </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Working Hours</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {([
+                { label: "Start Time", value: startTime, onChange: (v: string) => { setStartTime(v); setTemplateId("custom"); } },
+                { label: "End Time",   value: endTime,   onChange: (v: string) => { setEndTime(v);   setTemplateId("custom"); } },
+              ] as const).map(field => (
+                <div key={field.label}>
+                  <label className="text-xs font-medium text-foreground/70 mb-1.5 block">{field.label}</label>
+                  <TimePicker value={field.value} onChange={field.onChange} disabled={readOnly || loadingSchedule} />
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-2 py-0.5">
+              <div className="h-px flex-1 bg-border/50" />
+              <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 px-1">Break</span>
+              <div className="h-px flex-1 bg-border/50" />
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {([
+                { label: "Break Start", value: breakStart, onChange: (v: string) => setBreakStart(v) },
+                { label: "Break End",   value: breakEnd,   onChange: (v: string) => setBreakEnd(v) },
+              ] as const).map(field => (
+                <div key={field.label}>
+                  <label className="text-xs font-medium text-foreground/70 mb-1.5 block">{field.label}</label>
+                  <TimePicker value={field.value} onChange={field.onChange} disabled={readOnly || loadingSchedule} />
+                </div>
+              ))}
+            </div>
           </div>
 
           {/* Work days */}
@@ -737,29 +747,32 @@ export function EmployeeScheduleEditModal({
           </div>
 
 
-          {/* Schedule preview — signature element */}
-          <div className="rounded-xl bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 border border-primary/15 px-4 py-3.5 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-1.5 font-semibold text-sm text-foreground">
-              <span>{formatScheduleClock(startTime)}</span>
-              <ArrowRight className="h-3 w-3 text-muted-foreground" />
-              <span>{formatScheduleClock(endTime)}</span>
-            </div>
-            <span className="text-border text-xs hidden sm:inline">|</span>
-            <p className="text-xs text-muted-foreground">
-              Break {formatScheduleClock(breakStart)} – {formatScheduleClock(breakEnd)}
-            </p>
-            <div className="ml-auto flex items-center gap-1 flex-wrap">
-              {WEEKDAYS.filter(d => workdays.includes(d)).map(d => (
-                <span key={d} className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-background border border-border text-foreground">
-                  {WEEKDAY_LABELS[d]}
+          {/* Schedule preview */}
+          <div className="rounded-xl bg-gradient-to-r from-primary/5 via-primary/10 to-primary/5 border border-primary/15 px-4 py-3.5 space-y-2">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-primary/60">Schedule Preview</p>
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-1.5 font-semibold text-sm text-foreground">
+                <span>{formatScheduleClock(startTime)}</span>
+                <MoveRight className="h-3 w-3 text-muted-foreground" />
+                <span>{formatScheduleClock(endTime)}</span>
+              </div>
+              <span className="text-border/60 text-xs hidden sm:inline">·</span>
+              <p className="text-xs text-muted-foreground">
+                Break {formatScheduleClock(breakStart)} – {formatScheduleClock(breakEnd)}
+              </p>
+              <div className="ml-auto flex items-center gap-1 flex-wrap">
+                {WEEKDAYS.filter(d => workdays.includes(d)).map(d => (
+                  <span key={d} className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-background border border-border text-foreground">
+                    {WEEKDAY_LABELS[d]}
+                  </span>
+                ))}
+                <span className={`ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${isNightShift ? "bg-indigo-100 text-indigo-700 border-indigo-200" : "bg-primary/10 text-primary border-primary/30"}`}>
+                  {isNightShift ? "Night" : "Day"}
                 </span>
-              ))}
-              <span className={`ml-1 text-[10px] font-bold px-2 py-0.5 rounded-full border ${isNightShift ? "bg-indigo-100 text-indigo-700 border-indigo-200" : "bg-primary/10 text-primary border-primary/30"}`}>
-                {isNightShift ? "Night" : "Day"}
-              </span>
-              {halfDay !== "none" && (
-                <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-bold uppercase">{halfDay} Half</span>
-              )}
+                {halfDay !== "none" && (
+                  <span className="text-[10px] bg-amber-100 text-amber-700 border border-amber-200 px-2 py-0.5 rounded-full font-bold uppercase">{halfDay} Half</span>
+                )}
+              </div>
             </div>
           </div>
 

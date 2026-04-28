@@ -11,7 +11,7 @@ import {
   Search, Filter, SortAsc, SortDesc, TrendingUp, CheckCheck, XCircle,
   RotateCcw, DollarSign, AlarmClock, Video, Phone, Building2, Link2,
   User, MessageSquare, AlertCircle, ThumbsUp, ThumbsDown, CalendarClock,
-  PartyPopper, ArrowRight,
+  PartyPopper, MoveRight,
 } from "lucide-react";
 import {
   getMyApplications, getMyApplicationDetail, respondToInterview, authFetch,
@@ -867,7 +867,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
                       className="mt-3 w-full flex items-center justify-center gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold px-4 py-2.5 transition-colors shadow-sm"
                     >
                       Go to Onboarding
-                      <ArrowRight className="h-4 w-4" />
+                      <MoveRight className="h-4 w-4" />
                     </a>
                   )}
                 </div>

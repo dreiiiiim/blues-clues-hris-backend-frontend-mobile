@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import {
   Search, Plus, MoreHorizontal, X, ChevronLeft, ChevronRight,
   Briefcase, MapPin, Users, XCircle, Loader2, CheckCircle, Link2, Copy, Check,
-  ArrowRight, GripVertical, Trash2, ChevronDown, Pencil, RefreshCw, FileText,
+  MoveRight, GripVertical, Trash2, ChevronDown, Pencil, RefreshCw, FileText,
   KanbanSquare, List, Mail, Phone, Calendar, Clock, Mic, Cpu, Trophy, CheckCircle2,
   LayoutGrid, Send, RotateCcw, Zap, BookOpen, Heart, Tag, Lightbulb, Sparkles,
 } from "lucide-react";
@@ -667,7 +667,7 @@ function CreateJobModal({
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save as Draft"}
                 </Button>
                 <Button type="submit" className="flex-1 gap-1.5" disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><MoveRight className="h-4 w-4" /></>}
                 </Button>
               </div>
             </form>
@@ -679,7 +679,7 @@ function CreateJobModal({
                   Skip for now
                 </Button>
                 <Button className="flex-1 gap-1.5" onClick={handleSaveQuestions} disabled={savingQuestions}>
-                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
+                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><MoveRight className="h-4 w-4" /></>}
                 </Button>
               </div>
             </div>
@@ -1347,7 +1347,7 @@ function EditJobModal({
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save & Close"}
                 </Button>
                 <Button type="submit" className="flex-1 gap-1.5" disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
+                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><MoveRight className="h-4 w-4" /></>}
                 </Button>
               </div>
             </form>
@@ -1365,7 +1365,7 @@ function EditJobModal({
                   Skip for now
                 </Button>
                 <Button className="flex-1 gap-1.5" onClick={handleSaveQuestions} disabled={savingQuestions || questionsLoading}>
-                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><ArrowRight className="h-4 w-4" /></>}
+                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><MoveRight className="h-4 w-4" /></>}
                 </Button>
               </div>
             </div>
@@ -1857,7 +1857,7 @@ function MoveConfirmDialog({
             <div className={`h-10 w-10 rounded-xl flex items-center justify-center shrink-0 ${isHire ? "bg-green-100 dark:bg-green-900/30" : "bg-primary/10"}`}>
               {isHire
                 ? <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400" />
-                : <ArrowRight className="h-5 w-5 text-primary" />
+                : <MoveRight className="h-5 w-5 text-primary" />
               }
             </div>
             <div>
@@ -2411,7 +2411,7 @@ function InterviewScheduleForm({
             />
           </div>
           <div className="flex items-center justify-center">
-            <ArrowRight className="h-4 w-4 text-muted-foreground" />
+            <MoveRight className="h-4 w-4 text-muted-foreground" />
           </div>
           <div className="relative">
             <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />

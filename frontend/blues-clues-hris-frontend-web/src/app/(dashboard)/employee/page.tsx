@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  ArrowRight,
+  MoveRight,
   CheckCircle2,
   Clock,
   FileCheck,
@@ -350,7 +350,7 @@ export default function EmployeeDashboardPage() {
                 <Button size="sm" variant={profileDone ? "outline" : "default"} className="h-8 text-xs" asChild>
                   <Link href="/employee/profile">
                     {profileDone ? "View Profile" : "Complete Profile"}
-                    <ArrowRight className="h-3 w-3 ml-1.5" />
+                    <MoveRight className="h-3 w-3 ml-1.5" />
                   </Link>
                 </Button>
               </div>
@@ -409,7 +409,7 @@ export default function EmployeeDashboardPage() {
                 <Button size="sm" variant={allDocsDone ? "outline" : "default"} className="h-8 text-xs" asChild>
                   <Link href="/employee/documents">
                     {allDocsDone ? "View Documents" : "Upload Documents"}
-                    <ArrowRight className="h-3 w-3 ml-1.5" />
+                    <MoveRight className="h-3 w-3 ml-1.5" />
                   </Link>
                 </Button>
               </div>
@@ -444,7 +444,7 @@ export default function EmployeeDashboardPage() {
                 <CardTitle className="text-base font-bold tracking-tight">Today&apos;s Timekeeping</CardTitle>
               </div>
               <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground" asChild>
-                <Link href="/employee/timekeeping">View all <ArrowRight className="h-3 w-3 ml-1" /></Link>
+                <Link href="/employee/timekeeping">View all <MoveRight className="h-3 w-3 ml-1" /></Link>
               </Button>
             </div>
           </CardHeader>

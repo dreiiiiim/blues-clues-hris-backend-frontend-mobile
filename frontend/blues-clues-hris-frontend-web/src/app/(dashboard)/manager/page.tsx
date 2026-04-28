@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useCallback, useState } from "react";
 import {
-  ArrowRight,
+  MoveRight,
   Clock,
   Users,
   UserCheck,
@@ -81,7 +81,7 @@ function QuickLink({
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
       </div>
-      <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
+      <MoveRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-foreground" />
     </Link>
   );
 }

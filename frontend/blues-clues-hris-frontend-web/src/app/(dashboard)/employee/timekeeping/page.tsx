@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, CalendarRange, CalendarClock, List,
   AlertTriangle, X, CheckCircle2, FileX,
   Stethoscope, Zap, Home, User, Palmtree, BadgeCheck, HelpCircle,
-  Timer, Sun, ArrowRight,
+  Timer, Sun, MoveRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -2247,32 +2247,35 @@ export default function EmployeeTimekeepingPage() {
             </div>
           </div>
           <div className="p-5 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
-            <div className="rounded-xl border border-border bg-background p-4">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Shift</p>
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-green-700">Starts</p>
-                  <p className="text-2xl font-black tabular-nums">{formatScheduleClock(mySchedule.start_time)}</p>
+            <div className="rounded-xl border border-border bg-background p-5">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-4">Shift Hours</p>
+              <div className="flex flex-wrap items-end gap-5">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">From</p>
+                  <p className="text-3xl font-black tabular-nums tracking-tight leading-none">{formatScheduleClock(mySchedule.start_time)}</p>
                 </div>
-                <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                <div>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-red-600">Ends</p>
-                  <p className="text-2xl font-black tabular-nums">{formatScheduleClock(mySchedule.end_time)}</p>
+                <MoveRight className="h-4 w-4 mb-1 text-muted-foreground/40 shrink-0" />
+                <div className="space-y-1">
+                  <p className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">To</p>
+                  <p className="text-3xl font-black tabular-nums tracking-tight leading-none">{formatScheduleClock(mySchedule.end_time)}</p>
                 </div>
               </div>
               {(mySchedule.break_start || mySchedule.break_end) && (
-                <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-                  <p className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Break Window</p>
-                  <p className="text-sm font-semibold tabular-nums">
-                    {formatScheduleClock(mySchedule.break_start)} - {formatScheduleClock(mySchedule.break_end)}
-                  </p>
+                <div className="mt-4 flex items-center gap-2.5 rounded-lg border border-amber-200/70 bg-amber-50/60 px-3.5 py-2.5">
+                  <div className="h-2 w-2 rounded-full bg-amber-400 shrink-0" />
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider">Break</span>
+                    <span className="text-sm font-semibold tabular-nums text-amber-900">
+                      {formatScheduleClock(mySchedule.break_start)} – {formatScheduleClock(mySchedule.break_end)}
+                    </span>
+                  </div>
                 </div>
               )}
             </div>
 
-            <div className="rounded-xl border border-border bg-muted/10 p-4">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Workdays</p>
-              <div className="grid grid-cols-7 gap-1.5">
+            <div className="rounded-xl border border-border bg-muted/10 p-5">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-4">Workdays</p>
+              <div className="grid grid-cols-7 gap-1">
                 {["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"].map(day => {
                   const arr = Array.isArray(mySchedule.workdays)
                     ? (mySchedule.workdays as string[]).map(d => d.trim().toUpperCase())
@@ -2282,10 +2285,10 @@ export default function EmployeeTimekeepingPage() {
                     <span
                       key={day}
                       title={day}
-                      className={`h-9 rounded-lg text-[10px] font-bold border flex items-center justify-center transition-colors ${
+                      className={`h-10 rounded-lg text-[10px] font-bold border flex items-center justify-center transition-colors ${
                         isActive
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-background text-muted-foreground border-border"
+                          ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                          : "bg-background text-muted-foreground/60 border-border/60"
                       }`}
                     >
                       {day.slice(0, 3)}

@@ -11,7 +11,7 @@ import {
   Users, Building2, Mail, Clock,
   UserPlus, CreditCard, Settings, ChevronRight,
   RefreshCw, ScrollText, Briefcase, ClipboardList,
-  Shield, Activity, UserCheck, ArrowRight,
+  Shield, Activity, UserCheck, MoveRight,
   CheckCircle2, AlertTriangle, TimerReset,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -486,7 +486,7 @@ export default function AdminDashboardPage() {
             href="/system-admin/audit-logs"
             className="inline-flex items-center gap-1.5 text-xs font-semibold text-primary hover:underline shrink-0"
           >
-            View all <ArrowRight className="h-3.5 w-3.5" />
+            View all <MoveRight className="h-3.5 w-3.5" />
           </Link>
         </div>
 
