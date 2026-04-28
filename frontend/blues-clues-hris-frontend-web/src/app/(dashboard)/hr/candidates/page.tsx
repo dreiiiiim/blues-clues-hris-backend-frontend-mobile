@@ -7,20 +7,14 @@ import {
   Briefcase,
   ChevronDown,
   ChevronUp,
-  ExternalLink,
   Eye,
-  FileText,
   GripVertical,
   Loader2,
-  Mail,
-  Phone,
   Star,
   TrendingUp,
   Trophy,
   Users,
-  X,
 } from "lucide-react";
-import { getApplicationDetail, type ApplicationDetail } from "@/lib/authApi";
 import {
   type CandidateJobOption,
   type RankedCandidate,
@@ -30,51 +24,19 @@ import {
   getRankedCandidates,
   saveManualRanking,
 } from "@/lib/candidateApi";
+import {
+  ApplicationStatusBadge,
+} from "@/components/candidates/ApplicationStatusBadge";
+import {
+  fitTextColor,
+  podiumBg,
+  podiumIconColor,
+  rankBadgeStyle,
+  rankStarClass,
+} from "@/components/candidates/rankingStyles";
+import { CandidateProfileModal } from "@/components/candidates/CandidateProfileModal";
 
 type JobWithCount = CandidateJobOption & { total_candidates?: number };
-
-const STATUS_STYLES: Record<string, string> = {
-  "Final Interview": "bg-purple-100 text-purple-700 border-purple-200",
-  "Technical": "bg-blue-100 text-blue-700 border-blue-200",
-  "Screening": "bg-amber-100 text-amber-700 border-amber-200",
-  "Submitted": "bg-gray-100 text-gray-600 border-gray-200",
-  "Hired": "bg-green-100 text-green-700 border-green-200",
-  "Rejected": "bg-red-100 text-red-700 border-red-200",
-  submitted: "bg-gray-100 text-gray-600 border-gray-200",
-  screening: "bg-amber-100 text-amber-700 border-amber-200",
-  technical: "bg-blue-100 text-blue-700 border-blue-200",
-};
-
-function fitTextColor(pct: number) {
-  if (pct >= 80) return "text-green-600";
-  if (pct >= 60) return "text-amber-600";
-  return "text-red-500";
-}
-
-function rankBadgeStyle(rank: number) {
-  if (rank === 1) return "bg-amber-100 text-amber-700 border border-amber-300";
-  if (rank === 2) return "bg-slate-100 text-slate-600 border border-slate-300";
-  if (rank === 3) return "bg-orange-50 text-orange-600 border border-orange-200";
-  return "bg-muted text-muted-foreground border border-border";
-}
-
-function rankStarClass(rank: number) {
-  if (rank === 1) return "fill-amber-500 text-amber-500";
-  if (rank === 2) return "fill-slate-400 text-slate-400";
-  return "fill-orange-400 text-orange-400";
-}
-
-function podiumBg(i: number) {
-  if (i === 0) return "bg-amber-100";
-  if (i === 1) return "bg-slate-100";
-  return "bg-orange-50";
-}
-
-function podiumIconColor(i: number) {
-  if (i === 0) return "text-amber-600";
-  if (i === 1) return "text-slate-500";
-  return "text-orange-500";
-}
 
 function normalizeStatus(status: string) {
   return status
@@ -235,12 +197,6 @@ function CandidateCard({
   onViewProfile: () => void;
 }>) {
   const [expanded, setExpanded] = useState(false);
-  const normalizedStatus = normalizeStatus(candidate.status);
-  const statusStyle =
-    STATUS_STYLES[normalizedStatus] ??
-    STATUS_STYLES[candidate.status] ??
-    "bg-gray-100 text-gray-600 border-gray-200";
-
   // Show survey score in manual mode, SFIA fit score in SFIA mode
   const displayScore = mode === "manual" ? (surveyScore ?? 0) : candidate.sfia_match_percentage;
   const scoreLabel = mode === "manual" ? "Survey Score" : "Fit Score";
@@ -278,9 +234,7 @@ function CandidateCard({
           <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{candidate.email}</p>
         </div>
 
-        <span className={`hidden shrink-0 items-center rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase sm:inline-flex ${statusStyle}`}>
-          {normalizedStatus}
-        </span>
+        <ApplicationStatusBadge status={candidate.status} className="hidden sm:inline-flex" />
 
         <div className="shrink-0 text-right space-y-1">
           <div>
@@ -329,217 +283,6 @@ function CandidateCard({
       </div>
 
       {expanded && <FitVisualization skills={candidate.skill_breakdown} />}
-    </div>
-  );
-}
-
-function openResume(url: string, name?: string | null) {
-  const opened = window.open(url, "_blank", "noopener,noreferrer");
-  if (opened) opened.opener = null;
-  if (!opened && name) {
-    window.location.href = url;
-  }
-}
-
-function CandidateProfileModal({
-  applicationId,
-  onClose,
-}: Readonly<{
-  applicationId: string;
-  onClose: () => void;
-}>) {
-  const [detail, setDetail] = useState<ApplicationDetail | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    getApplicationDetail(applicationId)
-      .then((data) => {
-        if (!cancelled) setDetail(data);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load applicant profile");
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [applicationId]);
-
-  const profile = detail?.applicant_profile;
-  const applicantName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "Applicant Profile";
-
-  const initials = profile
-    ? `${profile.first_name?.charAt(0) ?? ""}${profile.last_name?.charAt(0) ?? ""}`.toUpperCase() || "?"
-    : "?";
-  const normalizedStatus = detail ? normalizeStatus(detail.status) : "";
-  const statusStyle = detail
-    ? STATUS_STYLES[normalizedStatus] ?? STATUS_STYLES[detail.status] ?? "bg-gray-100 text-gray-600 border-gray-200"
-    : "";
-  const sfiaScore = detail?.sfia_match_percentage ?? detail?.survey_score ?? null;
-  const sfiaScoreRounded = sfiaScore != null ? Math.round(sfiaScore) : null;
-
-  return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-
-        {/* Gradient header band */}
-        <div className="relative shrink-0 bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_60%,#1e1b4b_100%)] px-5 pt-5 pb-14">
-          <button
-            type="button"
-            onClick={onClose}
-            className="absolute top-4 right-4 rounded-lg p-1.5 text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
-          >
-            <X className="h-4 w-4" />
-          </button>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">Applicant Profile</p>
-          <h3 className="mt-1.5 text-xl font-bold text-white truncate pr-8">{applicantName}</h3>
-          {profile?.email && (
-            <p className="mt-0.5 text-sm text-white/60 truncate max-w-sm" title={profile.email}>
-              {profile.email}
-            </p>
-          )}
-        </div>
-
-        {/* Avatar + status row (overlaps banner) */}
-        <div className="relative shrink-0 px-5">
-          <div className="flex items-end justify-between -mt-7">
-            <div className="h-14 w-14 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-lg border-4 border-card shadow-md">
-              {initials}
-            </div>
-            {detail && !loading && (
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <span className={`text-[10px] font-bold uppercase border rounded-full px-2.5 py-0.5 ${statusStyle}`}>
-                  {normalizedStatus}
-                </span>
-                {sfiaScoreRounded !== null && (
-                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
-                    sfiaScoreRounded >= 80 ? "bg-green-50 text-green-700 border-green-200"
-                    : sfiaScoreRounded >= 60 ? "bg-amber-50 text-amber-700 border-amber-200"
-                    : "bg-muted text-muted-foreground border-border"
-                  }`}>
-                    {sfiaScoreRounded}% Fit
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="overflow-y-auto flex-1 px-5 pb-5 pt-3 space-y-4">
-          {loading ? (
-            <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Loading applicant profile...
-            </div>
-          ) : error ? (
-            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
-          ) : detail && profile ? (
-            <div className="space-y-4">
-
-              {/* Contact info grid */}
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground">Code</p>
-                  <p className="mt-0.5 font-mono text-sm font-bold">{profile.applicant_code ?? "—"}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground">Applied</p>
-                  <p className="mt-0.5 text-sm font-semibold">{new Date(detail.applied_at).toLocaleDateString()}</p>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 min-w-0">
-                  <p className="text-[10px] font-semibold text-muted-foreground">Email</p>
-                  <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
-                    <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-semibold truncate" title={profile.email}>{profile.email}</span>
-                  </div>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground">Phone</p>
-                  <div className="mt-0.5 flex items-center gap-1.5">
-                    <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
-                    <span className="text-sm font-semibold">{profile.phone_number ?? "—"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Resumes */}
-              <div className="grid gap-2 sm:grid-cols-2">
-                <div className="rounded-xl border border-border bg-background p-3.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground mb-2.5">SFIA Resume</p>
-                  {detail.resume_upload?.signed_url ? (
-                    <div className="space-y-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full h-8 gap-1.5 justify-start text-xs"
-                        onClick={() => openResume(detail.resume_upload!.signed_url, detail.resume_upload!.file_name)}
-                      >
-                        <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
-                        View SFIA Resume
-                        <ExternalLink className="h-3 w-3 ml-auto" />
-                      </Button>
-                      <p className="truncate text-[10px] text-muted-foreground px-1" title={detail.resume_upload.file_name}>
-                        {detail.resume_upload.file_name}
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-1 py-2 text-center">
-                      <FileText className="h-6 w-6 text-muted-foreground/25" />
-                      <p className="text-[10px] text-muted-foreground">No SFIA resume</p>
-                    </div>
-                  )}
-                </div>
-                <div className="rounded-xl border border-border bg-background p-3.5">
-                  <p className="text-[10px] font-semibold text-muted-foreground mb-2.5">Profile Resume</p>
-                  {profile.resume_url ? (
-                    <div className="space-y-1.5">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="w-full h-8 gap-1.5 justify-start text-xs"
-                        onClick={() => openResume(profile.resume_url!, profile.resume_name)}
-                      >
-                        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                        View Profile Resume
-                        <ExternalLink className="h-3 w-3 ml-auto" />
-                      </Button>
-                      {profile.resume_name && (
-                        <p className="truncate text-[10px] text-muted-foreground px-1" title={profile.resume_name}>
-                          {profile.resume_name}
-                        </p>
-                      )}
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-1 py-2 text-center">
-                      <FileText className="h-6 w-6 text-muted-foreground/25" />
-                      <p className="text-[10px] text-muted-foreground">No resume uploaded</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Application answers */}
-              {detail.answers.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
-                  {detail.answers.map((answer) => (
-                    <div key={answer.answer_id} className="rounded-xl border border-border bg-muted/10 px-4 py-3">
-                      <p className="text-xs font-semibold">{answer.application_questions.question_text}</p>
-                      <p className="mt-1 text-sm text-muted-foreground">{String(answer.answer_value ?? "No answer")}</p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          ) : null}
-        </div>
-      </div>
     </div>
   );
 }
