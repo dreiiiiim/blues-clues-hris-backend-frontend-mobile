@@ -19,6 +19,8 @@ import {
   LayoutGrid, Send, RotateCcw, Zap, BookOpen, Heart, Tag, Lightbulb, Sparkles,
 } from "lucide-react";
 import { PipelineKanbanView } from "./_components/PipelineKanbanView";
+import { CreateJobModal } from "./_components/CreateJobModal";
+import { JobStatusBadge } from "@/components/jobs/JobStatusBadge";
 import {
   getApplicationDetail, getMyCompany, sendInterviewSchedule, resendInterviewEmail,
   cancelInterviewSchedule,
@@ -80,18 +82,6 @@ const SFIA_BAR_HEX: Record<string, string> = {
   "bg-violet-500": "#8b5cf6",
   "bg-violet-700": "#6d28d9",
   "bg-amber-500": "#f59e0b",
-};
-
-const JOB_STATUS_STYLES: Record<string, string> = {
-  open:   "bg-green-100 text-green-700 border-green-200",
-  closed: "bg-red-100 text-red-700 border-red-200",
-  draft:  "bg-amber-100 text-amber-700 border-amber-200",
-};
-
-const JOB_STATUS_ICONS: Record<string, React.ElementType> = {
-  open:   CheckCircle,
-  closed: XCircle,
-  draft:  Clock,
 };
 
 const APP_STATUSES = [
@@ -231,17 +221,6 @@ function StatCard({ label, value, sub, color }: Readonly<{ label: string; value:
   );
 }
 
-function StatusBadge({ status }: Readonly<{ status: string }>) {
-  const style = JOB_STATUS_STYLES[status] ?? "bg-gray-100 text-gray-700 border-gray-200";
-  const Icon  = JOB_STATUS_ICONS[status];
-  return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase border ${style}`}>
-      {Icon && <Icon className="h-3 w-3" />}
-      {status}
-    </span>
-  );
-}
-
 // ─── Question Builder ─────────────────────────────────────────────────────────
 
 function QuestionBuilder({
@@ -377,406 +356,6 @@ function QuestionBuilder({
 }
 
 // ─── Create Job Modal (2-step) ────────────────────────────────────────────────
-
-function CreateJobModal({
-  onClose,
-  onCreate,
-}: Readonly<{
-  onClose: () => void;
-  onCreate: (job: JobPosting) => void;
-}>) {
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [createdJob, setCreatedJob] = useState<JobPosting | null>(null);
-  const [questions, setQuestions] = useState<Question[]>([]);
-  const [saving, setSaving] = useState(false);
-  const [savingQuestions, setSavingQuestions] = useState(false);
-  const [departments, setDepartments] = useState<{ department_id: string; department_name: string }[]>([]);
-  const [masterSkills, setMasterSkills] = useState<SfiaSkill[]>([]);
-  const [sfiaSelected, setSfiaSelected] = useState<Map<string, number>>(new Map());
-  const [sfiaSearch, setSfiaSearch] = useState("");
-  const [savingSfia, setSavingSfia] = useState(false);
-  const [sfiaLoading, setSfiaLoading] = useState(false);
-  const [suggestingSfia, setSuggestingSfia] = useState(false);
-
-  const [form, setForm] = useState({
-    title: "", description: "", location: "",
-    employment_type: "", salary_range: "", closes_at: "", department_id: "",
-  });
-
-  useEffect(() => {
-    apiFetch<{ department_id: string; department_name: string }[]>("/users/departments")
-      .then(setDepartments)
-      .catch(() => {});
-  }, []);
-
-  const handleCreatePosting = async (e: React.SyntheticEvent<HTMLFormElement>, asDraft = false) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const payload: Record<string, string> = { title: form.title, description: form.description, status: asDraft ? "draft" : "open" };
-      if (form.location.trim())     payload.location = form.location.trim();
-      if (form.employment_type)     payload.employment_type = form.employment_type;
-      if (form.salary_range.trim()) payload.salary_range = form.salary_range.trim();
-      if (form.closes_at)           payload.closes_at = new Date(form.closes_at).toISOString();
-      if (form.department_id)       payload.department_id = form.department_id;
-
-      const job = await apiFetch<JobPosting>("/jobs", { method: "POST", body: JSON.stringify(payload) });
-      setCreatedJob(job);
-      if (asDraft) {
-        toast.success("Job saved as draft.");
-        onCreate(job);
-      } else {
-        setStep(2);
-      }
-    } catch (err: any) {
-      toast.error(err.message || "Failed to create job posting");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveQuestions = async () => {
-    if (!createdJob) return;
-    setSavingQuestions(true);
-    try {
-      const payload = questions
-        .filter((q) => q.question_text.trim())
-        .map((q, i) => ({
-          question_text: q.question_text.trim(),
-          question_type: q.question_type,
-          options: (q.question_type !== "text" && q.options.length) ? q.options.filter(Boolean) : undefined,
-          is_required: q.is_required,
-          sort_order: i,
-        }));
-
-      await apiFetch(`/jobs/${createdJob.job_posting_id}/questions`, {
-        method: "PUT",
-        body: JSON.stringify({ questions: payload }),
-      });
-      goToSfiaStep();
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save questions");
-    } finally {
-      setSavingQuestions(false);
-    }
-  };
-
-  const handleSkipQuestions = () => {
-    if (!createdJob) return;
-    goToSfiaStep();
-  };
-
-  const goToSfiaStep = () => {
-    setSfiaLoading(true);
-    listSfiaSkills()
-      .then(setMasterSkills)
-      .catch(() => {})
-      .finally(() => setSfiaLoading(false));
-    setStep(3);
-  };
-
-  const handleSuggestSfia = async () => {
-    if (!createdJob) return;
-    setSuggestingSfia(true);
-    try {
-      const suggestions = await suggestJobSfiaSkills(createdJob.job_posting_id);
-      if (suggestions.length === 0) {
-        toast.info("No skill matches found in job description.");
-        return;
-      }
-      setSfiaSelected((prev) => {
-        const next = new Map(prev);
-        for (const s of suggestions) {
-          if (!next.has(s.skill_id)) next.set(s.skill_id, s.suggested_level);
-        }
-        return next;
-      });
-      toast.success(`${suggestions.length} skill${suggestions.length !== 1 ? "s" : ""} suggested from job description.`);
-    } catch {
-      toast.error("Failed to fetch suggestions.");
-    } finally {
-      setSuggestingSfia(false);
-    }
-  };
-
-  const sfiaFiltered = masterSkills.filter((s) =>
-    s.skill.toLowerCase().includes(sfiaSearch.toLowerCase()) ||
-    (s.category ?? "").toLowerCase().includes(sfiaSearch.toLowerCase())
-  );
-
-  const toggleSfiaSkill = (skillId: string) => {
-    setSfiaSelected((prev) => {
-      const next = new Map(prev);
-      if (next.has(skillId)) next.delete(skillId);
-      else next.set(skillId, 3);
-      return next;
-    });
-  };
-
-  const setSfiaLevel = (skillId: string, level: number) => {
-    setSfiaSelected((prev) => { const next = new Map(prev); next.set(skillId, level); return next; });
-  };
-
-  const handleSaveSfia = async () => {
-    if (!createdJob) return;
-    setSavingSfia(true);
-    try {
-      const skills = Array.from(sfiaSelected.entries()).map(([skill_id, required_level]) => ({ skill_id, required_level }));
-      await updateJobSfiaSkills(createdJob.job_posting_id, skills);
-      toast.success("Job posting created!");
-      onCreate(createdJob);
-    } catch (err: any) {
-      toast.error(err.message || "Failed to save SFIA skills");
-    } finally {
-      setSavingSfia(false);
-    }
-  };
-
-  const handleSkipSfia = () => {
-    if (!createdJob) return;
-    toast.success("Job posting created!");
-    onCreate(createdJob);
-  };
-
-  return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg mx-4 max-h-[90vh] flex flex-col">
-        <div className="px-6 pt-5 pb-4 shrink-0">
-          {/* Title row */}
-          <div className="flex items-start justify-between mb-4">
-            <div>
-              <h3 className="font-bold text-foreground text-lg leading-tight">
-                {step === 1 ? "Create Job Posting" : step === 2 ? "Build Application Form" : "Configure SFIA Skills"}
-              </h3>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {step === 1 ? "Fill in the details for the new position" : step === 2 ? "Add questions applicants must answer" : "Set required skill levels for SFIA matching"}
-              </p>
-            </div>
-            <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 transition-colors shrink-0 ml-2">
-              <X className="h-4 w-4 text-muted-foreground" />
-            </button>
-          </div>
-          {/* Step indicator */}
-          <div className="flex items-start w-full">
-            <button type="button" onClick={() => setStep(1)} className="flex flex-col items-center gap-1 cursor-pointer group">
-              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 1 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : step > 1 ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground"}`}>
-                {step > 1 ? <Check className="h-3.5 w-3.5" /> : "1"}
-              </div>
-              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 1 ? "text-primary" : "text-muted-foreground"}`}>Job Details</span>
-            </button>
-            <div className="flex-1 mt-[13px] mx-2">
-              <div className={`h-px w-full transition-colors duration-300 ${step > 1 ? "bg-emerald-400/70" : "bg-border"}`} />
-            </div>
-            <button type="button" onClick={() => { if (createdJob) setStep(2); }} disabled={!createdJob} className={`flex flex-col items-center gap-1 ${createdJob ? "cursor-pointer" : "cursor-default"} group`}>
-              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 2 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : step > 2 && createdJob ? "bg-emerald-500 text-white" : createdJob ? "bg-muted text-muted-foreground group-hover:bg-muted/70" : "bg-muted/40 text-muted-foreground/40"}`}>
-                {step > 2 && createdJob ? <Check className="h-3.5 w-3.5" /> : "2"}
-              </div>
-              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 2 ? "text-primary" : createdJob ? "text-muted-foreground" : "text-muted-foreground/40"}`}>App Form</span>
-            </button>
-            <div className="flex-1 mt-[13px] mx-2">
-              <div className={`h-px w-full transition-colors duration-300 ${step > 2 ? "bg-emerald-400/70" : "bg-border"}`} />
-            </div>
-            <button type="button" onClick={() => { if (createdJob) goToSfiaStep(); }} disabled={!createdJob} className={`flex flex-col items-center gap-1 ${createdJob ? "cursor-pointer" : "cursor-default"} group`}>
-              <div className={`h-7 w-7 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-200 ${step === 3 ? "bg-primary text-primary-foreground ring-2 ring-primary/20 ring-offset-1 ring-offset-card" : createdJob ? "bg-muted text-muted-foreground group-hover:bg-muted/70" : "bg-muted/40 text-muted-foreground/40"}`}>
-                3
-              </div>
-              <span className={`text-[10px] font-medium leading-none whitespace-nowrap ${step === 3 ? "text-primary" : createdJob ? "text-muted-foreground" : "text-muted-foreground/40"}`}>SFIA Skills</span>
-            </button>
-          </div>
-        </div>
-        <div className="border-t border-border" />
-
-        <div className="flex-1 overflow-y-auto px-6 pb-6">
-          {step === 1 ? (
-            <form id="step1-form" onSubmit={handleCreatePosting} className="space-y-4">
-              <div className="space-y-1.5">
-                <label htmlFor="create-title" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Job Title *</label>
-                <Input
-                  id="create-title"
-                  value={form.title}
-                  onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
-                  placeholder="e.g. Senior Software Engineer"
-                  required className="h-10"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="create-description" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Description *</label>
-                <textarea
-                  id="create-description"
-                  value={form.description}
-                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                  placeholder="Describe the role, responsibilities, and requirements..."
-                  required rows={4}
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="create-department" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Department</label>
-                <select
-                  id="create-department"
-                  value={form.department_id}
-                  onChange={(e) => setForm((f) => ({ ...f, department_id: e.target.value }))}
-                  className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                >
-                  <option value="">Select department</option>
-                  {departments.map((d) => (
-                    <option key={d.department_id} value={d.department_id}>{d.department_name}</option>
-                  ))}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label htmlFor="create-location" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Location</label>
-                  <Input id="create-location" value={form.location} onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))} placeholder="e.g. Manila" className="h-10" />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="create-employment-type" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Employment Type</label>
-                  <select
-                    id="create-employment-type"
-                    value={form.employment_type}
-                    onChange={(e) => setForm((f) => ({ ...f, employment_type: e.target.value }))}
-                    className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    <option value="">Select type</option>
-                    <option>Full-time</option>
-                    <option>Part-time</option>
-                    <option>Contract</option>
-                    <option>Internship</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label htmlFor="create-salary" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Salary Range</label>
-                  <Input id="create-salary" value={form.salary_range} onChange={(e) => setForm((f) => ({ ...f, salary_range: e.target.value }))} placeholder="e.g. ₱50k – ₱80k" className="h-10" />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="create-closes-at" className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Closes On</label>
-                  <Input id="create-closes-at" type="date" value={form.closes_at} onChange={(e) => setForm((f) => ({ ...f, closes_at: e.target.value }))} className="h-10" />
-                </div>
-              </div>
-              <div className="flex gap-3 pt-2">
-                <Button type="button" variant="outline" className="flex-1" onClick={onClose} disabled={saving}>Cancel</Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="flex-1 gap-1.5 border-dashed text-muted-foreground hover:text-foreground"
-                  disabled={saving || !form.title.trim() || !form.description.trim()}
-                  onClick={() => handleCreatePosting({ preventDefault: () => {} } as any, true)}
-                >
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save as Draft"}
-                </Button>
-                <Button type="submit" className="flex-1 gap-1.5" disabled={saving}>
-                  {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><MoveRight className="h-4 w-4" /></>}
-                </Button>
-              </div>
-            </form>
-          ) : step === 2 ? (
-            <div className="space-y-4">
-              <QuestionBuilder questions={questions} onChange={setQuestions} />
-              <div className="flex gap-3 pt-2">
-                <Button type="button" variant="ghost" className="gap-1.5" onClick={handleSkipQuestions} disabled={savingQuestions}>
-                  Skip for now
-                </Button>
-                <Button className="flex-1 gap-1.5" onClick={handleSaveQuestions} disabled={savingQuestions}>
-                  {savingQuestions ? <Loader2 className="h-4 w-4 animate-spin" /> : <><span>Next</span><MoveRight className="h-4 w-4" /></>}
-                </Button>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              <Input
-                placeholder="Search skills…"
-                value={sfiaSearch}
-                onChange={(e) => setSfiaSearch(e.target.value)}
-                className="h-9 text-xs"
-              />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={handleSuggestSfia}
-                disabled={suggestingSfia || sfiaLoading}
-                className="w-full h-9 gap-2 text-xs border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/20 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-900/40 hover:border-violet-300 transition-all duration-200"
-              >
-                {suggestingSfia ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-                Auto-suggest skills from job description
-              </Button>
-              <div className="rounded-xl bg-blue-50/60 dark:bg-blue-950/20 border border-blue-100 dark:border-blue-900/40 px-3.5 py-3">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <BookOpen className="h-3 w-3 text-blue-600 dark:text-blue-400" />
-                  <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-400">How skill levels work</p>
-                </div>
-                <p className="text-[10px] text-blue-600/80 dark:text-blue-300/70 leading-relaxed">
-                  Check a skill, then set the <span className="font-semibold">minimum experience level</span> required.
-                  <span className="block mt-0.5">Beginner → trainee · Applied → works alone · Managed → leads team · Strategic → director</span>
-                </p>
-              </div>
-              {sfiaSelected.size > 0 && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-primary/10 border border-primary/20">
-                  <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-xs font-medium text-primary">{sfiaSelected.size} skill{sfiaSelected.size !== 1 ? "s" : ""} selected</span>
-                  <span className="text-xs text-muted-foreground ml-auto">Applicants scored against these</span>
-                </div>
-              )}
-              <div className="space-y-1.5 max-h-[34vh] overflow-y-auto pr-1">
-                {sfiaLoading ? (
-                  <div className="flex items-center justify-center py-8 text-muted-foreground text-xs gap-2">
-                    <Loader2 className="h-4 w-4 animate-spin" /> Loading skills…
-                  </div>
-                ) : sfiaFiltered.length === 0 ? (
-                  <p className="text-center py-4 text-xs text-muted-foreground">No skills match your search.</p>
-                ) : (
-                  sfiaFiltered.map((skill) => {
-                    const isChecked = sfiaSelected.has(skill.skill_id);
-                    const level = sfiaSelected.get(skill.skill_id) ?? 3;
-                    return (
-                      <div key={skill.skill_id} className={`rounded-xl border transition-all duration-150 p-3 space-y-2 ${isChecked ? "border-primary/40 bg-primary/5 dark:bg-primary/10" : "border-border bg-background hover:bg-muted/30"}`}>
-                        <label className="flex items-center gap-2.5 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={isChecked}
-                            onChange={() => toggleSfiaSkill(skill.skill_id)}
-                            className="h-4 w-4 rounded accent-primary shrink-0"
-                          />
-                          <span className="text-xs font-medium flex-1 leading-tight">{skill.skill}</span>
-                          {skill.category && (
-                            <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border shrink-0 ${getCategoryColor(skill.category)}`}>
-                              {skill.category}
-                            </span>
-                          )}
-                        </label>
-                        {isChecked && (
-                          <select
-                            value={level}
-                            onChange={(e) => setSfiaLevel(skill.skill_id, Number(e.target.value))}
-                            className="w-full h-8 rounded-lg border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                          >
-                            {[1,2,3,4,5,6,7].map((l) => (
-                              <option key={l} value={l}>{getLevelDesc(skill, l)}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-              <div className="flex gap-3 pt-1">
-                <Button type="button" variant="ghost" className="gap-1.5 text-muted-foreground" onClick={handleSkipSfia} disabled={savingSfia}>
-                  Skip for now
-                </Button>
-                <Button className="flex-1 gap-1.5" onClick={handleSaveSfia} disabled={savingSfia || sfiaLoading}>
-                  {savingSfia ? <Loader2 className="h-4 w-4 animate-spin" /> : <><Zap className="h-4 w-4" /><span>Save & Finish</span></>}
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ─── SFIA helpers ─────────────────────────────────────────────────────────────
 
@@ -1695,22 +1274,26 @@ function formatApplicationAnswer(answer: ApplicationDetail["answers"][number]): 
 function StageProgressBar({ currentStatus }: { readonly currentStatus: string }) {
   const isTerminal = currentStatus === "hired" || currentStatus === "rejected";
   const currentIdx = STAGE_STEPS.findIndex((s) => s.key === currentStatus);
-
-  let terminalLineColor = "bg-border";
-  if (currentStatus === "hired") terminalLineColor = "bg-green-500";
-  else if (currentStatus === "rejected") terminalLineColor = "bg-red-500";
-
-  let terminalDotClass = "bg-muted/30 border-border";
-  if (currentStatus === "hired") terminalDotClass = "bg-green-500 border-green-500";
-  else if (currentStatus === "rejected") terminalDotClass = "bg-red-500 border-red-500";
-
-  let terminalTextClass = "text-muted-foreground/40";
-  if (currentStatus === "hired") terminalTextClass = "text-green-600 dark:text-green-400";
-  else if (currentStatus === "rejected") terminalTextClass = "text-red-500 dark:text-red-400";
-
-  let terminalLabel = "Result";
-  if (currentStatus === "hired") terminalLabel = "Hired";
-  else if (currentStatus === "rejected") terminalLabel = "Rejected";
+  const terminalConfig: Record<string, { lineColor: string; dotClass: string; textClass: string; label: string }> = {
+    hired: {
+      lineColor: "bg-green-500",
+      dotClass: "bg-green-500 border-green-500",
+      textClass: "text-green-600 dark:text-green-400",
+      label: "Hired",
+    },
+    rejected: {
+      lineColor: "bg-red-500",
+      dotClass: "bg-red-500 border-red-500",
+      textClass: "text-red-500 dark:text-red-400",
+      label: "Rejected",
+    },
+  };
+  const terminalState = terminalConfig[currentStatus] ?? {
+    lineColor: "bg-border",
+    dotClass: "bg-muted/30 border-border",
+    textClass: "text-muted-foreground/40",
+    label: "Result",
+  };
 
   return (
     <div className="flex items-center gap-0 px-6 py-3 border-b border-border bg-muted/20 shrink-0">
@@ -1738,14 +1321,14 @@ function StageProgressBar({ currentStatus }: { readonly currentStatus: string })
         );
       })}
       <div className="flex items-center flex-1 min-w-0">
-        <div className={`h-0.5 flex-1 -mt-3 mx-0.5 rounded-full ${terminalLineColor}`} />
+        <div className={`h-0.5 flex-1 -mt-3 mx-0.5 rounded-full ${terminalState.lineColor}`} />
         <div className="flex flex-col items-center shrink-0">
-          <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${terminalDotClass}`}>
+          <div className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${terminalState.dotClass}`}>
             {currentStatus === "hired"    && <CheckCircle2 className="h-3 w-3 text-white" />}
             {currentStatus === "rejected" && <XCircle      className="h-3 w-3 text-white" />}
           </div>
-          <span className={`mt-0.5 text-[8px] font-bold uppercase tracking-wide text-center leading-tight ${terminalTextClass}`}>
-            {terminalLabel}
+          <span className={`mt-0.5 text-[8px] font-bold uppercase tracking-wide text-center leading-tight ${terminalState.textClass}`}>
+            {terminalState.label}
           </span>
         </div>
       </div>
@@ -3793,7 +3376,7 @@ export default function HRJobsPage() {
             <td className="px-5 py-4">
               {(closingId === job.job_posting_id || reopeningId === job.job_posting_id)
                 ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                : <StatusBadge status={job.status} />}
+                : <JobStatusBadge status={job.status} />}
             </td>
 
             {/* Timeline */}
