@@ -72,11 +72,7 @@ export class AuthService {
   private logDevLink(label: string, recipient: string, link: string) {
     if (this.config.get<string>('NODE_ENV') === 'production') return;
 
-    console.log('==========================================');
-    console.log(`DEV MODE - ${label}`);
-    console.log(`Recipient: ${recipient}`);
-    console.log(link);
-    console.log('==========================================');
+    this.logger.debug(`DEV MODE - ${label} | Recipient: ${recipient} | Link: ${link}`);
   }
 
   private async issueFreshUserInvite(userId: string) {
