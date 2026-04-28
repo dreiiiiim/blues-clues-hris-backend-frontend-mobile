@@ -1,8 +1,5 @@
-import {
-  OnboardingTemplate,
-  EmployeeAssignment,
-  Notification
-} from "../types/onboarding.types";
+type EmployeeAssignment = Record<string, unknown>;
+type Notification = Record<string, unknown>;
 
 // Shared base documents reused across templates
 const sharedBaseDocuments = [
@@ -33,7 +30,7 @@ const sharedBaseDocuments = [
 ];
 
 // Mock Templates
-export const mockTemplates: OnboardingTemplate[] = [
+export const mockTemplates = [
   {
     id: "template-1",
     name: "Software Engineer Onboarding",
@@ -247,7 +244,7 @@ export const mockTemplates: OnboardingTemplate[] = [
 ];
 
 // Mock Employee Assignments
-export const mockEmployeeAssignments: EmployeeAssignment[] = [
+export const mockEmployeeAssignments = [
   {
     id: "assign-1",
     employeeId: "emp-001",
@@ -380,7 +377,7 @@ export const mockEmployeeAssignments: EmployeeAssignment[] = [
 ];
 
 // Mock Notifications
-export const mockNotifications: Notification[] = [
+export const mockNotifications = [
   {
     id: "notif-1",
     type: "employee-assigned",
