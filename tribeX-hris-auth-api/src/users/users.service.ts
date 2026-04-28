@@ -1050,12 +1050,10 @@ export class UsersService {
     try {
       await this.mailService.sendInvite(email, inviteLink);
     } catch (emailError) {
-      console.log('[create] email error:', emailError?.message ?? emailError);
-      console.log('==========================================');
-      console.log('DEV MODE - invite link (copy and open in browser):');
-      console.log(`Invite recipient: ${email}`);
-      console.log(inviteLink);
-      console.log('==========================================');
+      this.logger.warn(`[create] email error: ${emailError?.message ?? emailError}`);
+      if (this.config.get<string>('NODE_ENV') !== 'production') {
+        this.logger.debug(`DEV MODE - invite link | Recipient: ${email} | Link: ${inviteLink}`);
+      }
     }
 
     await this.auditService.log(
@@ -1348,12 +1346,10 @@ export class UsersService {
     try {
       await this.mailService.sendInvite(user.email, inviteLink);
     } catch (emailError) {
-      console.log('[resendInvite] email error:', emailError?.message ?? emailError);
-      console.log('==========================================');
-      console.log('DEV MODE - invite link (copy and open in browser):');
-      console.log(`Invite recipient: ${user.email}`);
-      console.log(inviteLink);
-      console.log('==========================================');
+      this.logger.warn(`[resendInvite] email error: ${emailError?.message ?? emailError}`);
+      if (this.config.get<string>('NODE_ENV') !== 'production') {
+        this.logger.debug(`DEV MODE - invite link | Recipient: ${user.email} | Link: ${inviteLink}`);
+      }
     }
 
     await this.auditService.log(
