@@ -1348,7 +1348,7 @@ export class JobsService {
       .eq('application_id', applicationId);
 
     if (error) {
-      console.error('Error fetching answers:', error.message);
+      this.logger.error(`Error fetching answers: ${error.message}`);
       return 0;
     }
 
@@ -1575,7 +1575,7 @@ export class JobsService {
 
       const { error: answerError } = await supabase.from('applicant_answers').insert(answerRows);
       if (answerError) {
-        console.error('Failed to save applicant answers:', answerError.message);
+        this.logger.error(`Failed to save applicant answers: ${answerError.message}`);
       }
 
       // Calculate survey score after answers are saved
@@ -1586,7 +1586,7 @@ export class JobsService {
         .eq('application_id', application_id);
 
       if (scoreError) {
-        console.error('Failed to save survey score:', scoreError.message);
+        this.logger.error(`Failed to save survey score: ${scoreError.message}`);
       }
     }
 
