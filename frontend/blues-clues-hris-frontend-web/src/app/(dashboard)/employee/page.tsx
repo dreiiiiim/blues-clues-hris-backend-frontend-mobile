@@ -208,47 +208,47 @@ export default function EmployeeDashboardPage() {
     <div className="space-y-6 max-w-7xl mx-auto animate-in fade-in duration-500">
 
       {/* ── Hero ─────────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden rounded-[26px] bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 py-8 text-white shadow-sm md:px-8 md:py-10">
-        <div className="absolute inset-y-0 right-0 w-80 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.12),transparent_65%)]" />
-        <div className="absolute bottom-0 left-1/3 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <section className="relative overflow-hidden rounded-[26px] bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_50%,#0f172a_100%)] px-6 py-8 text-white shadow-lg md:px-8 md:py-10">
+        {/* Subtle grid texture */}
+        <div className="pointer-events-none absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "repeating-linear-gradient(0deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px),repeating-linear-gradient(90deg,#fff 0px,#fff 1px,transparent 1px,transparent 40px)" }} />
+        <div className="absolute inset-y-0 right-0 w-96 bg-[radial-gradient(ellipse_at_top_right,rgba(99,102,241,0.25),transparent_65%)]" />
+        <div className="absolute bottom-0 left-1/4 h-56 w-56 rounded-full bg-indigo-500/15 blur-3xl" />
+        <div className="relative z-10 flex flex-col md:flex-row md:items-end md:justify-between gap-5">
           <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/60">Staff Portal</p>
+            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/50">Staff Portal</p>
             <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">
               {loading ? "Loading…" : `Welcome back, ${profile?.first_name || user?.name?.split(" ")[0] || "Employee"}!`}
             </h1>
-            <p className="mt-1.5 text-sm text-white/70">{getTodayLabel()}</p>
+            <p className="mt-1.5 text-sm text-white/60">{getTodayLabel()}</p>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2.5">
             {loading ? (
-              <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur w-36 h-16 animate-pulse" />
+              <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 w-36 h-16 animate-pulse" />
             ) : (
               <>
-                <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Today</p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <Clock className="h-3.5 w-3.5 text-white/70" />
-                    <p className="text-sm font-bold">
-                      {todayCfg ? (
-                        <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${todayCfg.cls}`}>
-                          {todayCfg.label}
-                        </span>
-                      ) : (
-                        <span className="text-white/60 text-xs">Not clocked in</span>
-                      )}
-                    </p>
+                <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm">
+                  <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">Today</p>
+                  <div className="mt-1.5 flex items-center gap-2">
+                    <Clock className="h-3.5 w-3.5 text-white/50" />
+                    {todayCfg ? (
+                      <span className={`rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${todayCfg.cls}`}>
+                        {todayCfg.label}
+                      </span>
+                    ) : (
+                      <span className="text-white/50 text-xs">Not clocked in</span>
+                    )}
                   </div>
                 </div>
                 {timeIn && (
-                  <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Time In</p>
-                    <p className="mt-1 text-sm font-bold">{fmtTime(timeIn)}</p>
+                  <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">Time In</p>
+                    <p className="mt-1.5 text-sm font-bold">{fmtTime(timeIn)}</p>
                   </div>
                 )}
                 {hoursWorked && (
-                  <div className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur">
-                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/60">Hours Worked</p>
-                    <p className="mt-1 text-sm font-bold">{hoursWorked}</p>
+                  <div className="rounded-2xl border border-white/10 bg-white/8 px-4 py-3 backdrop-blur-sm">
+                    <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-white/50">Hours</p>
+                    <p className="mt-1.5 text-sm font-bold">{hoursWorked}</p>
                   </div>
                 )}
               </>

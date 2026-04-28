@@ -374,32 +374,64 @@ function CandidateProfileModal({
   const profile = detail?.applicant_profile;
   const applicantName = profile ? `${profile.first_name} ${profile.last_name}`.trim() : "Applicant Profile";
 
+  const initials = profile
+    ? `${profile.first_name?.charAt(0) ?? ""}${profile.last_name?.charAt(0) ?? ""}`.toUpperCase() || "?"
+    : "?";
+  const normalizedStatus = detail ? normalizeStatus(detail.status) : "";
+  const statusStyle = detail
+    ? STATUS_STYLES[normalizedStatus] ?? STATUS_STYLES[detail.status] ?? "bg-gray-100 text-gray-600 border-gray-200"
+    : "";
+  const sfiaScore = detail?.sfia_match_percentage ?? detail?.survey_score ?? null;
+  const sfiaScoreRounded = sfiaScore != null ? Math.round(sfiaScore) : null;
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-      <div className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="h-12 w-12 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0 border border-primary/20">
-              {profile
-                ? `${profile.first_name?.charAt(0) ?? ""}${profile.last_name?.charAt(0) ?? ""}`.toUpperCase() || "?"
-                : "?"}
-            </div>
-            <div className="min-w-0">
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Profile</p>
-              <h3 className="mt-0.5 text-lg font-bold truncate">{applicantName}</h3>
-              {profile?.email && (
-                <p className="text-xs text-muted-foreground truncate max-w-xs" title={profile.email}>
-                  {profile.email}
-                </p>
-              )}
-            </div>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground shrink-0 cursor-pointer">
+      <div className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+
+        {/* Gradient header band */}
+        <div className="relative shrink-0 bg-[linear-gradient(135deg,#0f172a_0%,#1e3a8a_60%,#1e1b4b_100%)] px-5 pt-5 pb-14">
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-4 right-4 rounded-lg p-1.5 text-white/60 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+          >
             <X className="h-4 w-4" />
           </button>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">Applicant Profile</p>
+          <h3 className="mt-1.5 text-xl font-bold text-white truncate pr-8">{applicantName}</h3>
+          {profile?.email && (
+            <p className="mt-0.5 text-sm text-white/60 truncate max-w-sm" title={profile.email}>
+              {profile.email}
+            </p>
+          )}
         </div>
 
-        <div className="overflow-y-auto p-5">
+        {/* Avatar + status row (overlaps banner) */}
+        <div className="relative shrink-0 px-5">
+          <div className="flex items-end justify-between -mt-7">
+            <div className="h-14 w-14 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-lg border-4 border-card shadow-md">
+              {initials}
+            </div>
+            {detail && !loading && (
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className={`text-[10px] font-bold uppercase border rounded-full px-2.5 py-0.5 ${statusStyle}`}>
+                  {normalizedStatus}
+                </span>
+                {sfiaScoreRounded !== null && (
+                  <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full border ${
+                    sfiaScoreRounded >= 80 ? "bg-green-50 text-green-700 border-green-200"
+                    : sfiaScoreRounded >= 60 ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-muted text-muted-foreground border-border"
+                  }`}>
+                    {sfiaScoreRounded}% Fit
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-5 pb-5 pt-3 space-y-4">
           {loading ? (
             <div className="flex min-h-48 items-center justify-center text-sm text-muted-foreground">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -408,85 +440,91 @@ function CandidateProfileModal({
           ) : error ? (
             <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
           ) : detail && profile ? (
-            <div className="space-y-5">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applicant Code</p>
-                  <p className="mt-1 font-mono text-sm font-bold">{profile.applicant_code ?? "Not assigned"}</p>
+            <div className="space-y-4">
+
+              {/* Contact info grid */}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground">Code</p>
+                  <p className="mt-0.5 font-mono text-sm font-bold">{profile.applicant_code ?? "—"}</p>
                 </div>
-                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Applied</p>
-                  <p className="mt-1 text-sm font-semibold">{new Date(detail.applied_at).toLocaleDateString()}</p>
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground">Applied</p>
+                  <p className="mt-0.5 text-sm font-semibold">{new Date(detail.applied_at).toLocaleDateString()}</p>
                 </div>
-                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 min-w-0">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Email</p>
-                  <p className="mt-1 flex items-center gap-2 text-sm font-semibold min-w-0">
-                    <Mail className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <span className="truncate" title={profile.email}>{profile.email}</span>
-                  </p>
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5 min-w-0">
+                  <p className="text-[10px] font-semibold text-muted-foreground">Email</p>
+                  <div className="mt-0.5 flex items-center gap-1.5 min-w-0">
+                    <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-semibold truncate" title={profile.email}>{profile.email}</span>
+                  </div>
                 </div>
-                <div className="rounded-xl border border-border bg-muted/20 px-4 py-3">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Phone</p>
-                  <p className="mt-1 flex items-center gap-2 text-sm font-semibold">
-                    <Phone className="h-3.5 w-3.5 text-muted-foreground" />
-                    {profile.phone_number ?? "Not provided"}
-                  </p>
+                <div className="rounded-lg border border-border bg-muted/20 px-3 py-2.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground">Phone</p>
+                  <div className="mt-0.5 flex items-center gap-1.5">
+                    <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="text-sm font-semibold">{profile.phone_number ?? "—"}</span>
+                  </div>
                 </div>
               </div>
 
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-xl border border-border bg-background p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">SFIA Resume</p>
+              {/* Resumes */}
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div className="rounded-xl border border-border bg-background p-3.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground mb-2.5">SFIA Resume</p>
                   {detail.resume_upload?.signed_url ? (
-                    <div className="mt-3 space-y-2">
+                    <div className="space-y-1.5">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-9 gap-2"
+                        className="w-full h-8 gap-1.5 justify-start text-xs"
                         onClick={() => openResume(detail.resume_upload!.signed_url, detail.resume_upload!.file_name)}
                       >
-                        <FileText className="h-4 w-4" />
+                        <FileText className="h-3.5 w-3.5 text-primary shrink-0" />
                         View SFIA Resume
-                        <ExternalLink className="h-3.5 w-3.5" />
+                        <ExternalLink className="h-3 w-3 ml-auto" />
                       </Button>
-                      <p className="truncate text-xs text-muted-foreground" title={detail.resume_upload.file_name}>
+                      <p className="truncate text-[10px] text-muted-foreground px-1" title={detail.resume_upload.file_name}>
                         {detail.resume_upload.file_name}
                       </p>
                     </div>
                   ) : (
-                    <p className="mt-3 text-sm text-muted-foreground">No SFIA resume uploaded.</p>
+                    <div className="flex flex-col items-center gap-1 py-2 text-center">
+                      <FileText className="h-6 w-6 text-muted-foreground/25" />
+                      <p className="text-[10px] text-muted-foreground">No SFIA resume</p>
+                    </div>
                   )}
                 </div>
-
-                <div className="rounded-xl border border-border bg-background p-4">
-                  <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Profile Resume</p>
+                <div className="rounded-xl border border-border bg-background p-3.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground mb-2.5">Profile Resume</p>
                   {profile.resume_url ? (
-                    <div className="mt-3 space-y-2">
+                    <div className="space-y-1.5">
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-9 gap-2"
+                        className="w-full h-8 gap-1.5 justify-start text-xs"
                         onClick={() => openResume(profile.resume_url!, profile.resume_name)}
                       >
-                        <FileText className="h-4 w-4" />
+                        <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         View Profile Resume
-                        <ExternalLink className="h-3.5 w-3.5" />
+                        <ExternalLink className="h-3 w-3 ml-auto" />
                       </Button>
                       {profile.resume_name && (
-                        <p className="truncate text-xs text-muted-foreground" title={profile.resume_name}>
+                        <p className="truncate text-[10px] text-muted-foreground px-1" title={profile.resume_name}>
                           {profile.resume_name}
                         </p>
                       )}
                     </div>
                   ) : (
-                    <div className="mt-3 flex flex-col items-center gap-1.5 py-3 text-center">
-                      <FileText className="h-7 w-7 text-muted-foreground/25" />
-                      <p className="text-xs text-muted-foreground">No resume uploaded</p>
+                    <div className="flex flex-col items-center gap-1 py-2 text-center">
+                      <FileText className="h-6 w-6 text-muted-foreground/25" />
+                      <p className="text-[10px] text-muted-foreground">No resume uploaded</p>
                     </div>
                   )}
                 </div>
               </div>
 
+              {/* Application answers */}
               {detail.answers.length > 0 && (
                 <div className="space-y-2">
                   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Application Answers</p>
