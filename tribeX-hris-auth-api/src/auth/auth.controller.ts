@@ -24,7 +24,7 @@ function setCookieOptions(maxAgeMs: number) {
     secure: isProd,
     sameSite: isProd ? 'none' : 'lax',
     maxAge: maxAgeMs,
-    path: '/api/tribeX/auth',
+    path: '/api/v1',
   } as const;
 }
 
@@ -96,7 +96,7 @@ export class AuthController {
 
     const isProd = process.env.NODE_ENV === 'production';
     res.clearCookie(COOKIE_NAME, {
-      path: '/api/tribeX/auth',
+      path: '/api/v1',
       secure: isProd,
       sameSite: isProd ? 'none' : 'lax',
     } as const);

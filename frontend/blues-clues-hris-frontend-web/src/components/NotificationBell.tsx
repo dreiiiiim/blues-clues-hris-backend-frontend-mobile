@@ -27,7 +27,7 @@ export function NotificationBell({ applicantId, showUnreadBadge = true }: Notifi
   const [error, setError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api/tribeX/auth/v1";
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:5000/api/v1";
 
   // Fetch notifications when dropdown opens and poll for updates
   useEffect(() => {
