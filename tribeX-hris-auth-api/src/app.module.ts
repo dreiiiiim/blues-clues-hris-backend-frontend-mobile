@@ -18,6 +18,7 @@ import { JobsModule } from './jobs/jobs.module';
 import { AuditModule } from './audit/audit.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { SubscriptionModule } from './subscription/subscription.module';
 
 const shouldValidateEnv = process.env.NODE_ENV === 'production';
 
@@ -43,6 +44,7 @@ const shouldValidateEnv = process.env.NODE_ENV === 'production';
     AuditModule,
     OnboardingModule,
     NotificationsModule,
+    SubscriptionModule,
   ],
   controllers: [AppController],
   providers: [AppService],

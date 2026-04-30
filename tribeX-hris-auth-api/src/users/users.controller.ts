@@ -12,6 +12,7 @@ import {
   Req,
   UseGuards,
   BadRequestException,
+  UnauthorizedException,
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
@@ -137,6 +138,66 @@ export class UsersController {
       modules,
       req.user.company_id,
       req.user.sub_userid,
+    );
+  }
+
+  @Get('tenant-config')
+  getTenantConfig(@Req() req: any) {
+    return this.usersService.getTenantConfig(req.user.company_id);
+  }
+
+  @Patch('tenant-config')
+  updateTenantConfig(
+    @Req() req: any,
+    @Body() body: {
+      timezone?: string;
+      date_format?: string;
+      currency?: string;
+      org_structure?: any;
+    },
+  ) {
+    if (req.user.role_name !== 'System Admin') {
+      throw new UnauthorizedException(
+        'Only System Admins can update tenant configuration',
+      );
+    }
+    return this.usersService.updateTenantConfig(
+      req.user.company_id,
+      body,
+      req.user.sub_userid,
+    );
+  }
+
+  @Get('tenant-modules')
+  getTenantModules(@Req() req: any) {
+    return this.usersService.getTenantModules(req.user.company_id);
+  }
+
+  @Patch('tenant-modules/:module')
+  updateTenantModule(
+    @Req() req: any,
+    @Param('module') module: string,
+    @Body('status') status: 'Active' | 'Inactive',
+  ) {
+    if (req.user.role_name !== 'System Admin') {
+      throw new UnauthorizedException('Only System Admins can manage HR modules');
+    }
+    if (status !== 'Active' && status !== 'Inactive') {
+      throw new BadRequestException('status must be "Active" or "Inactive"');
+    }
+    return this.usersService.updateTenantModule(
+      req.user.company_id,
+      module,
+      status,
+      req.user.sub_userid,
+    );
+  }
+
+  @Get('me/accessible-modules')
+  getMyAccessibleModules(@Req() req: any) {
+    return this.usersService.getMyAccessibleModules(
+      req.user.role_id,
+      req.user.company_id,
     );
   }
 

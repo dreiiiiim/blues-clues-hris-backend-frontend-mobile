@@ -170,6 +170,13 @@ const LIFECYCLE_MODULE_DEFINITIONS: LifecycleModuleDefinition[] = [
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
+  private readonly VALID_MODULES = [
+    'recruitment',
+    'onboarding',
+    'compensation',
+    'performance',
+    'offboarding',
+  ] as const;
 
   constructor(
     private readonly supabaseService: SupabaseService,
@@ -574,6 +581,176 @@ export class UsersService {
     );
 
     return this.getLifecyclePermissions(companyId);
+  }
+
+  async getTenantConfig(companyId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('tenant_config')
+      .select('*')
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    if (!data) {
+      return {
+        company_id: companyId,
+        timezone: 'Asia/Manila',
+        date_format: 'MM/DD/YYYY',
+        currency: 'PHP',
+        org_structure: null,
+      };
+    }
+    return data;
+  }
+
+  async updateTenantConfig(
+    companyId: string,
+    updates: {
+      timezone?: string;
+      date_format?: string;
+      currency?: string;
+      org_structure?: any;
+    },
+    adminUserId: string,
+  ) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('tenant_config')
+      .upsert(
+        { company_id: companyId, ...updates, updated_at: new Date().toISOString() },
+        { onConflict: 'company_id' },
+      )
+      .select()
+      .single();
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    await this.auditService.log('Tenant config updated', adminUserId, companyId);
+    return data;
+  }
+
+  async getTenantModules(companyId: string) {
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('tenant_modules')
+      .select('id, company_id, module, status')
+      .eq('company_id', companyId)
+      .order('module');
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    if (!data || data.length === 0) {
+      return this.VALID_MODULES.map((module) => ({
+        company_id: companyId,
+        module,
+        status: 'Active',
+      }));
+    }
+    return data;
+  }
+
+  async updateTenantModule(
+    companyId: string,
+    module: string,
+    status: 'Active' | 'Inactive',
+    adminUserId: string,
+  ) {
+    if (!(this.VALID_MODULES as readonly string[]).includes(module)) {
+      throw new BadRequestException(
+        `Invalid module "${module}". Must be one of: ${this.VALID_MODULES.join(', ')}`,
+      );
+    }
+
+    const { data, error } = await this.supabaseService
+      .getClient()
+      .from('tenant_modules')
+      .upsert({ company_id: companyId, module, status }, { onConflict: 'company_id,module' })
+      .select()
+      .single();
+
+    if (error) throw new InternalServerErrorException(error.message);
+
+    await this.auditService.log(
+      `Module ${module} set to ${status}`,
+      adminUserId,
+      companyId,
+    );
+    return data;
+  }
+
+  async getMyAccessibleModules(roleId: string, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const [
+      { data: features, error: featuresError },
+      { data: roleFeatures, error: roleFeaturesError },
+    ] = await Promise.all([
+      supabase
+        .from('feature')
+        .select('feature_id, feature_name, module_group, is_active')
+        .eq('is_active', true),
+      supabase
+        .from('role_feature')
+        .select('feature_id, can_read, can_create, can_update, can_delete')
+        .eq('role_id', roleId),
+    ]);
+
+    if (featuresError) throw new InternalServerErrorException(featuresError.message);
+    if (roleFeaturesError) {
+      throw new InternalServerErrorException(roleFeaturesError.message);
+    }
+
+    const roleFeatureMap = new Map(
+      (roleFeatures ?? []).map((rf: any) => [rf.feature_id, rf]),
+    );
+
+    const featureIdsByModule = this.mapFeatureIdsByModule((features ?? []) as any);
+
+    const tenantModulesById = new Map<string, string>();
+    const { data: tenantModules, error: tenantModulesError } = await supabase
+      .from('tenant_modules')
+      .select('module, status')
+      .eq('company_id', companyId);
+
+    if (tenantModulesError) {
+      throw new InternalServerErrorException(tenantModulesError.message);
+    }
+
+    for (const row of tenantModules ?? []) {
+      if (row.module) {
+        tenantModulesById.set(row.module, row.status ?? 'Active');
+      }
+    }
+
+    return LIFECYCLE_MODULE_DEFINITIONS.map((module) => {
+      const featureIds = featureIdsByModule[module.module_id] ?? [];
+      const moduleStatus = tenantModulesById.get(module.module_id) ?? 'Active';
+      const isModuleActive = moduleStatus === 'Active';
+
+      const can_read =
+        isModuleActive &&
+        featureIds.some((fid) => roleFeatureMap.get(fid)?.can_read === true);
+      const can_create =
+        isModuleActive &&
+        featureIds.some((fid) => roleFeatureMap.get(fid)?.can_create === true);
+      const can_update =
+        isModuleActive &&
+        featureIds.some((fid) => roleFeatureMap.get(fid)?.can_update === true);
+      const can_delete =
+        isModuleActive &&
+        featureIds.some((fid) => roleFeatureMap.get(fid)?.can_delete === true);
+
+      return {
+        module_id: module.module_id,
+        name: module.name,
+        can_read,
+        can_create,
+        can_update,
+        can_delete,
+      };
+    });
   }
 
   async getCompanies(companyId?: string) {

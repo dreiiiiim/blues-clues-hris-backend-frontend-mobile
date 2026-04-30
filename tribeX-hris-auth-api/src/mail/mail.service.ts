@@ -354,6 +354,149 @@ export class MailService {
 
   // ─── Verify Email ────────────────────────────────────────────────────────────
 
+
+  async sendRegistrationConfirmation(to: string, companyName: string): Promise<void> {
+    try {
+      const header = brandHeader(
+        'Registration Received',
+        "We've received your company registration",
+      );
+
+      const body = `
+        ${bodyText(`Thank you for registering <strong>${companyName}</strong> on <strong>${BRAND.name}</strong>. Your registration has been received and is under review.`)}
+
+        ${infoCard([
+          { label: 'Company', value: companyName },
+          { label: 'Status', value: 'Under Review' },
+          { label: 'Next Step', value: 'Select a subscription plan and complete payment' },
+        ])}
+
+        ${divider()}
+
+        <p style="margin:0;font-size:12px;color:${BRAND.textMuted};line-height:1.6;font-family:'Open Sans',sans-serif;">
+          Once you complete payment, your System Admin credentials will be sent to this email address. Keep it secure.
+        </p>`;
+
+      await this.sendMail({
+        from: this.from,
+        to,
+        subject: `Registration received - ${BRAND.name}`,
+        html: emailWrapper(header, body),
+      });
+    } catch (error) {
+      this.logger.error('Failed to send registration confirmation email', error);
+      throw new Error('Failed to send registration confirmation email');
+    }
+  }
+
+  async sendPaymentConfirmation(
+    to: string,
+    companyName: string,
+    plan: string | null,
+  ): Promise<void> {
+    try {
+      const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
+
+      const header = brandHeader(
+        'Payment Confirmed',
+        'Your subscription is now active',
+        STATUS.success.headerBg,
+      );
+
+      const planLabel =
+        plan === 'annual'
+          ? 'Annual Plan'
+          : plan === 'monthly'
+            ? 'Monthly Plan'
+            : 'Standard Plan';
+
+      const body = `
+        ${bodyText(`Congratulations! Payment for <strong>${companyName}</strong> has been confirmed. Your <strong>${BRAND.name}</strong> subscription is now active.`)}
+
+        ${infoCard([
+          { label: 'Company', value: companyName },
+          { label: 'Plan', value: planLabel },
+          { label: 'Status', value: 'Active' },
+        ], STATUS.success.bg, STATUS.success.border)}
+
+        ${bodyText('Your System Admin credentials are being sent in a separate email. Use them to log in and configure your HR system.', '16px')}
+
+        ${ctaButton(`${appUrl}/login`, 'Go to Login', STATUS.success.badge)}
+
+        ${divider()}
+
+        <p style="margin:0;font-size:12px;color:${BRAND.textMuted};line-height:1.6;font-family:'Open Sans',sans-serif;">
+          If you did not initiate this subscription or have any concerns, contact support immediately.
+        </p>`;
+
+      await this.sendMail({
+        from: this.from,
+        to,
+        subject: `Payment confirmed - ${BRAND.name}`,
+        html: emailWrapper(header, body),
+      });
+    } catch (error) {
+      this.logger.error('Failed to send payment confirmation email', error);
+      throw new Error('Failed to send payment confirmation email');
+    }
+  }
+
+  async sendSystemAdminCredentials(to: string, inviteLink: string): Promise<void> {
+    try {
+      const header = brandHeader(
+        'System Admin Account Created',
+        'Set your password to get started',
+      );
+
+      const body = `
+        ${bodyText(`A System Admin account has been created for your company on <strong>${BRAND.name}</strong>. Click the button below to set your password and access the admin dashboard.`)}
+
+        ${ctaButton(inviteLink, 'Set My Password')}
+
+        ${noteCard(
+          'Security Notice',
+          'This link expires in 48 hours. Do not share it with anyone. Each link can only be used once.',
+          STATUS.warning.bg,
+          STATUS.warning.border,
+          STATUS.warning.text,
+        )}
+
+        ${divider()}
+
+        <p style="margin:0 0 12px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.1em;color:${BRAND.textMuted};font-family:'Open Sans',sans-serif;">As System Admin you can</p>
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+          ${[
+            ['Create HR, Manager & Employee accounts', 'Set up your team and assign roles'],
+            ['Configure HR modules', 'Enable or disable Recruitment, Onboarding, C&B, Performance, Offboarding'],
+            ['Set tenant settings', 'Configure timezone, currency, date format, and org structure'],
+            ['Manage RBAC', 'Define exactly what each role can access per module'],
+          ]
+            .map(
+              ([title, desc]) => `
+            <tr>
+              <td style="padding:8px 0;vertical-align:top;width:28px;">
+                <div style="width:8px;height:8px;background:${BRAND.accent};border-radius:50%;margin-top:6px;"></div>
+              </td>
+              <td style="padding:8px 0 8px 10px;vertical-align:top;">
+                <p style="margin:0;font-size:13px;font-weight:600;color:${BRAND.textPrimary};font-family:'Open Sans',sans-serif;">${title}</p>
+                <p style="margin:2px 0 0;font-size:12px;color:${BRAND.textMuted};font-family:'Open Sans',sans-serif;">${desc}</p>
+              </td>
+            </tr>`,
+            )
+            .join('')}
+        </table>`;
+
+      await this.sendMail({
+        from: this.from,
+        to,
+        subject: `Your System Admin credentials - ${BRAND.name}`,
+        html: emailWrapper(header, body),
+      });
+    } catch (error) {
+      this.logger.error('Failed to send System Admin credentials email', error);
+      throw new Error('Failed to send System Admin credentials email');
+    }
+  }
   async sendVerificationEmail(to: string, verifyLink: string): Promise<void> {
     const header = brandHeader(
       'Verify your email address',
@@ -856,3 +999,4 @@ export class MailService {
     }
   }
 }
+
