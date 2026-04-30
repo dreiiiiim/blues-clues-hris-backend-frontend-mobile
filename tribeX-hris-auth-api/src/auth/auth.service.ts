@@ -248,6 +248,20 @@ export class AuthService {
 
     if (!user.role_id) throw new UnauthorizedException('No role assigned to this account. Please contact your administrator.');
 
+    // Check company subscription is active before issuing access token
+    const { data: reg } = await supabase
+      .from('company_registrations')
+      .select('subscription_status')
+      .eq('company_id', user.company_id)
+      .maybeSingle();
+
+    if (reg?.subscription_status === 'Suspended') {
+      throw new UnauthorizedException('Your company subscription has been suspended. Contact support.');
+    }
+    if (reg?.subscription_status === 'Expired') {
+      throw new UnauthorizedException('Your company subscription has expired. Please renew to continue.');
+    }
+
     // Fetch role + company in parallel — neither depends on the other
     const [
       { data: roleRow, error: roleError },
