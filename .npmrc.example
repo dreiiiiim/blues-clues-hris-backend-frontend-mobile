@@ -1,0 +1,11 @@
+# .npmrc — copy this file to .npmrc and fill in your token (never commit .npmrc)
+#
+# SETUP INSTRUCTIONS:
+# 1. Copy this file:        cp .npmrc.example .npmrc
+# 2. Go to:                 https://github.com/settings/tokens
+# 3. Generate a new token(classic) with scope: repo at read:packages
+# 4. Replace YOUR_GITHUB_PAT_HERE below with the generated token
+# 5. Save .npmrc — it is gitignored and stays local only
+
+@implementsprint:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN_HERE}

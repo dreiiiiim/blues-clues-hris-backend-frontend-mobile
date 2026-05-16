@@ -59,15 +59,15 @@ export function validateEnv(input: EnvMap): EnvMap {
     throwMissing('ALLOWED_ORIGINS');
   }
 
-  if (!env.API_CENTER_BASE_URL) {
-    throwMissing('API_CENTER_BASE_URL');
+  if (!env.APICENTER_BASE_URL && !env.API_CENTER_BASE_URL) {
+    throwMissing('APICENTER_BASE_URL');
   }
 
-  const hasTribeCreds = Boolean(env.API_CENTER_TRIBE_ID && env.API_CENTER_TRIBE_SECRET);
-  const hasLegacyKey = Boolean(env.API_CENTER_API_KEY);
-  if (!hasTribeCreds && !hasLegacyKey) {
+  const hasTribeId = env.APICENTER_TRIBE_ID || env.API_CENTER_TRIBE_ID;
+  const hasTribeSecret = env.APICENTER_TRIBE_SECRET || env.API_CENTER_TRIBE_SECRET;
+  if (!hasTribeId || !hasTribeSecret) {
     throw new Error(
-      '[env] Provide APICenter tribe credentials (API_CENTER_TRIBE_ID + API_CENTER_TRIBE_SECRET) or API_CENTER_API_KEY.',
+      '[env] APICENTER_TRIBE_ID and APICENTER_TRIBE_SECRET are required.',
     );
   }
 
