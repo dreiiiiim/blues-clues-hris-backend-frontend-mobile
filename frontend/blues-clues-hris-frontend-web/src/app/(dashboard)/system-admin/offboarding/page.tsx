@@ -105,7 +105,7 @@ const SEED_TEMPLATES: OffboardingTemplate[] = [
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function uid() {
-  return `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  return `tpl-${crypto.randomUUID()}`;
 }
 
 function today() {
