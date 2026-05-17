@@ -24,6 +24,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
+  DoorOpen,
 } from "lucide-react";
 
 import {
@@ -69,7 +70,7 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
         { name: "Recruitment", href: "/hr/jobs",       icon: Briefcase },
         { name: "Candidates",  href: "/hr/candidates", icon: Trophy },
         { name: "Onboarding",  href: "/hr/onboarding", icon: UserPlus },
-        { name: "Offboarding", href: "/hr/offboarding", icon: LogOut },
+        { name: "Offboarding", href: "/hr/offboarding", icon: DoorOpen },
         { name: "Approvals",   href: "/hr/approvals",  icon: ShieldCheck },
       ],
     },
@@ -89,7 +90,7 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
         { name: "Performance", href: "/manager/performance", icon: BarChart },
         { name: "Timekeeping", href: "/manager/timekeeping", icon: Clock },
         { name: "My Payslips", href: "/manager/payslips",    icon: DollarSign },
-        { name: "Offboarding", href: "/manager/offboarding", icon: LogOut },
+        { name: "Offboarding", href: "/manager/offboarding", icon: DoorOpen },
         { name: "Approvals",   href: "/manager/approvals",   icon: ClipboardCheck },
       ],
     },
@@ -113,7 +114,7 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
         { name: "Leave",       href: "/employee/leave",       icon: FileText },
         { name: "My Profile",  href: "/employee/profile",     icon: Users },
         { name: "Payslips",    href: "/employee/payslips",    icon: DollarSign },
-        { name: "Offboarding", href: "/employee/offboarding", icon: LogOut },
+        { name: "Offboarding", href: "/employee/offboarding", icon: DoorOpen },
         { name: "Documents",   href: "/employee/documents",   icon: FileCheck },
       ],
     },
@@ -137,9 +138,10 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
     {
       group: "People",
       items: [
-        { name: "Users",      href: "/system-admin/users",      icon: Users },
-        { name: "Onboarding", href: "/system-admin/onboarding", icon: UserPlus },
-        { name: "Approvals",  href: "/system-admin/approvals",  icon: ShieldCheck },
+        { name: "Users",        href: "/system-admin/users",        icon: Users },
+        { name: "Onboarding",   href: "/system-admin/onboarding",   icon: UserPlus },
+        { name: "Offboarding",  href: "/system-admin/offboarding",  icon: DoorOpen },
+        { name: "Approvals",    href: "/system-admin/approvals",    icon: ShieldCheck },
       ],
     },
     {
@@ -165,7 +167,7 @@ export function Sidebar({
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);
   const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window !== "undefined") {
+    if (globalThis.window !== undefined) {
       return localStorage.getItem("sidebar_collapsed") === "true";
     }
     return false;
@@ -216,8 +218,8 @@ export function Sidebar({
   // Append additionalItems to the last section
   const allSections: MenuSection[] = additionalItems.length > 0
     ? [...sections.slice(0, -1), {
-        ...sections[sections.length - 1],
-        items: [...(sections[sections.length - 1]?.items ?? []), ...additionalItems],
+        ...sections.at(-1),
+        items: [...(sections.at(-1)?.items ?? []), ...additionalItems],
       }]
     : sections;
 
@@ -244,7 +246,7 @@ export function Sidebar({
       {/* Navigation Section */}
       <div className={["flex-1 overflow-y-auto py-4", collapsed ? "px-2" : "px-3"].join(" ")}>
         {allSections.map((section, si) => (
-          <div key={si} className={si > 0 ? "mt-4" : ""}>
+          <div key={section.group ?? `section-${si}`} className={si > 0 ? "mt-4" : ""}>
             {/* Section eyebrow label — hidden when collapsed */}
             {section.group && !collapsed && (
               <p className="text-[9px] font-bold text-sidebar-foreground/35 mb-1.5 px-3 tracking-[0.18em] uppercase">
