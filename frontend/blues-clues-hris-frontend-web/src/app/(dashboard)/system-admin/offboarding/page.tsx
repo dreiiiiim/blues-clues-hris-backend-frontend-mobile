@@ -45,6 +45,10 @@ interface OffboardingTemplate {
 
 // ── Seed Data ─────────────────────────────────────────────────────────────────
 
+// ── Item helper type ─────────────────────────────────────────────────────────
+interface FormItem { id: string; value: string }
+function makeItem(value = ""): FormItem { return { id: crypto.randomUUID(), value }; }
+
 const SEED_TEMPLATES: OffboardingTemplate[] = [
   {
     id: "tpl-1",
@@ -124,19 +128,27 @@ const TYPE_OPTIONS: OffboardingType[] = ["Resignation", "Termination", "End of C
 
 // ── Empty form state ──────────────────────────────────────────────────────────
 
-function emptyForm(): Omit<OffboardingTemplate, "id" | "createdAt" | "updatedAt"> {
+interface FormState {
+  name: string;
+  description: string;
+  applicableTypes: OffboardingType[];
+  isDefault: boolean;
+  requiresKnowledgeTransfer: boolean;
+  checklistItems: FormItem[];
+  systemAccessItems: FormItem[];
+}
+
+function emptyForm(): FormState {
   return {
     name: "",
     description: "",
     applicableTypes: [],
     isDefault: false,
     requiresKnowledgeTransfer: false,
-    checklistItems: [""],
-    systemAccessItems: [""],
+    checklistItems: [makeItem()],
+    systemAccessItems: [makeItem()],
   };
 }
-
-type FormState = Omit<OffboardingTemplate, "id" | "createdAt" | "updatedAt">;
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
@@ -176,8 +188,8 @@ export default function SystemAdminOffboardingPage() {
       applicableTypes: [...tpl.applicableTypes],
       isDefault: tpl.isDefault,
       requiresKnowledgeTransfer: tpl.requiresKnowledgeTransfer,
-      checklistItems: [...tpl.checklistItems, ""],
-      systemAccessItems: [...tpl.systemAccessItems, ""],
+      checklistItems: [...tpl.checklistItems.map((v) => makeItem(v)), makeItem()],
+      systemAccessItems: [...tpl.systemAccessItems.map((v) => makeItem(v)), makeItem()],
     });
     setView("form");
   }
@@ -220,8 +232,8 @@ export default function SystemAdminOffboardingPage() {
       return;
     }
 
-    const cleanChecklist = form.checklistItems.filter((i) => i.trim());
-    const cleanAccess = form.systemAccessItems.filter((i) => i.trim());
+    const cleanChecklist = form.checklistItems.map((i) => i.value).filter((v) => v.trim());
+    const cleanAccess = form.systemAccessItems.map((i) => i.value).filter((v) => v.trim());
 
     // If setting as default, unset other defaults
     let updatedTemplates = templates;
@@ -271,41 +283,43 @@ export default function SystemAdminOffboardingPage() {
     }));
   }
 
-  function updateChecklistItem(idx: number, val: string) {
-    setForm((f) => {
-      const items = [...f.checklistItems];
-      items[idx] = val;
-      return { ...f, checklistItems: items };
-    });
-  }
-
-  function addChecklistItem() {
-    setForm((f) => ({ ...f, checklistItems: [...f.checklistItems, ""] }));
-  }
-
-  function removeChecklistItem(idx: number) {
+  function updateChecklistItem(id: string, val: string) {
     setForm((f) => ({
       ...f,
-      checklistItems: f.checklistItems.filter((_, i) => i !== idx),
+      checklistItems: f.checklistItems.map((item) =>
+        item.id === id ? { ...item, value: val } : item
+      ),
     }));
   }
 
-  function updateSystemItem(idx: number, val: string) {
-    setForm((f) => {
-      const items = [...f.systemAccessItems];
-      items[idx] = val;
-      return { ...f, systemAccessItems: items };
-    });
+  function addChecklistItem() {
+    setForm((f) => ({ ...f, checklistItems: [...f.checklistItems, makeItem()] }));
+  }
+
+  function removeChecklistItem(id: string) {
+    setForm((f) => ({
+      ...f,
+      checklistItems: f.checklistItems.filter((item) => item.id !== id),
+    }));
+  }
+
+  function updateSystemItem(id: string, val: string) {
+    setForm((f) => ({
+      ...f,
+      systemAccessItems: f.systemAccessItems.map((item) =>
+        item.id === id ? { ...item, value: val } : item
+      ),
+    }));
   }
 
   function addSystemItem() {
-    setForm((f) => ({ ...f, systemAccessItems: [...f.systemAccessItems, ""] }));
+    setForm((f) => ({ ...f, systemAccessItems: [...f.systemAccessItems, makeItem()] }));
   }
 
-  function removeSystemItem(idx: number) {
+  function removeSystemItem(id: string) {
     setForm((f) => ({
       ...f,
-      systemAccessItems: f.systemAccessItems.filter((_, i) => i !== idx),
+      systemAccessItems: f.systemAccessItems.filter((item) => item.id !== id),
     }));
   }
 
@@ -579,19 +593,19 @@ export default function SystemAdminOffboardingPage() {
               </button>
             </div>
             <div className="space-y-2">
-              {form.checklistItems.map((item, idx) => (
-                <div key={`checklist-${idx}-${item.slice(0, 8)}`} className="flex items-center gap-2">
+              {form.checklistItems.map((item) => (
+                <div key={item.id} className="flex items-center gap-2">
                   <Circle className="h-4 w-4 text-muted-foreground shrink-0" />
                   <input
                     type="text"
-                    value={item}
-                    onChange={(e) => updateChecklistItem(idx, e.target.value)}
+                    value={item.value}
+                    onChange={(e) => updateChecklistItem(item.id, e.target.value)}
                     placeholder="e.g., Return company laptop"
                     className="flex-1 border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                   />
                   <button
                     type="button"
-                    onClick={() => removeChecklistItem(idx)}
+                    onClick={() => removeChecklistItem(item.id)}
                     className="p-1 text-red-400 hover:text-red-600 transition-colors"
                     title="Remove item"
                   >
@@ -618,18 +632,18 @@ export default function SystemAdminOffboardingPage() {
               </button>
             </div>
             <div className="space-y-2">
-              {form.systemAccessItems.map((item, idx) => (
-                <div key={`system-${idx}-${item.slice(0, 8)}`} className="flex items-center gap-2">
+              {form.systemAccessItems.map((item) => (
+                <div key={item.id} className="flex items-center gap-2">
                   <input
                     type="text"
-                    value={item}
-                    onChange={(e) => updateSystemItem(idx, e.target.value)}
+                    value={item.value}
+                    onChange={(e) => updateSystemItem(item.id, e.target.value)}
                     placeholder="e.g., Email, VPN, Database"
                     className="flex-1 border border-border rounded-lg px-3 py-2 text-sm bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 transition"
                   />
                   <button
                     type="button"
-                    onClick={() => removeSystemItem(idx)}
+                    onClick={() => removeSystemItem(item.id)}
                     className="p-1 text-red-400 hover:text-red-600 transition-colors"
                     title="Remove system"
                   >
