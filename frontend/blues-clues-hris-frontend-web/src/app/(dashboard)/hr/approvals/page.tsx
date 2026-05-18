@@ -1,9 +1,10 @@
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, FilePen, CalendarDays } from "lucide-react";
+import { FileText, FilePen, CalendarDays, Timer } from "lucide-react";
 import HRDocumentApprovalsView from "@/components/approvals/HRDocumentApprovalsView";
 import LeaveApprovalsView from "@/components/approvals/LeaveApprovalsView";
+import OvertimeApprovalsView from "@/components/approvals/OvertimeApprovalsView";
 import HRProfileChangeRequestsView from "@/components/onboarding/HRProfileChangeRequestsView";
 
 export default function HRApprovalsPage() {
@@ -26,6 +27,10 @@ export default function HRApprovalsPage() {
             <FileText className="h-4 w-4" />
             Document Approvals
           </TabsTrigger>
+          <TabsTrigger value="overtime" className="flex items-center gap-1.5">
+            <Timer className="h-4 w-4" />
+            Overtime
+          </TabsTrigger>
           <TabsTrigger value="profile-changes" className="flex items-center gap-1.5">
             <FilePen className="h-4 w-4" />
             Profile Changes
@@ -34,6 +39,10 @@ export default function HRApprovalsPage() {
 
         <TabsContent value="leave">
           <LeaveApprovalsView />
+        </TabsContent>
+
+        <TabsContent value="overtime">
+          <OvertimeApprovalsView />
         </TabsContent>
 
         <TabsContent value="documents">

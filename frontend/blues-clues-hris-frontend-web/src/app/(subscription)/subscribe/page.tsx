@@ -121,10 +121,8 @@ function Header() {
     <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 backdrop-blur-md border-b border-gray-100/80 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
       <div className="max-w-[1600px] mx-auto px-4 md:px-8 xl:px-12 h-16 flex items-center justify-between">
         <div className="flex items-center gap-5">
-          <Link href="/" className="flex items-center gap-2.5 group" aria-label="Blue's Clues HRIS Home">
-            <div className="w-8 h-8 bg-[#1e3a8a] rounded-lg flex items-center justify-center flex-shrink-0 group-hover:bg-[#1e40af] transition-colors duration-200 shadow-sm shadow-blue-900/20">
-              <Star className="w-4 h-4 text-white" aria-hidden="true" />
-            </div>
+          <Link href="/" className="flex items-center gap-1.5 group" aria-label="Blue's Clues HRIS Home">
+            <img src="/blues-clues-logo.png" alt="Blues Clues HRIS" className="h-10 w-10 object-contain" />
             <span className="font-bold text-gray-900 text-[15px] leading-tight">
               Blue&apos;s Clues<span className="text-[#1e3a8a]"> HRIS</span>
             </span>

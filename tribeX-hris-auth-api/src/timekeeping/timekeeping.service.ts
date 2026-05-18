@@ -5,6 +5,8 @@ import {
   NotFoundException,
   Logger,
 } from '@nestjs/common';
+import { LeaveBalancesService } from '../leave-balances/leave-balances.service';
+import { LeaveCategory } from '../leave-balances/leave-categories';
 import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
 import { MailService } from '../mail/mail.service';
@@ -236,6 +238,7 @@ export class TimekeepingService {
   constructor(
     private readonly supabaseService: SupabaseService,
     private readonly mailService: MailService,
+    private readonly leaveBalancesService: LeaveBalancesService,
   ) {}
 
   private toCoordinateKey(latitude: number, longitude: number): string {
@@ -1075,7 +1078,7 @@ export class TimekeepingService {
         'user_id, employee_id, first_name, last_name, avatar_url, department_id, department:department_id(department_name)',
       )
       .eq('company_id', companyId)
-      .eq('account_status', 'Active')
+      .in('account_status', ['Active', 'active'])
       .not('employee_id', 'is', null)
       .in('role_id', roleIds);
 
@@ -1488,6 +1491,29 @@ export class TimekeepingService {
     const reviewerName = reviewer
       ? `${reviewer.first_name} ${reviewer.last_name}`
       : 'HR';
+
+    // Deduct leave balance on approval
+    if (dto.action === AbsenceReviewAction.APPROVE && updated.absence_reason) {
+      const leaveCategory = updated.absence_reason as LeaveCategory;
+      const validCategories: string[] = [
+        'Sick Leave','Vacation Leave','Personal Leave',
+        'Emergency Leave','Maternity Leave','Paternity Leave',
+      ];
+      if (validCategories.includes(leaveCategory)) {
+        try {
+          await this.leaveBalancesService.deductLeaveBalance(
+            target.employee_id!,
+            owner.company_id,
+            leaveCategory,
+            1.0,
+          );
+        } catch (deductErr) {
+          throw new BadRequestException(
+            deductErr instanceof Error ? deductErr.message : 'Leave balance deduction failed.',
+          );
+        }
+      }
+    }
 
     if (owner.email) {
       const absenceDate = updated.timestamp.split('T')[0];

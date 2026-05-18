@@ -6,6 +6,7 @@ import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TimekeepingService } from '../timekeeping/timekeeping.service';
+import { LeaveBalancesService } from '../leave-balances/leave-balances.service';
 import { UpdateTaskStatusDto } from './dto/update-task-status.dto';
 import { CreateTemplateDto } from './dto/create-template.dto';
 import { SaveProfileDto } from './dto/save-profile.dto';
@@ -23,6 +24,7 @@ export class OnboardingService {
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
     private readonly timekeepingService: TimekeepingService,
+    private readonly leaveBalancesService: LeaveBalancesService,
   ) {}
 
   private normalizeDocType(title: string): string {
@@ -999,6 +1001,17 @@ export class OnboardingService {
               this.logger.warn(`[approveSession] Could not assign initial schedule: ${(schedErr as any)?.message}`);
             }
 
+            try {
+              await this.leaveBalancesService.assignInitialLeaveBalancesForEmployee({
+                companyId: applicant.company_id,
+                employeeId: employeeCode,
+                departmentId: inheritedDepartmentId,
+                updatedByName: null,
+              });
+            } catch (leaveErr) {
+              this.logger.warn(`[approveSession] Could not assign leave balances: ${(leaveErr as any)?.message}`);
+            }
+
             // Re-link session to the new user_id so getSessionContext works going forward
             const { error: relinkSessionError } = await supabase
               .from('onboarding_sessions')
@@ -1839,6 +1852,17 @@ export class OnboardingService {
       this.logger.warn(
         `[approveOnboardingSubmission] Could not assign initial schedule: ${(scheduleError as any)?.message}`,
       );
+    }
+
+    try {
+      await this.leaveBalancesService.assignInitialLeaveBalancesForEmployee({
+        companyId,
+        employeeId: employeeCode,
+        departmentId: submission.department_id ?? null,
+        updatedByName: null,
+      });
+    } catch (leaveErr) {
+      this.logger.warn(`[approveOnboardingSubmission] Could not assign leave balances: ${(leaveErr as any)?.message}`);
     }
 
     // Block applicant portal login — account is now an employee

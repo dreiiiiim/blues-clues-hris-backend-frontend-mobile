@@ -941,24 +941,32 @@ export class JobsService {
         technical_interview: 'Technical Interview',
         final_interview:     'Final Interview',
       };
-      this.mailService.sendInterviewScheduleEmail({
-        to:               profile.email,
-        applicantName,
-        jobTitle:         posting?.title ?? 'the position',
-        stageLabel:       stageLabelMap[stage] ?? stage,
-        isReschedule,
-        scheduledDate:    dto.scheduled_date,
-        scheduledTime:    dto.scheduled_time,
-        durationMinutes:  dto.duration_minutes,
-        format:           dto.format,
-        location:         dto.location,
-        meetingLink:      dto.meeting_link,
-        interviewerName:  dto.interviewer_name,
-        interviewerTitle: dto.interviewer_title,
-        notes:            dto.notes,
-      }).catch((err: Error) => {
-        this.logger.error(`Interview schedule email failed for application ${applicationId}: ${err?.message}`);
-      });
+      try {
+        await this.mailService.sendInterviewScheduleEmail({
+          to:               profile.email,
+          applicantName,
+          jobTitle:         posting?.title ?? 'the position',
+          stageLabel:       stageLabelMap[stage] ?? stage,
+          isReschedule,
+          scheduledDate:    dto.scheduled_date,
+          scheduledTime:    dto.scheduled_time,
+          durationMinutes:  dto.duration_minutes,
+          format:           dto.format,
+          location:         dto.location,
+          meetingLink:      dto.meeting_link,
+          interviewerName:  dto.interviewer_name,
+          interviewerTitle: dto.interviewer_title,
+          notes:            dto.notes,
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        this.logger.error(`Interview schedule email failed for application ${applicationId}: ${reason}`);
+        throw new InternalServerErrorException(`Interview scheduled but email delivery failed: ${reason}`);
+      }
+    } else {
+      this.logger.warn(
+        `Interview schedule email skipped for application ${applicationId}: applicant email is missing.`,
+      );
     }
 
     await this.auditService.log(
@@ -1027,17 +1035,23 @@ export class JobsService {
 
     if (profile?.email) {
       const applicantName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Applicant';
-      this.mailService.sendInterviewCancellationEmail({
-        to:            profile.email,
-        applicantName,
-        jobTitle:      posting?.title ?? 'the position',
-        scheduledDate: schedule.scheduled_date,
-        scheduledTime: schedule.scheduled_time,
-        stageLabel:    stageLabelMap[stage] ?? stage,
-        reason:        reason ?? null,
-      }).catch((err: Error) => {
-        this.logger.error(`Interview cancellation email failed for application ${applicationId}: ${err?.message}`);
-      });
+      try {
+        await this.mailService.sendInterviewCancellationEmail({
+          to:            profile.email,
+          applicantName,
+          jobTitle:      posting?.title ?? 'the position',
+          scheduledDate: schedule.scheduled_date,
+          scheduledTime: schedule.scheduled_time,
+          stageLabel:    stageLabelMap[stage] ?? stage,
+          reason:        reason ?? null,
+        });
+      } catch (err) {
+        this.logger.error(
+          `Interview cancellation email failed for application ${applicationId}: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      }
     }
 
     await this.auditService.log(

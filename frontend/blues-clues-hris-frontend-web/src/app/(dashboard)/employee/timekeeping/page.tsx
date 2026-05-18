@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
@@ -6,13 +6,14 @@ import {
   Clock, LogIn, LogOut, MapPin,
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, CalendarDays, CalendarRange, CalendarClock, List,
   AlertTriangle, X, CheckCircle2, FileX,
-  Stethoscope, Zap, Home, User, Palmtree, BadgeCheck, HelpCircle,
+  Palmtree, BadgeCheck, Stethoscope, Zap, Home, User, HelpCircle,
   Timer, Sun, MoveRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { authFetch, logoutApi } from "@/lib/authApi";
+import { authFetch, logoutApi, getMyOvertimeSummary, getMyLeaveRequests, getMyNewLeaveBalances, type LeaveRequestItem, type LeaveBalanceCategory } from "@/lib/authApi";
+import { LEAVE_CATEGORIES } from "@/lib/leaveCategories";
 import { API_BASE_URL } from "@/lib/api";
 import {
   formatTime,
@@ -51,19 +52,16 @@ type TimesheetEntry = {
   absence_request?: AbsenceEntry | null;
 };
 
-// â"€â"€â"€ Absence reason config â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-
-const ABSENCE_REASONS = [
-  { value: "Sick Leave",          icon: Stethoscope, color: "text-rose-600",    bg: "bg-rose-50",    border: "border-rose-200",    activeBg: "bg-rose-600"    },
-  { value: "Emergency Leave",     icon: Zap,         color: "text-orange-600",  bg: "bg-orange-50",  border: "border-orange-200",  activeBg: "bg-orange-600"  },
-  { value: "WFH / Remote",        icon: Home,        color: "text-blue-600",    bg: "bg-blue-50",    border: "border-blue-200",    activeBg: "bg-blue-600"    },
-  { value: "Personal Leave",      icon: User,        color: "text-violet-600",  bg: "bg-violet-50",  border: "border-violet-200",  activeBg: "bg-violet-600"  },
-  { value: "Vacation Leave",      icon: Palmtree,    color: "text-teal-600",    bg: "bg-teal-50",    border: "border-teal-200",    activeBg: "bg-teal-600"    },
-  { value: "On Leave (Approved)", icon: BadgeCheck,  color: "text-green-600",   bg: "bg-green-50",   border: "border-green-200",   activeBg: "bg-green-600"   },
-  { value: "Other",               icon: HelpCircle,  color: "text-slate-500",   bg: "bg-slate-50",   border: "border-slate-200",   activeBg: "bg-slate-600"   },
-] as const;
-
-type AbsenceReasonValue = (typeof ABSENCE_REASONS)[number]["value"];
+// Display config for absence entries in calendar (read-only, no form logic)
+const ABSENCE_REASONS: { value: string; icon: React.ElementType; color: string; bg: string; border: string }[] = [
+  { value: "Sick Leave",          icon: Stethoscope, color: "text-rose-600",   bg: "bg-rose-50",   border: "border-rose-200"   },
+  { value: "Emergency Leave",     icon: Zap,         color: "text-orange-600", bg: "bg-orange-50", border: "border-orange-200" },
+  { value: "WFH / Remote",        icon: Home,        color: "text-blue-600",   bg: "bg-blue-50",   border: "border-blue-200"   },
+  { value: "Personal Leave",      icon: User,        color: "text-violet-600", bg: "bg-violet-50", border: "border-violet-200" },
+  { value: "Vacation Leave",      icon: Palmtree,    color: "text-teal-600",   bg: "bg-teal-50",   border: "border-teal-200"   },
+  { value: "On Leave (Approved)", icon: BadgeCheck,  color: "text-green-600",  bg: "bg-green-50",  border: "border-green-200"  },
+  { value: "Other",               icon: HelpCircle,  color: "text-slate-500",  bg: "bg-slate-50",  border: "border-slate-200"  },
+];
 
 // â"€â"€â"€ Helpers â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -132,7 +130,7 @@ function formatLongDate(iso: string): string {
   });
 }
 
-type EntryStatus = "on-time" | "late" | "in-progress" | "absent" | "excused";
+type EntryStatus = "on-time" | "late" | "in-progress" | "absent" | "excused" | "rest-day-ot";
 
 function getClockInMinutesPHT(timestamp: string): number | null {
   const clock = parseTs(timestamp).toLocaleTimeString("en-US", {
@@ -177,15 +175,28 @@ function getEntryStatus(entry: TimesheetEntry, schedule?: ScheduleInfo): EntrySt
 }
 
 const ENTRY_STATUS_CONFIG: Record<EntryStatus, { label: string; badge: string; dot: string; cell: string }> = {
-  "on-time":     { label: "On Time",     badge: "bg-green-100 hover:bg-green-100 text-green-700 border-green-200",     dot: "bg-green-500",  cell: "bg-green-50 border-green-200" },
-  "late":        { label: "Late",        badge: "bg-amber-100 hover:bg-amber-100 text-amber-700 border-amber-200",     dot: "bg-amber-500",  cell: "bg-amber-50 border-amber-200" },
-  "in-progress": { label: "In Progress", badge: "bg-blue-100 hover:bg-blue-100 text-blue-700 border-blue-200",         dot: "bg-blue-500",   cell: "bg-blue-50 border-blue-200" },
-  "absent":      { label: "Absent",      badge: "bg-red-100 hover:bg-red-100 text-red-700 border-red-200",             dot: "bg-red-500",    cell: "bg-red-50 border-red-200" },
-  "excused":     { label: "Excused",     badge: "bg-purple-100 hover:bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-500", cell: "bg-purple-50 border-purple-200" },
+  "on-time":      { label: "On Time",       badge: "bg-green-100 hover:bg-green-100 text-green-700 border-green-200",     dot: "bg-green-500",  cell: "bg-green-50 border-green-200" },
+  "late":         { label: "Late",          badge: "bg-amber-100 hover:bg-amber-100 text-amber-700 border-amber-200",     dot: "bg-amber-500",  cell: "bg-amber-50 border-amber-200" },
+  "in-progress":  { label: "In Progress",   badge: "bg-blue-100 hover:bg-blue-100 text-blue-700 border-blue-200",         dot: "bg-blue-500",   cell: "bg-blue-50 border-blue-200" },
+  "absent":       { label: "Absent",        badge: "bg-red-100 hover:bg-red-100 text-red-700 border-red-200",             dot: "bg-red-500",    cell: "bg-red-50 border-red-200" },
+  "excused":      { label: "Excused",       badge: "bg-purple-100 hover:bg-purple-100 text-purple-700 border-purple-200", dot: "bg-purple-500", cell: "bg-purple-50 border-purple-200" },
+  "rest-day-ot":  { label: "Rest Day OT",   badge: "bg-violet-100 hover:bg-violet-100 text-violet-700 border-violet-200", dot: "bg-violet-500", cell: "bg-violet-50 border-violet-200" },
 };
 
 function buildDateMap(entries: TimesheetEntry[]): Record<string, TimesheetEntry> {
   return Object.fromEntries(entries.map(e => [e.date, e]));
+}
+
+function getDisplayStatus(
+  entry: TimesheetEntry,
+  schedule: ScheduleInfo,
+  wdaySet: Set<string>,
+): EntryStatus {
+  if (entry.time_in) {
+    const dayCode = SCHED_DAY_CODE[new Date(entry.date + "T00:00:00").getDay()];
+    if (!wdaySet.has(dayCode)) return "rest-day-ot";
+  }
+  return getEntryStatus(entry, schedule);
 }
 
 function buildCalendarGrid(year: number, month: number): (number | null)[] {
@@ -221,7 +232,6 @@ const ITEMS_PER_PAGE = 7;
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 // Must match the canonical 3-letter codes used by the backend (MON/TUE/WED/THU/FRI/SAT/SUN)
 const SCHED_DAY_CODE = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
-type AbsenceDateMode = "today" | "range";
 
 function formatSchedTime(t: string | null | undefined): string {
   if (!t) return "—";
@@ -362,16 +372,15 @@ type ScheduleInfo = {
 } | null;
 
 function CalendarDayModal({
-  dateStr, entry, onClose, schedule, locationDisplayMode,
+  dateStr, entry, onClose, schedule, locationDisplayMode, leaveRequest,
 }: Readonly<{
   dateStr: string;
   entry: TimesheetEntry | null;
   onClose: () => void;
   schedule: ScheduleInfo;
   locationDisplayMode: LocationDisplayMode;
+  leaveRequest?: LeaveRequestItem | null;
 }>) {
-  const status = entry ? getEntryStatus(entry, schedule) : null;
-  const cfg    = status ? ENTRY_STATUS_CONFIG[status] : null;
   const isFuture = dateStr > todayPST();
   const absenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
 
@@ -385,6 +394,11 @@ function CalendarDayModal({
     const dayOfWeek = new Date(dateStr + "T00:00:00").getDay();
     return workdaySet.has(SCHED_DAY_CODE[dayOfWeek]);
   })();
+
+  const isRestDayOt = !isFuture && !isWorkday && !!entry?.time_in;
+  const rawStatus = entry ? getEntryStatus(entry, schedule) : null;
+  const status: EntryStatus | null = isRestDayOt ? "rest-day-ot" : rawStatus;
+  const cfg = status ? ENTRY_STATUS_CONFIG[status] : null;
 
   const absenceReasonCfg = entry?.absence?.absence_reason
     ? ABSENCE_REASONS.find(r => r.value === entry.absence!.absence_reason)
@@ -401,7 +415,7 @@ function CalendarDayModal({
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">
-                {isWorkday ? "Workday" : "Day Off"}
+                {isWorkday ? "Workday" : isRestDayOt ? "Rest Day — Overtime" : "Rest Day"}
               </p>
               <h2 className="text-base font-bold text-foreground leading-tight">{formatLongDate(dateStr)}</h2>
             </div>
@@ -449,11 +463,61 @@ function CalendarDayModal({
                     </div>
                   )}
                 </div>
+              ) : isRestDayOt ? (
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-3 flex items-center gap-2">
+                  <Palmtree className="h-4 w-4 text-violet-500 shrink-0" />
+                  <span className="text-sm text-violet-700 font-medium">Rest day — worked overtime this day.</span>
+                </div>
               ) : (
                 <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 flex items-center gap-2">
                   <span className="text-sm text-slate-500 font-medium">Rest day — not scheduled to work.</span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Approved leave section */}
+          {leaveRequest && (
+            <div>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Approved Leave</p>
+              {(() => {
+                const leaveCfg = ABSENCE_REASONS.find(r => r.value === leaveRequest.leave_type) ?? ABSENCE_REASONS.find(r => r.value === "Other")!;
+                const LeaveIcon = leaveCfg.icon;
+                const startLabel = new Date((leaveRequest.start_date ?? leaveRequest.date) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+                const endLabel = leaveRequest.end_date && leaveRequest.end_date !== (leaveRequest.start_date ?? leaveRequest.date)
+                  ? new Date(leaveRequest.end_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
+                  : null;
+                return (
+                  <div className={`rounded-xl border ${leaveCfg.border} ${leaveCfg.bg} p-3.5 space-y-2`}>
+                    <div className="flex items-center gap-2">
+                      <div className={`p-1.5 rounded-lg bg-white border ${leaveCfg.border} shrink-0`}>
+                        <LeaveIcon className={`h-3.5 w-3.5 ${leaveCfg.color}`} />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-bold text-foreground">{leaveRequest.leave_type}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {startLabel}{endLabel ? ` – ${endLabel}` : ""}
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 shrink-0">
+                        Excused
+                      </span>
+                    </div>
+                    {leaveRequest.reason && (
+                      <p className="text-xs text-muted-foreground italic px-1">
+                        &ldquo;{leaveRequest.reason}&rdquo;
+                      </p>
+                    )}
+                    {leaveRequest.reviewer_name && (
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium pt-1 border-t border-emerald-200/60">
+                        <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                        Approved by {leaveRequest.reviewer_name}
+                        {leaveRequest.reviewed_at ? ` · ${new Date(leaveRequest.reviewed_at.split("T")[0] + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -610,232 +674,6 @@ function CalendarDayModal({
   );
 }
 
-// â"€â"€â"€ Absence Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
-
-function AbsenceModal({
-  visible, now, absenceReason, absenceNotes, absenceLoading, absenceError,
-  absenceDateMode, absenceDateFrom, absenceDateTo,
-  locationAvailable, locationLabel,
-  onReasonChange, onNotesChange, onDateModeChange, onDateFromChange, onDateToChange, onSubmit, onClose,
-}: Readonly<{
-  visible: boolean;
-  now: Date;
-  absenceReason: AbsenceReasonValue;
-  absenceNotes: string;
-  absenceLoading: boolean;
-  absenceError: string | null;
-  absenceDateMode: AbsenceDateMode;
-  absenceDateFrom: string;
-  absenceDateTo: string;
-  locationAvailable: boolean;
-  locationLabel: string;
-  onReasonChange: (r: AbsenceReasonValue) => void;
-  onNotesChange: (n: string) => void;
-  onDateModeChange: (m: AbsenceDateMode) => void;
-  onDateFromChange: (d: string) => void;
-  onDateToChange: (d: string) => void;
-  onSubmit: () => void;
-  onClose: () => void;
-}>) {
-  if (!visible) return null;
-
-  const selectedCfg = ABSENCE_REASONS.find(r => r.value === absenceReason)!;
-  const rangeDays = countInclusiveDays(absenceDateFrom, absenceDateTo);
-  const invalidRange = absenceDateMode === "range" && rangeDays === 0;
-  const selectedDateLabel = invalidRange
-    ? "Select a valid date range"
-    : absenceDateMode === "today"
-    ? formatDateInputLabel(todayPST())
-    : rangeDays > 1
-      ? `${formatDateInputLabel(absenceDateFrom)} - ${formatDateInputLabel(absenceDateTo)}`
-      : formatDateInputLabel(absenceDateFrom);
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="w-full max-w-md mx-0 sm:mx-4 bg-white rounded-t-3xl sm:rounded-2xl shadow-2xl animate-in slide-in-from-bottom-4 sm:zoom-in-95 duration-200 overflow-hidden">
-
-        {/* Drag handle (mobile) */}
-        <div className="flex justify-center pt-3 pb-1 sm:hidden">
-          <div className="w-10 h-1 rounded-full bg-slate-200" />
-        </div>
-
-        {/* Header */}
-        <div className="px-6 pt-4 pb-5 border-b border-slate-100">
-          <div className="flex items-start justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-foreground">Report Absence</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", timeZone: "Asia/Manila" })}
-              </p>
-            </div>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer mt-0.5">
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-
-        <div className="px-6 py-5 space-y-5 max-h-[60vh] sm:max-h-none overflow-y-auto">
-          {/* Reason selection */}
-          <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
-              Select Reason <span className="text-red-500">*</span>
-            </p>
-            <div className="grid grid-cols-2 gap-2">
-              {ABSENCE_REASONS.map(({ value, icon: Icon, color, bg, border, activeBg }) => {
-                const isActive = absenceReason === value;
-                return (
-                  <button
-                    key={value}
-                    onClick={() => onReasonChange(value)}
-                    className={`flex items-center gap-2.5 p-3 rounded-xl border text-left transition-all duration-150 cursor-pointer ${
-                      isActive
-                        ? `${activeBg} border-transparent text-white`
-                        : `${bg} ${border} hover:border-slate-300`
-                    }`}
-                  >
-                    <Icon className={`h-4 w-4 shrink-0 ${isActive ? "text-white" : color}`} />
-                    <span className={`text-xs font-bold leading-tight ${isActive ? "text-white" : "text-foreground"}`}>
-                      {value}
-                    </span>
-                    {isActive && <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-white ml-auto" />}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Date selection */}
-          <div>
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
-              Absence Date <span className="text-red-500">*</span>
-            </p>
-            <div className="grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1">
-              {[
-                { value: "today" as const, label: "Today", icon: CalendarClock },
-                { value: "range" as const, label: "Range", icon: CalendarRange },
-              ].map(({ value, label, icon: Icon }) => {
-                const active = absenceDateMode === value;
-                return (
-                  <button
-                    key={value}
-                    type="button"
-                    onClick={() => onDateModeChange(value)}
-                    className={`h-10 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors cursor-pointer ${
-                      active ? "bg-white text-primary shadow-sm" : "text-slate-500 hover:text-slate-800"
-                    }`}
-                  >
-                    <Icon className="h-4 w-4" />
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
-
-            {absenceDateMode === "range" ? (
-              <div className="grid grid-cols-2 gap-3 mt-3">
-                <label className="space-y-1.5">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">From</span>
-                  <input
-                    type="date"
-                    value={absenceDateFrom}
-                    onChange={(e) => {
-                      onDateFromChange(e.target.value);
-                      if (absenceDateTo < e.target.value) onDateToChange(e.target.value);
-                    }}
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">To</span>
-                  <input
-                    type="date"
-                    value={absenceDateTo}
-                    min={absenceDateFrom}
-                    onChange={(e) => onDateToChange(e.target.value)}
-                    className="h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-foreground focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
-                  />
-                </label>
-              </div>
-            ) : (
-              <div className="mt-3 rounded-xl border border-blue-200 bg-blue-50 px-3.5 py-3 flex items-center gap-3">
-                <CalendarClock className="h-4 w-4 text-blue-600 shrink-0" />
-                <div>
-                  <p className="text-xs font-bold text-blue-900">Today only</p>
-                  <p className="text-xs text-blue-700 mt-0.5">{formatDateInputLabel(todayPST())}</p>
-                </div>
-              </div>
-            )}
-
-            {invalidRange && (
-              <p className="text-xs font-medium text-red-600 mt-2">End date must be the same as or later than the start date.</p>
-            )}
-          </div>
-
-          {/* Selected summary chip */}
-          <div className={`flex items-start gap-3 px-3.5 py-3 rounded-xl ${selectedCfg.bg} ${selectedCfg.border} border`}>
-            <selectedCfg.icon className={`h-4 w-4 mt-0.5 ${selectedCfg.color}`} />
-            <div>
-              <p className="text-xs font-semibold text-foreground">
-                Reporting: <span className={`font-bold ${selectedCfg.color}`}>{absenceReason}</span>
-              </p>
-              <p className="text-xs text-slate-600 mt-0.5">
-                {selectedDateLabel}{absenceDateMode === "range" && rangeDays > 1 ? ` (${rangeDays} days)` : ""}
-              </p>
-            </div>
-          </div>
-
-          <div
-            className={`px-3 py-2 rounded-lg border text-xs ${
-              locationAvailable
-                ? "bg-green-50 border-green-200 text-green-800"
-                : "bg-amber-50 border-amber-200 text-amber-800"
-            }`}
-          >
-            <p className="font-semibold">GPS is required for absence reporting.</p>
-            <p className="mt-0.5">{locationLabel}</p>
-          </div>
-
-          {/* Notes */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Notes</p>
-              <p className="text-[10px] text-muted-foreground">{absenceNotes.length}/500</p>
-            </div>
-            <textarea
-              value={absenceNotes}
-              onChange={e => onNotesChange(e.target.value.slice(0, 500))}
-              placeholder="Add any context for your HR team (optional)..."
-              rows={3}
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-foreground placeholder:text-slate-400 focus:outline-none focus:border-primary focus:bg-white focus:ring-2 focus:ring-primary/15 resize-none transition-colors"
-            />
-          </div>
-
-          {/* Error */}
-          {absenceError && (
-            <div className="flex items-start gap-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3.5 py-3" role="alert">
-              <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
-              <span>{absenceError}</span>
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="px-6 pb-6 pt-3 flex gap-3 border-t border-slate-100">
-          <Button variant="outline" className="flex-1 cursor-pointer" onClick={onClose} disabled={absenceLoading}>
-            Cancel
-          </Button>
-          <Button
-            className={`flex-1 cursor-pointer font-bold text-white ${selectedCfg.activeBg}`}
-            onClick={onSubmit}
-            disabled={absenceLoading || !locationAvailable || invalidRange}
-          >
-            {absenceLoading ? "Submitting..." : "Submit Absence"}
-          </Button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // â"€â"€â"€ Page â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
@@ -855,17 +693,10 @@ export default function EmployeeTimekeepingPage() {
   const [locationDisplayMode, setLocationDisplayMode] = useState<LocationDisplayMode>("place");
 
   // Modal state
-  const [modal, setModal] = useState<null | "time-in" | "time-out" | "absence">(null);
-
-  // Absence form
-  const [absenceReason, setAbsenceReason]     = useState<AbsenceReasonValue>(ABSENCE_REASONS[0].value);
-  const [absenceNotes, setAbsenceNotes]       = useState("");
-  const [absenceDateMode, setAbsenceDateMode] = useState<AbsenceDateMode>("today");
-  const [absenceDateFrom, setAbsenceDateFrom] = useState(() => todayPST());
-  const [absenceDateTo, setAbsenceDateTo]     = useState(() => todayPST());
-  const [absenceLoading, setAbsenceLoading]   = useState(false);
-  const [absenceError, setAbsenceError]       = useState<string | null>(null);
-  const [absenceSuccess, setAbsenceSuccess]   = useState(false);
+  const [modal, setModal] = useState<null | "time-in" | "time-out" | "rest-day-ot">(null);
+  const [approvedOtHours, setApprovedOtHours] = useState(0);
+  const [myLeaves, setMyLeaves] = useState<LeaveRequestItem[]>([]);
+  const [leaveBalances, setLeaveBalances] = useState<LeaveBalanceCategory[]>([]);
 
   // My schedule
   const [mySchedule, setMySchedule] = useState<{
@@ -884,7 +715,7 @@ export default function EmployeeTimekeepingPage() {
     return { year: n.getFullYear(), month: n.getMonth() };
   });
   const [page, setPage]           = useState(1);
-  const [calDayModal, setCalDayModal] = useState<{ dateStr: string; entry: TimesheetEntry | null } | null>(null);
+  const [calDayModal, setCalDayModal] = useState<{ dateStr: string; entry: TimesheetEntry | null; leaveRequest?: LeaveRequestItem | null } | null>(null);
   const [calPickerOpen, setCalPickerOpen] = useState(false);
   const [calPickerYear, setCalPickerYear] = useState(() => new Date().getFullYear());
 
@@ -960,6 +791,21 @@ export default function EmployeeTimekeepingPage() {
       .then(r => r.ok ? r.json() : null)
       .then(data => { if (data) setMySchedule(data); })
       .catch(() => {});
+
+    // Approved OT hours for current month
+    getMyOvertimeSummary()
+      .then(s => setApprovedOtHours((s as any).approved_planned_hours ?? (s as any).approved_ot_hours ?? 0))
+      .catch(() => {});
+
+    // Approved leave requests for calendar overlay
+    getMyLeaveRequests()
+      .then(data => setMyLeaves(data.filter(r => r.status === 'approved')))
+      .catch(() => {});
+
+    // Leave balances
+    getMyNewLeaveBalances()
+      .then(data => setLeaveBalances(data.categories ?? []))
+      .catch(() => {});
   }, []);
 
   async function refreshData() {
@@ -996,49 +842,6 @@ export default function EmployeeTimekeepingPage() {
     }
   }
 
-  async function handleAbsenceSubmit() {
-    if (!location) {
-      setAbsenceError(locationError || "Location is required to report an absence.");
-      return;
-    }
-    const dateFrom = absenceDateMode === "today" ? todayPST() : absenceDateFrom;
-    const dateTo = absenceDateMode === "today" ? todayPST() : absenceDateTo;
-    if (!dateFrom || !dateTo || dateTo < dateFrom) {
-      setAbsenceError("Choose a valid absence date range.");
-      return;
-    }
-    setAbsenceLoading(true);
-    setAbsenceError(null);
-    try {
-      const res = await authFetch(`${API_BASE_URL}/timekeeping/report-absence`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          reason: absenceReason,
-          latitude: location.latitude,
-          longitude: location.longitude,
-          date_from: dateFrom,
-          date_to: dateTo,
-          notes: absenceNotes || undefined,
-        }),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error((err as { message?: string })?.message || "Failed to report absence.");
-      }
-      setAbsenceSuccess(true);
-      setModal(null);
-      setAbsenceNotes("");
-      setAbsenceDateMode("today");
-      setAbsenceDateFrom(todayPST());
-      setAbsenceDateTo(todayPST());
-      await refreshData();
-    } catch (err: unknown) {
-      setAbsenceError((err as { message?: string })?.message || "Something went wrong.");
-    } finally {
-      setAbsenceLoading(false);
-    }
-  }
 
   // Derived — absence + no-schedule both block time-in/out
   const hasReportedAbsence = status?.current_status === "absence";
@@ -1141,9 +944,28 @@ export default function EmployeeTimekeepingPage() {
     let daysLate = 0;
     let daysAbsent = 0;
     let workedHours = 0;
+    let restDayOtDays = 0;
+    let restDayOtHours = 0;
 
     for (const entry of timesheet) {
       if (!entry.date.startsWith(`${yearStr}-${monthStr}-`)) continue;
+      const entryDayCode = SCHED_DAY_CODE[new Date(`${entry.date}T00:00:00`).getDay()];
+      const isEntryWorkday = workdaySet.has(entryDayCode);
+
+      // Rest day overtime — count separately, not in attendance stats
+      if (!isEntryWorkday && entry.time_in) {
+        restDayOtDays += 1;
+        if (entry.time_out) {
+          const diff = parseTs(entry.time_out.timestamp).getTime() - parseTs(entry.time_in.timestamp).getTime();
+          if (diff > 0) restDayOtHours += diff / 3_600_000;
+        }
+        if (entry.time_in && entry.time_out) {
+          const diff = parseTs(entry.time_out.timestamp).getTime() - parseTs(entry.time_in.timestamp).getTime();
+          if (diff > 0) workedHours += diff / 3_600_000;
+        }
+        continue;
+      }
+
       const status = getEntryStatus(entry, mySchedule);
       if (status === "late") {
         daysLate += 1;
@@ -1176,8 +998,26 @@ export default function EmployeeTimekeepingPage() {
       remainingHours,
       remainingWorkdays,
       progress,
+      restDayOtDays,
+      restDayOtHours: Math.round(restDayOtHours * 100) / 100,
     };
   }, [calMonth.month, calMonth.year, mySchedule, timesheet, today, workdaySet]);
+
+  // Map each date in approved leave ranges to the LeaveRequestItem
+  const leaveMap = useMemo(() => {
+    const map = new Map<string, LeaveRequestItem>();
+    for (const leave of myLeaves) {
+      const start = leave.start_date ?? leave.date;
+      const end = leave.end_date ?? start;
+      const d = new Date(start + "T00:00:00");
+      const e = new Date(end + "T00:00:00");
+      while (d <= e) {
+        map.set(d.toISOString().split("T")[0], leave);
+        d.setDate(d.getDate() + 1);
+      }
+    }
+    return map;
+  }, [myLeaves]);
 
   const monthSummaryLabel = useMemo(
     () =>
@@ -1291,38 +1131,75 @@ export default function EmployeeTimekeepingPage() {
           const entry       = dateMap[dateStr];
           const isToday     = dateStr === today;
           const isFuture    = dateStr > today;
-          const entryStatus = entry ? getEntryStatus(entry, mySchedule) : null;
-          const cfg         = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
-          const entryAbsenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
-          const isAbsent    = entryStatus === "absent" || entryStatus === "excused";
-          const isClickable = true; // all days are clickable to show schedule/status
 
           // Is this day a scheduled workday?
           const dayCode    = SCHED_DAY_CODE[new Date(dateStr + "T00:00:00").getDay()];
           const isDayWork  = workdaySet.has(dayCode);
 
+          const rawEntryStatus = entry ? getEntryStatus(entry, mySchedule) : null;
+          // Override: non-workday with clock-in = rest day OT
+          const entryStatus: EntryStatus | null = (!isDayWork && !isFuture && entry?.time_in)
+            ? "rest-day-ot"
+            : rawEntryStatus;
+          const cfg         = entryStatus ? ENTRY_STATUS_CONFIG[entryStatus] : null;
+          const entryAbsenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
+          const isAbsent    = entryStatus === "absent" || entryStatus === "excused";
+          const isRestDayOtCell = entryStatus === "rest-day-ot";
+          const dayLeave = leaveMap.get(dateStr);
+
           let cellClass = "bg-background border-border hover:border-primary/30";
-          if (isToday && cfg)            cellClass = `${cfg.cell} border-primary shadow-md ring-2 ring-primary/20`;
-          else if (isToday)              cellClass = "bg-primary/10 border-primary shadow-md";
-          else if (cfg)                  cellClass = `${cfg.cell} border hover:opacity-90`;
-          else if (isFuture && isDayWork) cellClass = "bg-blue-50/60 border-blue-200/70 opacity-70 hover:opacity-100";
-          else if (isFuture)             cellClass = "bg-background border-border opacity-35 hover:opacity-60";
-          else if (isDayWork)            cellClass = "bg-blue-50/40 border-blue-100 hover:border-blue-300";
+          if (dayLeave && !cfg)           cellClass = "bg-emerald-50 border-emerald-200 hover:border-emerald-400";
+          else if (isToday && cfg)        cellClass = `${cfg.cell} border-primary shadow-md ring-2 ring-primary/20`;
+          else if (isToday)               cellClass = "bg-primary/10 border-primary shadow-md";
+          else if (cfg)                   cellClass = `${cfg.cell} border hover:opacity-90`;
+          else if (isFuture && isDayWork)  cellClass = "bg-blue-50/60 border-blue-200/70 opacity-70 hover:opacity-100";
+          else if (isFuture)              cellClass = "bg-background border-border opacity-35 hover:opacity-60";
+          else if (isDayWork)             cellClass = "bg-blue-50/40 border-blue-100 hover:border-blue-300";
+          else if (!isDayWork && !isFuture) cellClass = "bg-slate-50/60 border-slate-200/60 hover:border-slate-300";
 
           return (
             <button
               key={dateStr}
               type="button"
-              onClick={() => setCalDayModal({ dateStr, entry: entry ?? null })}
+              onClick={() => setCalDayModal({ dateStr, entry: entry ?? null, leaveRequest: leaveMap.get(dateStr) ?? null })}
               className={`relative rounded-xl border p-2 min-h-[5.5rem] flex flex-col transition-all text-left w-full cursor-pointer ${cellClass}`}
             >
               <div className={`text-sm font-bold mb-1 ${isToday ? "text-primary" : "text-foreground"}`}>{day}</div>
+
+              {/* Approved leave indicator */}
+              {dayLeave && (
+                <div className="flex-1 mt-0.5 space-y-0.5">
+                  <span className="inline-flex items-center px-1 py-0.5 rounded-md text-[7px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 leading-tight">
+                    On Leave
+                  </span>
+                  <p className="text-[7px] font-semibold text-emerald-700 truncate leading-tight px-0.5">
+                    {dayLeave.leave_type}
+                  </p>
+                </div>
+              )}
 
               {/* Workday indicator (for days without attendance record) */}
               {isDayWork && !cfg && !isToday && (
                 <div className="flex items-center gap-0.5 mt-0.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-blue-400 shrink-0" />
                   <span className="text-[8px] font-semibold text-blue-600 leading-tight">Work</span>
+                </div>
+              )}
+
+              {/* Rest day indicator (non-workday, not future, no clock-in) */}
+              {!isDayWork && !isFuture && !isRestDayOtCell && !cfg && (
+                <div className="flex items-center gap-0.5 mt-0.5">
+                  <span className={`h-1.5 w-1.5 rounded-full shrink-0 ${isToday ? "bg-primary/40" : "bg-slate-300"}`} />
+                  <span className={`text-[8px] font-semibold leading-tight ${isToday ? "text-primary/70" : "text-slate-400"}`}>Rest</span>
+                </div>
+              )}
+
+              {/* Rest Day OT badge */}
+              {isRestDayOtCell && (
+                <div className="mt-0.5">
+                  <span className="inline-flex items-center px-1 py-0.5 rounded-md text-[7px] font-bold bg-violet-100 text-violet-700 border border-violet-200 leading-tight">
+                    Rest OT
+                  </span>
                 </div>
               )}
 
@@ -1378,6 +1255,10 @@ export default function EmployeeTimekeepingPage() {
             <span className="text-[10px] text-muted-foreground font-medium">Workday</span>
           </div>
         )}
+        <div className="flex items-center gap-1.5">
+          <span className="h-2 w-2 rounded-full bg-slate-300" />
+          <span className="text-[10px] text-muted-foreground font-medium">Rest Day</span>
+        </div>
         {Object.entries(ENTRY_STATUS_CONFIG).map(([key, cfg]) => (
           <div key={key} className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
@@ -1616,14 +1497,18 @@ export default function EmployeeTimekeepingPage() {
                   key={dateStr}
                   className={[
                     "flex flex-col items-center rounded-2xl border p-3 min-h-[9rem] transition-all",
-                    isWork ? "bg-blue-50 border-blue-200" : "bg-slate-50 border-slate-200",
+                    isWork
+                      ? "bg-blue-50 border-blue-200"
+                      : dateMap[dateStr]?.time_in
+                        ? "bg-violet-50/70 border-violet-200"
+                        : "bg-slate-50 border-slate-200",
                     isToday ? "ring-2 ring-primary ring-offset-1" : "",
                   ].join(" ")}
                 >
                   <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
                     {WEEKDAYS[i]}
                   </span>
-                  <span className={`text-xl font-bold leading-tight mt-0.5 ${isToday ? "text-primary" : isWork ? "text-blue-900" : "text-slate-400"}`}>
+                  <span className={`text-xl font-bold leading-tight mt-0.5 ${isToday ? "text-primary" : isWork ? "text-blue-900" : dateMap[dateStr]?.time_in ? "text-violet-800" : "text-slate-400"}`}>
                     {d.getDate()}
                   </span>
 
@@ -1646,9 +1531,26 @@ export default function EmployeeTimekeepingPage() {
                       )}
                     </>
                   ) : (
-                    <span className="mt-2 inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold border border-slate-200">
-                      Day Off
-                    </span>
+                    <div className="flex flex-col items-center gap-1 w-full mt-2">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 text-[9px] font-bold border border-slate-200">
+                        Rest Day
+                      </span>
+                      {dateMap[dateStr]?.time_in && (
+                        <div className="flex flex-col items-center gap-0.5 mt-1">
+                          <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-100 text-violet-700 text-[8px] font-bold border border-violet-200">
+                            Rest OT
+                          </span>
+                          <span className="text-[9px] font-semibold text-violet-700 tabular-nums leading-tight">
+                            {formatCellTime(dateMap[dateStr].time_in!.timestamp)}
+                          </span>
+                          {dateMap[dateStr]?.time_out && (
+                            <span className="text-[9px] text-violet-600 tabular-nums leading-tight">
+                              {formatCellTime(dateMap[dateStr].time_out!.timestamp)}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               );
@@ -1783,7 +1685,7 @@ export default function EmployeeTimekeepingPage() {
         {timesheet.length === 0 ? (
           <p className="px-6 py-10 text-center text-muted-foreground text-sm">No attendance records found.</p>
         ) : paged.map(entry => {
-          const entryStatus = getEntryStatus(entry, mySchedule);
+          const entryStatus = getDisplayStatus(entry, mySchedule, workdaySet);
           const cfg = ENTRY_STATUS_CONFIG[entryStatus];
           const entryAbsenceMeta = getAbsenceReviewMeta(entry.absence?.log_status);
           return (
@@ -1860,46 +1762,12 @@ export default function EmployeeTimekeepingPage() {
           onClose={() => setCalDayModal(null)}
           schedule={mySchedule}
           locationDisplayMode={locationDisplayMode}
+          leaveRequest={calDayModal.leaveRequest ?? null}
         />
       )}
 
 
       {/* â"€â"€ Absence Modal â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
-      <AbsenceModal
-        visible={modal === "absence"}
-        now={now}
-        absenceReason={absenceReason}
-        absenceNotes={absenceNotes}
-        absenceDateMode={absenceDateMode}
-        absenceDateFrom={absenceDateFrom}
-        absenceDateTo={absenceDateTo}
-        absenceLoading={absenceLoading}
-        absenceError={absenceError}
-        locationAvailable={!!location}
-        locationLabel={
-          location
-            ? formatGpsLocation(
-                location.latitude,
-                location.longitude,
-                null,
-                locationDisplayMode,
-              )
-            : (locationError || "Location unavailable. Enable device location to submit.")
-        }
-        onReasonChange={setAbsenceReason}
-        onNotesChange={setAbsenceNotes}
-        onDateModeChange={(mode) => {
-          setAbsenceDateMode(mode);
-          if (mode === "today") {
-            setAbsenceDateFrom(todayPST());
-            setAbsenceDateTo(todayPST());
-          }
-        }}
-        onDateFromChange={setAbsenceDateFrom}
-        onDateToChange={setAbsenceDateTo}
-        onSubmit={handleAbsenceSubmit}
-        onClose={() => { setModal(null); setAbsenceError(null); }}
-      />
 
       {/* â"€â"€ Time In Confirmation â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {modal === "time-in" && (
@@ -1937,6 +1805,55 @@ export default function EmployeeTimekeepingPage() {
               <Button variant="outline" className="flex-1 cursor-pointer" onClick={() => setModal(null)}>Cancel</Button>
               <Button
                 className="flex-1 bg-green-600 hover:bg-green-700 text-white cursor-pointer"
+                onClick={() => handleConfirmPunch("time-in")}
+                disabled={actionLoading}
+              >
+                {actionLoading ? "Clocking In..." : "Clock In"}
+              </Button>
+            </div>
+          </div>
+        </ConfirmModal>
+      )}
+
+      {/* â"€â"€ Rest Day OT Confirmation â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
+      {modal === "rest-day-ot" && (
+        <ConfirmModal onClose={() => setModal(null)}>
+          <div className="p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-xl bg-violet-100">
+                <Palmtree className="h-5 w-5 text-violet-700" />
+              </div>
+              <div>
+                <h2 className="font-bold text-base">Clock In — Rest Day</h2>
+                <p className="text-xs text-muted-foreground">Recorded as Rest Day Overtime</p>
+              </div>
+            </div>
+            <div className="mb-4 flex items-start gap-2 rounded-xl bg-amber-50 border border-amber-200 p-3">
+              <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-700">Today is your scheduled <strong>rest day</strong>. Hours worked will be counted as <strong>Rest Day OT</strong>.</p>
+            </div>
+            <div className="space-y-2 mb-5 text-sm">
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-muted-foreground">Time</span>
+                <span className="font-semibold tabular-nums">{formatLiveTime(now)}</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-muted-foreground">Type</span>
+                <span className="font-bold text-violet-700 text-xs">Rest Day Overtime</span>
+              </div>
+              <div className="flex justify-between py-2 border-b border-slate-100">
+                <span className="text-muted-foreground">Location</span>
+                <span className="font-medium text-xs">
+                  {location
+                    ? formatGpsLocation(location.latitude, location.longitude, null, locationDisplayMode)
+                    : "Not available"}
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" className="flex-1 cursor-pointer" onClick={() => setModal(null)}>Cancel</Button>
+              <Button
+                className="flex-1 bg-violet-600 hover:bg-violet-700 text-white cursor-pointer font-bold"
                 onClick={() => handleConfirmPunch("time-in")}
                 disabled={actionLoading}
               >
@@ -2061,9 +1978,40 @@ export default function EmployeeTimekeepingPage() {
                       <p className="text-xs text-white/55 mt-0.5">Not scheduled to work today</p>
                     </div>
                   </div>
-                  <p className="text-[11px] text-white/40 text-center sm:text-right px-1">
-                    Enjoy your time off!
-                  </p>
+                  {/* Allow clock-in on rest days as overtime */}
+                  {!status?.time_in && !hasReportedAbsence && (
+                    <Button
+                      onClick={() => { setActionError(null); setModal("rest-day-ot"); }}
+                      disabled={!location || actionLoading}
+                      className="bg-violet-500/30 border border-violet-300/40 text-white hover:bg-violet-500/50 font-bold gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <LogIn className="h-4 w-4" /> Clock In (Rest Day OT)
+                    </Button>
+                  )}
+                  {status?.time_in && !status?.time_out && (
+                    <div className="flex gap-2">
+                      <div className="flex-1 flex items-center gap-2 rounded-xl bg-violet-500/20 border border-violet-400/30 px-4 py-2.5 text-sm font-semibold text-violet-100">
+                        <div className="h-2 w-2 rounded-full bg-violet-300 animate-pulse shrink-0" />
+                        Rest Day OT in progress
+                      </div>
+                      <Button
+                        onClick={() => { setActionError(null); setModal("time-out"); }}
+                        disabled={actionLoading}
+                        className="bg-white/10 border border-white/30 text-white hover:bg-white/20 font-bold gap-2 cursor-pointer"
+                      >
+                        <LogOut className="h-4 w-4" /> Time Out
+                      </Button>
+                    </div>
+                  )}
+                  {status?.time_in && status?.time_out && (
+                    <div className="flex items-center gap-2 rounded-xl bg-violet-500/20 border border-violet-300/30 px-4 py-3 text-sm font-semibold text-violet-100">
+                      <CheckCircle2 className="h-4 w-4 text-violet-300 shrink-0" />
+                      Rest Day OT recorded for today.
+                    </div>
+                  )}
+                  {!status?.time_in && (
+                    <p className="text-[11px] text-white/40 text-center sm:text-right px-1">Enjoy your time off!</p>
+                  )}
                 </div>
               ) : hasReportedAbsence ? (
                 <div className="flex items-center gap-2 rounded-lg bg-purple-500/20 border border-purple-400/30 px-4 py-3 text-sm font-semibold text-purple-100">
@@ -2137,63 +2085,6 @@ export default function EmployeeTimekeepingPage() {
         </div>
       )}
 
-      {!statusLoading && canTimeIn && !shiftDone && !hasReportedAbsence && (
-        <div className="rounded-xl border px-5 py-4 flex items-center justify-between gap-4 bg-slate-50 border-slate-200 transition-colors">
-          <div className="flex items-center gap-3">
-            <FileX className="h-5 w-5 shrink-0 text-slate-400" />
-            <div>
-              <p className="text-sm font-semibold text-slate-700">Not clocking in today?</p>
-              <p className="text-xs text-muted-foreground">Let your HR team know by reporting your absence.</p>
-            </div>
-          </div>
-          <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 border-slate-300 text-slate-600 hover:bg-purple-50 hover:border-purple-300 hover:text-purple-700 cursor-pointer"
-            onClick={() => { setAbsenceError(null); setModal("absence"); }}
-          >
-            Report Absence
-          </Button>
-        </div>
-      )}
-
-      {/* Absence reported confirmation banner */}
-      {!statusLoading && (hasReportedAbsence || todayAbsence || todayAbsenceRequest) && (
-        <div className="rounded-xl border px-5 py-4 bg-purple-50 border-purple-200">
-          <div className="flex items-center gap-3">
-            {(() => {
-              const reason = (todayAbsenceRequest ?? todayAbsence)?.absence_reason ?? "";
-              const cfg = ABSENCE_REASONS.find(r => r.value === reason);
-              if (!cfg) return <FileX className="h-5 w-5 shrink-0 text-purple-500" />;
-              const Icon = cfg.icon;
-              return (
-                <div className={`p-1.5 rounded-lg ${cfg.bg} border ${cfg.border}`}>
-                  <Icon className={`h-4 w-4 ${cfg.color}`} />
-                </div>
-              );
-            })()}
-            <div>
-              <p className="text-sm font-semibold text-purple-800">
-                {normalizeAbsenceReviewState(todayAbsenceRequest?.log_status) === "DENIED"
-                  ? "Absence request denied for today"
-                  : "Absence reported for today"}
-              </p>
-              <p className="text-xs text-purple-600">
-                {(todayAbsenceRequest ?? todayAbsence)?.absence_reason}
-                {(todayAbsenceRequest ?? todayAbsence)?.absence_notes ? ` - ${(todayAbsenceRequest ?? todayAbsence)?.absence_notes}` : ""}
-              </p>
-              <p className={`text-[11px] font-semibold mt-1 ${todayAbsenceMeta.textClass}`}>
-                Status: {todayAbsenceMeta.label}
-              </p>
-              {(todayAbsenceRequest ?? todayAbsence)?.review_reason && (
-                <p className="text-[11px] text-purple-700 mt-0.5">
-                  Review note: {(todayAbsenceRequest ?? todayAbsence)?.review_reason}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* â"€â"€ Today's punch summary â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
       {!statusLoading && !fetchError && status && !hasReportedAbsence && (
@@ -2344,6 +2235,43 @@ export default function EmployeeTimekeepingPage() {
               </div>
             </div>
 
+            {/* Rest Day OT strip — only shown when there's rest day work this month */}
+            {monthlySummary.restDayOtDays > 0 && (
+              <div className="flex items-center gap-3 p-3.5 rounded-xl border border-violet-200 bg-violet-50">
+                <span className="h-2.5 w-2.5 rounded-full bg-violet-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-violet-800">
+                    {monthlySummary.restDayOtDays} Rest Day OT {monthlySummary.restDayOtDays === 1 ? "session" : "sessions"} this month
+                  </p>
+                  <p className="text-[11px] text-violet-600 mt-0.5">
+                    {monthlySummary.restDayOtHours.toFixed(1)}h worked on scheduled days off — counted in Total Hours above
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Approved Overtime strip */}
+            {(approvedOtHours > 0 || monthlySummary.restDayOtDays > 0) && (
+              <div className="flex items-center gap-3 p-3.5 rounded-xl border border-sky-200 bg-sky-50">
+                <span className="h-2.5 w-2.5 rounded-full bg-sky-500 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold text-sky-800">
+                    Overtime this month
+                  </p>
+                  <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-0.5">
+                    <p className="text-[11px] text-sky-700">
+                      <span className="font-semibold tabular-nums">{approvedOtHours.toFixed(1)}h</span> approved OT
+                    </p>
+                    {monthlySummary.restDayOtDays > 0 && (
+                      <p className="text-[11px] text-violet-600">
+                        <span className="font-semibold tabular-nums">{monthlySummary.restDayOtHours.toFixed(1)}h</span> rest day OT
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div>
               <div className="flex items-center justify-between text-[11px] font-semibold mb-1.5">
                 <span className="text-muted-foreground">Hours Progress</span>
@@ -2366,6 +2294,45 @@ export default function EmployeeTimekeepingPage() {
       )}
 
       {/* â"€â"€ Attendance History â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€ */}
+      {/* ── Leave Balance Card ──────────────────────────────────────────────── */}
+      {leaveBalances.length > 0 && (
+        <Card className="border-border overflow-hidden">
+          <div className="px-5 py-4 border-b border-border bg-[linear-gradient(155deg,rgba(16,185,129,0.07),rgba(15,23,42,0.00))] flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-emerald-500/10 text-emerald-600 flex items-center justify-center shrink-0">
+              <CalendarDays className="h-4 w-4" />
+            </div>
+            <div>
+              <h2 className="font-bold text-sm">My Leave Balances</h2>
+              <p className="text-xs text-muted-foreground">Remaining entitlements for this year</p>
+            </div>
+          </div>
+          <div className="p-5 grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {LEAVE_CATEGORIES.map(({ value, label, icon: Icon }) => {
+              const bal = leaveBalances.find(b => b.leave_category === value);
+              if (!bal) return null;
+              const pct = bal.entitled_days > 0 ? Math.round((bal.remaining_days / bal.entitled_days) * 100) : 0;
+              const color = pct > 50 ? "text-emerald-700" : pct > 20 ? "text-amber-700" : "text-red-700";
+              const barColor = pct > 50 ? "bg-emerald-500" : pct > 20 ? "bg-amber-400" : "bg-red-500";
+              return (
+                <div key={value} className="rounded-xl border border-border bg-background p-3.5 space-y-2">
+                  <div className="flex items-center gap-1.5">
+                    <Icon className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="text-xs font-semibold truncate">{label}</span>
+                  </div>
+                  <p className={`text-2xl font-black tabular-nums leading-none ${color}`}>
+                    {bal.remaining_days}
+                    <span className="text-xs font-normal text-muted-foreground ml-1">/ {bal.entitled_days}d</span>
+                  </p>
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                    <div className={`h-full rounded-full transition-all ${barColor}`} style={{ width: `${Math.min(pct, 100)}%` }} />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
       <Card className="border-border overflow-hidden">
         <div className="p-6 bg-muted/20 border-b border-border flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div>

@@ -125,10 +125,8 @@ function Navbar() {
     <header className="fixed top-0 left-0 right-0 z-50 bg-white/92 backdrop-blur-xl border-b border-slate-200/70 shadow-[0_1px_0_rgba(15,23,42,0.04)]">
       <div className="max-w-7xl mx-auto px-4 md:px-8 h-[70px] flex items-center justify-between">
         {/* Logo */}
-        <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 bg-[#1e3a8a] rounded-lg flex items-center justify-center flex-shrink-0">
-            <Star className="w-4 h-4 text-white" />
-          </div>
+        <Link href="/" className="flex items-center gap-1.5">
+          <img src="/blues-clues-logo.png" alt="Blues Clues HRIS" className="h-10 w-10 object-contain" />
           <span className="font-bold text-gray-900 text-[15px] leading-tight">
             Blue&apos;s Clues<span className="text-[#1e3a8a]"> HRIS</span>
           </span>
@@ -1657,10 +1655,8 @@ function Footer() {
     <footer className="bg-white border-t border-slate-200/80 px-4 md:px-8 py-12">
       <SectionReveal className="max-w-7xl mx-auto">
         <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 bg-[#1e3a8a] rounded-lg flex items-center justify-center">
-              <Star className="w-3.5 h-3.5 text-white" />
-            </div>
+          <div className="flex items-center gap-1.5">
+            <img src="/blues-clues-logo.png" alt="Blues Clues HRIS" className="h-9 w-9 object-contain" style={{ mixBlendMode: "multiply" }} />
             <div>
               <span className="font-bold text-gray-900 text-sm">Blue&apos;s Clues HRIS</span>
               <p className="text-xs text-gray-400 mt-0.5">HR management for Philippine companies</p>

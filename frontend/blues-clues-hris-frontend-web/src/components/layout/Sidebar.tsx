@@ -15,7 +15,6 @@ import {
   DollarSign,
   BarChart,
   FileCheck,
-  Layers,
   ClipboardCheck,
   Clock,
   Loader2,
@@ -24,6 +23,8 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   ShieldCheck,
+  Timer,
+  CalendarDays,
 } from "lucide-react";
 
 import {
@@ -59,8 +60,9 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
       group: "Operations",
       items: [
         { name: "Dashboard",   href: "/hr",             icon: LayoutDashboard },
-        { name: "Timekeeping", href: "/hr/timekeeping", icon: Clock },
-        { name: "My Payslips", href: "/hr/payslips",    icon: DollarSign },
+        { name: "Timekeeping",    href: "/hr/timekeeping",    icon: Clock },
+        { name: "Leave Balances", href: "/hr/leave-balances", icon: CalendarDays },
+        { name: "My Payslips",    href: "/hr/payslips",       icon: DollarSign },
       ],
     },
     {
@@ -84,13 +86,14 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
   manager: [
     {
       items: [
-        { name: "Dashboard",   href: "/manager",             icon: LayoutDashboard },
-        { name: "Team",        href: "/manager/team",        icon: Users },
-        { name: "Performance", href: "/manager/performance", icon: BarChart },
-        { name: "Timekeeping", href: "/manager/timekeeping", icon: Clock },
-        { name: "My Payslips", href: "/manager/payslips",    icon: DollarSign },
-        { name: "Offboarding", href: "/manager/offboarding", icon: LogOut },
-        { name: "Approvals",   href: "/manager/approvals",   icon: ClipboardCheck },
+        { name: "Dashboard",      href: "/manager",                  icon: LayoutDashboard },
+        { name: "Team",           href: "/manager/team",             icon: Users },
+        { name: "Performance",    href: "/manager/performance",      icon: BarChart },
+        { name: "Timekeeping",    href: "/manager/timekeeping",      icon: Clock },
+        { name: "Leave Balances", href: "/manager/leave-balances",   icon: CalendarDays },
+        { name: "My Payslips",    href: "/manager/payslips",         icon: DollarSign },
+        { name: "Offboarding",    href: "/manager/offboarding",      icon: LogOut },
+        { name: "Approvals",      href: "/manager/approvals",        icon: ClipboardCheck },
       ],
     },
   ],
@@ -111,6 +114,7 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
         { name: "Timekeeping", href: "/employee/timekeeping", icon: Clock },
         { name: "Performance", href: "/employee/performance", icon: BarChart },
         { name: "Leave",       href: "/employee/leave",       icon: FileText },
+        { name: "Overtime",    href: "/employee/overtime",    icon: Timer },
         { name: "My Profile",  href: "/employee/profile",     icon: Users },
         { name: "Payslips",    href: "/employee/payslips",    icon: DollarSign },
         { name: "Offboarding", href: "/employee/offboarding", icon: LogOut },
@@ -229,15 +233,27 @@ export function Sidebar({
       ].join(" ")}
     >
       {/* Logo Section */}
-      <div className={["h-16 flex items-center border-b border-sidebar-border/40 mt-0 shrink-0", collapsed ? "justify-center px-0" : "gap-3 px-6"].join(" ")}>
-        <div className="h-9 w-9 bg-white/10 rounded-xl flex items-center justify-center border border-white/20 shadow-inner shrink-0">
-          <Layers className="h-5 w-5 text-sidebar-foreground" />
-        </div>
-        {!collapsed && (
-          <div className="flex flex-col">
-            <span className="text-base font-bold tracking-tight leading-none mb-1">Blue's Clues</span>
-            <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-sidebar-foreground/60 leading-none">HRIS</span>
-          </div>
+      <div className={["h-16 flex items-center border-b border-sidebar-border/40 mt-0 shrink-0", collapsed ? "justify-center px-1" : "gap-2 px-3"].join(" ")}>
+        {collapsed ? (
+          <img
+            src="/blues-clues-logo.png"
+            alt="Blues Clues HRIS"
+            className="h-10 w-10 object-contain shrink-0"
+          />
+        ) : (
+          <>
+            <img
+              src="/blues-clues-logo.png"
+              alt="Blues Clues HRIS"
+              className="h-11 w-11 object-contain shrink-0"
+            />
+            <div className="min-w-0">
+              <p className="text-sidebar-foreground font-bold text-sm leading-none truncate">
+                Blue&apos;s Clues <span className="text-emerald-400">HRIS</span>
+              </p>
+              <p className="text-sidebar-foreground/40 text-[9px] uppercase tracking-widest mt-0.5">Staff Portal</p>
+            </div>
+          </>
         )}
       </div>
 

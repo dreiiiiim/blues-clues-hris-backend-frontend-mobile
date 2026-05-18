@@ -802,7 +802,7 @@ export async function getMyCompany(): Promise<{ company_id: string; company_name
 // Leave Requests API
 // ---------------------------------------------------------------------------
 
-export type LeaveReason = 'Sick Leave' | 'Emergency Leave' | 'WFH / Remote' | 'Personal Leave' | 'Vacation Leave' | 'Other';
+export type LeaveReason = 'Sick Leave' | 'Emergency Leave' | 'Personal Leave' | 'Vacation Leave' | 'Maternity Leave' | 'Paternity Leave';
 
 export type LeaveBalanceCard = {
   type: string;
@@ -819,9 +819,14 @@ export type LeaveRequestItem = {
   start_date: string;
   end_date: string;
   reason: string;
-  status: 'approved' | 'rejected' | 'pending';
+  status: 'approved' | 'rejected' | 'pending' | 'revoked' | 'cancelled' | 'revocation_requested';
+  revocation_reason?: string | null;
   notes?: string | null;
   manager_remark?: string | null;
+  attachment_url?: string | null;
+  reviewed_at?: string | null;
+  rejection_reason?: string | null;
+  reviewer_name?: string | null;
   created_at: string;
 };
 
@@ -839,18 +844,28 @@ export async function getMyLeaveRequests(): Promise<LeaveRequestItem[]> {
   const rows = Array.isArray(data) ? data : [];
   return rows.map((row: any) => {
     const rawStatus = String(row.status ?? 'Pending').toLowerCase();
-    const normalizedStatus: 'approved' | 'rejected' | 'pending' =
-      rawStatus === 'approved' ? 'approved' : rawStatus === 'rejected' ? 'rejected' : 'pending';
+    const normalizedStatus: LeaveRequestItem['status'] =
+      rawStatus === 'approved' ? 'approved'
+      : rawStatus === 'rejected' ? 'rejected'
+      : rawStatus === 'revoked' ? 'revoked'
+      : rawStatus === 'cancelled' ? 'cancelled'
+      : rawStatus === 'revocationrequested' || rawStatus === 'revocation_requested' ? 'revocation_requested'
+      : 'pending';
 
     return {
       request_id: row.request_id ?? crypto.randomUUID(),
-      leave_type: row.leave_type ?? 'Other',
+      leave_type: row.leave_type ?? 'Vacation Leave',
       date: row.date ?? row.start_date ?? row.created_at,
       start_date: row.start_date ?? row.date ?? row.created_at,
       end_date: row.end_date ?? row.start_date ?? row.date ?? row.created_at,
       reason: row.reason ?? row.leave_type ?? 'Leave',
       notes: row.notes ?? row.manager_remark ?? null,
       manager_remark: row.manager_remark ?? null,
+      attachment_url: row.attachment_url ?? null,
+      reviewed_at: row.reviewed_at ?? null,
+      rejection_reason: row.rejection_reason ?? null,
+      reviewer_name: row.reviewer_name ?? null,
+      revocation_reason: row.revocation_reason ?? null,
       status: normalizedStatus,
       created_at: row.created_at ?? new Date().toISOString(),
     } as LeaveRequestItem;
@@ -862,6 +877,7 @@ export async function fileLeaveRequestApi(body: {
   start_date: string;
   end_date: string;
   reason: string;
+  attachment_url?: string;
 }): Promise<LeaveRequestItem> {
   const res = await authFetch(`${API_BASE_URL}/leave/requests`, {
     method: 'POST',
@@ -871,6 +887,109 @@ export async function fileLeaveRequestApi(body: {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to file leave request');
   return data as LeaveRequestItem;
+}
+
+export async function uploadLeaveAttachmentApi(file: File): Promise<{ url: string }> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await authFetch(`${API_BASE_URL}/leave/upload-attachment`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Upload failed');
+  return data as { url: string };
+}
+
+export async function cancelPendingLeaveApi(requestId: string): Promise<{ success: boolean }> {
+  const res = await authFetch(`${API_BASE_URL}/leave/requests/${requestId}/cancel`, { method: 'PATCH' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to cancel leave request');
+  return data as { success: boolean };
+}
+
+export async function requestLeaveRevocationApi(requestId: string, reason: string): Promise<{ success: boolean }> {
+  const res = await authFetch(`${API_BASE_URL}/leave/requests/${requestId}/request-revocation`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reason }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to request leave revocation');
+  return data as { success: boolean };
+}
+
+// ---------------------------------------------------------------------------
+// Overtime API (Employee)
+// ---------------------------------------------------------------------------
+
+export type OvertimeType = 'NORMAL' | 'REST_DAY' | 'HOLIDAY';
+
+export type OvertimeRequest = {
+  ot_id: string;
+  employee_id: string;
+  ot_type: OvertimeType;
+  ot_date: string;
+  start_time: string;
+  end_time: string;
+  planned_hours: number;
+  reason?: string | null;
+  log_status: 'PENDING' | 'APPROVED' | 'DENIED';
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_reason?: string | null;
+  created_at: string;
+};
+
+export async function getMyOvertimeRequests(): Promise<OvertimeRequest[]> {
+  const res = await authFetch(`${API_BASE_URL}/overtime/requests/me`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to load OT requests');
+  return (data as OvertimeRequest[]) ?? [];
+}
+
+export async function fileOvertimeRequestApi(body: {
+  ot_type: OvertimeType;
+  ot_date: string;
+  start_time: string;
+  end_time: string;
+  latitude: number;
+  longitude: number;
+  reason?: string;
+}): Promise<OvertimeRequest> {
+  const res = await authFetch(`${API_BASE_URL}/overtime/requests`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to file OT request');
+  return data as OvertimeRequest;
+}
+
+export async function getMyOvertimeSummary(month?: string): Promise<{ approved_planned_hours: number }> {
+  const url = month
+    ? `${API_BASE_URL}/overtime/my-summary?month=${month}`
+    : `${API_BASE_URL}/overtime/my-summary`;
+  const res = await authFetch(url);
+  const data = await res.json().catch(() => ({ approved_planned_hours: 0 }));
+  if (!res.ok) return { approved_planned_hours: 0 };
+  return data as { approved_planned_hours: number };
+}
+
+export type LeaveBalanceCategory = {
+  leave_category: string;
+  entitled_days: number;
+  used_days: number;
+  remaining_days: number;
+  balance_source: 'individual' | 'bulk' | 'default';
+};
+
+export async function getMyNewLeaveBalances(): Promise<{ categories: LeaveBalanceCategory[] }> {
+  const res = await authFetch(`${API_BASE_URL}/leave-balances/my`);
+  const data = await res.json().catch(() => ({ categories: [] }));
+  if (!res.ok) return { categories: [] };
+  return data as { categories: LeaveBalanceCategory[] };
 }
 
 // ---------------------------------------------------------------------------

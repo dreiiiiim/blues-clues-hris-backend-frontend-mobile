@@ -9,6 +9,7 @@ import { DatabaseErrorHandler } from '../common/database-error.handler';
 import { CnbService } from '../cnb/cnb.service';
 import { CnbEncryptionService } from '../cnb/cnb-encryption.service';
 import { TimekeepingService } from '../timekeeping/timekeeping.service';
+import { OvertimeService } from '../overtime/overtime.service';
 
 @Injectable()
 export class PayrollService {
@@ -19,6 +20,7 @@ export class PayrollService {
     private readonly cnbService: CnbService,
     private readonly encryption: CnbEncryptionService,
     private readonly timekeepingService: TimekeepingService,
+    private readonly overtimeService: OvertimeService,
   ) {}
 
   // ──────────────────────────────────────────────────────────────
@@ -453,6 +455,7 @@ export class PayrollService {
     userId: string,
     startDate: string,
     endDate: string,
+    companyId?: string,
   ): Promise<{
     totalAbsences: number;
     totalLateHours: number;
@@ -517,9 +520,16 @@ export class PayrollService {
         daysWorked.delete(date); // Remove from working days
       } else if (log.clock_type === 'LATE' && log.log_status !== 'PENDING') {
         lateDays.add(date);
-      } else if (log.clock_type === 'OVERTIME') {
-        overtimeHours += 0.5; // Approximate 30 min per overtime punch
       }
+    }
+
+    // Replace heuristic with sum of approved overtime requests for the period
+    if (userProfile?.employee_id) {
+      overtimeHours = await this.overtimeService.getApprovedOtHoursForPeriod(
+        userProfile.employee_id,
+        startDate,
+        endDate,
+      );
     }
 
     lateHours = lateDays.size * 0.5; // Approximate 30 min late per day

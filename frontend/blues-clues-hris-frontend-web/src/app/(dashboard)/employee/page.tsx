@@ -154,6 +154,7 @@ export default function EmployeeDashboardPage() {
   const [profile,    setProfile]    = useState<EmployeeProfile | null>(null);
   const [docs,       setDocs]       = useState<EmployeeDocument[]>([]);
   const [tkStatus,   setTkStatus]   = useState<MyStatus | null>(null);
+  const [mySchedule, setMySchedule] = useState<{ workdays: string | string[] | null } | null>(null);
   const [loading,    setLoading]    = useState(true);
 
   useEffect(() => { setUser(getUserInfo()); }, []);
@@ -164,10 +165,12 @@ export default function EmployeeDashboardPage() {
       getEmployeeProfile().catch(() => null),
       getMyEmployeeDocuments().catch(() => []),
       authFetch(`${API_BASE_URL}/timekeeping/my-status`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([p, d, tk]) => {
+      authFetch(`${API_BASE_URL}/timekeeping/my-schedule`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([p, d, tk, sched]) => {
       setProfile(p);
       setDocs(d as EmployeeDocument[]);
       setTkStatus(tk);
+      if (sched) setMySchedule(sched);
     }).finally(() => setLoading(false));
   }, []);
 
@@ -192,14 +195,29 @@ export default function EmployeeDashboardPage() {
   const timeOut          = tkStatus?.time_out?.timestamp ?? null;
   const hoursWorked      = fmtHours(timeIn, timeOut);
 
+  // Detect rest day from schedule
+  const SCHED_DAY_CODE = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"] as const;
+  const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Manila" });
+  const todayDayCode = SCHED_DAY_CODE[new Date(`${todayStr}T00:00:00`).getDay()];
+  const schedWorkdaySet = (() => {
+    const raw = mySchedule?.workdays;
+    if (!raw) return new Set<string>();
+    const arr = Array.isArray(raw) ? raw : String(raw).split(",");
+    return new Set(arr.map((d: string) => d.trim().toUpperCase()));
+  })();
+  const isRestDay = mySchedule !== null && schedWorkdaySet.size > 0 && !schedWorkdaySet.has(todayDayCode);
+  const isRestDayOt = isRestDay && (todayStatus === "time-in" || todayStatus === "time-out");
+
   // ── Status pill ─────────────────────────────────────────────────────────────
 
   const statusConfig: Record<string, { label: string; cls: string }> = {
-    "time-in":  { label: "Clocked In",  cls: "bg-green-100 text-green-700 border-green-200"  },
-    "time-out": { label: "Clocked Out", cls: "bg-blue-100 text-blue-700 border-blue-200"     },
-    "absence":  { label: "On Leave",    cls: "bg-amber-100 text-amber-700 border-amber-200"  },
+    "time-in":  { label: "Clocked In",    cls: "bg-green-100 text-green-700 border-green-200"   },
+    "time-out": { label: "Clocked Out",   cls: "bg-blue-100 text-blue-700 border-blue-200"      },
+    "absence":  { label: "On Leave",      cls: "bg-amber-100 text-amber-700 border-amber-200"   },
+    "rest-ot":  { label: "Rest Day OT",   cls: "bg-violet-100 text-violet-700 border-violet-200" },
   };
-  const todayCfg = todayStatus ? statusConfig[todayStatus] : null;
+  const effectiveStatusKey = isRestDayOt ? "rest-ot" : (todayStatus ?? null);
+  const todayCfg = effectiveStatusKey ? statusConfig[effectiveStatusKey] : null;
 
   // ── Missing profile fields ───────────────────────────────────────────────────
   const missingProfileFields = PROFILE_FIELDS.filter(({ key }) => !profile?.[key]).map(f => f.label);
@@ -262,9 +280,9 @@ export default function EmployeeDashboardPage() {
         <StatCard
           label="Today's Status"
           value={todayCfg?.label ?? (loading ? "—" : "Not In")}
-          sub={timeIn ? `Time in: ${fmtTime(timeIn)}` : undefined}
+          sub={timeIn ? `Time in: ${fmtTime(timeIn)}${isRestDayOt ? " · Rest Day OT" : ""}` : undefined}
           icon={Timer}
-          color="bg-blue-50 text-blue-700"
+          color={isRestDayOt ? "bg-violet-50 text-violet-700" : "bg-blue-50 text-blue-700"}
         />
         <StatCard
           label="Docs Approved"

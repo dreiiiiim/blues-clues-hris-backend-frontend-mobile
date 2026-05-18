@@ -12,6 +12,7 @@ import { MailService } from '../mail/mail.service';
 import { AuditService } from '../audit/audit.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { TimekeepingService } from '../timekeeping/timekeeping.service';
+import { LeaveBalancesService } from '../leave-balances/leave-balances.service';
 import { CreateUserDto } from './dto/create-users.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { CreateChangeRequestDto } from './dto/create-change-request.dto';
@@ -185,6 +186,7 @@ export class UsersService {
     private readonly auditService: AuditService,
     private readonly notificationsService: NotificationsService,
     private readonly timekeepingService: TimekeepingService,
+    private readonly leaveBalancesService: LeaveBalancesService,
   ) {}
 
   // All queries filter by company_id. company_id comes from req.user.
@@ -1206,6 +1208,21 @@ export class UsersService {
       );
     }
 
+    try {
+      await this.leaveBalancesService.assignInitialLeaveBalancesForEmployee({
+        companyId,
+        employeeId: employee_id,
+        departmentId: dto.department_id ?? null,
+        updatedByName: null,
+      });
+    } catch (leaveErr) {
+      this.logger.warn(
+        `Could not assign initial leave balances for user ${user_id}: ${
+          leaveErr instanceof Error ? leaveErr.message : String(leaveErr)
+        }`,
+      );
+    }
+
     const rawToken = crypto.randomBytes(32).toString('hex');
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
@@ -1380,6 +1397,23 @@ export class UsersService {
             scheduleError instanceof Error ? scheduleError.message : String(scheduleError)
           }`,
         );
+      }
+
+      if (updatedUser.employee_id) {
+        try {
+          await this.leaveBalancesService.assignInitialLeaveBalancesForEmployee({
+            companyId,
+            employeeId: updatedUser.employee_id,
+            departmentId: normalizedDepartmentId || null,
+            updatedByName: null,
+          });
+        } catch (leaveErr) {
+          this.logger.warn(
+            `Could not sync leave balances for user ${id}: ${
+              leaveErr instanceof Error ? leaveErr.message : String(leaveErr)
+            }`,
+          );
+        }
       }
     }
 

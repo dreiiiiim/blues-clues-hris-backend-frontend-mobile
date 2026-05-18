@@ -8,4 +8,4 @@
 # 5. Save .npmrc — it is gitignored and stays local only
 
 @implementsprint:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=YOUR_GITHUB_PAT_HERE
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN_HERE}

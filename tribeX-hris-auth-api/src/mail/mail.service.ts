@@ -8,6 +8,15 @@ type SendMailOptions = {
   html: string;
 };
 
+function normalizeEmail(input: string): string {
+  return (input ?? '').trim().toLowerCase();
+}
+
+function isValidEmail(input: string): boolean {
+  // Intentionally simple server-side guard to block obvious bad recipients.
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+}
+
 // ─── Shared design tokens ─────────────────────────────────────────────────────
 const BRAND = {
   name:       'Blues Clues HRIS',
@@ -191,11 +200,38 @@ export class MailService {
   ) {}
 
   private async sendMail(options: SendMailOptions): Promise<void> {
-    await this.apiCenterSdkService.getClient().emailSend({
-      to: [{ email: options.to }],
-      subject: options.subject,
-      html: options.html,
-    });
+    const to = normalizeEmail(options.to);
+    if (!isValidEmail(to)) {
+      throw new Error(`Invalid recipient email: "${options.to}"`);
+    }
+
+    const maxAttempts = 3;
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        await this.apiCenterSdkService.getClient().emailSend({
+          to: [{ email: to }],
+          subject: options.subject,
+          html: options.html,
+        });
+        this.logger.log(`Email sent: "${options.subject}" -> ${to}`);
+        return;
+      } catch (error) {
+        lastError = error;
+        this.logger.warn(
+          `Email send attempt ${attempt}/${maxAttempts} failed for ${to}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+      }
+    }
+
+    throw new Error(
+      `Email delivery failed after ${maxAttempts} attempts: ${
+        lastError instanceof Error ? lastError.message : String(lastError)
+      }`,
+    );
   }
 
   // ─── Invite ─────────────────────────────────────────────────────────────────
@@ -983,6 +1019,157 @@ export class MailService {
       });
     } catch (error) {
       this.logger.error('Failed to send absence review email', error);
+    }
+  }
+
+  async sendLeaveReviewEmail(opts: {
+    to: string;
+    employeeName: string;
+    reviewerName: string;
+    status: 'Approved' | 'Rejected';
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    totalDays: number;
+    rejectionReason?: string | null;
+  }): Promise<void> {
+    const isApproved  = opts.status === 'Approved';
+    const st          = isApproved ? STATUS.success : STATUS.danger;
+    const actionLabel = opts.status;
+
+    const fmt = (d: string) =>
+      new Date(`${d}T12:00:00`).toLocaleDateString('en-US', {
+        month: 'long', day: 'numeric', year: 'numeric',
+      });
+
+    const dateRange = opts.startDate === opts.endDate
+      ? fmt(opts.startDate)
+      : `${fmt(opts.startDate)} – ${fmt(opts.endDate)}`;
+
+    const rejectionSection = !isApproved && opts.rejectionReason
+      ? noteCard('Reason for Rejection', opts.rejectionReason, STATUS.danger.bg, STATUS.danger.border)
+      : '';
+
+    const nextStep = isApproved
+      ? 'Your leave has been recorded. Enjoy your time off and take care!'
+      : 'If you believe this decision is incorrect, please reach out to your HR administrator.';
+
+    const header = brandHeader(
+      `Leave Request ${actionLabel}`,
+      'Your leave request has been reviewed by HR',
+      st.headerBg,
+    );
+
+    const body = `
+      ${bodyText(`Hi <strong>${opts.employeeName}</strong>, your leave request has been reviewed.`)}
+
+      <div style="background:${st.bg};border:1px solid ${st.border};border-radius:12px;padding:20px 24px;margin:20px 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tr><td>${statusBadge(actionLabel, st.text, st.bg, st.border)}</td></tr>
+          <tr>
+            <td style="padding-top:10px;">
+              <p style="margin:0;font-size:15px;font-weight:600;color:${st.text};font-family:'Poppins',sans-serif;">${opts.leaveType}</p>
+              <p style="margin:4px 0 0;font-size:13px;color:${BRAND.textMuted};font-family:'Open Sans',sans-serif;">${dateRange}</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      ${infoCard([
+        { label: 'Leave Type',   value: opts.leaveType },
+        { label: 'Period',       value: dateRange },
+        { label: 'Total Days',   value: `${opts.totalDays} day${opts.totalDays !== 1 ? 's' : ''}` },
+        { label: 'Reviewed by',  value: opts.reviewerName },
+        { label: 'Decision',     value: actionLabel },
+      ], st.bg, st.border)}
+
+      ${rejectionSection}
+
+      ${divider()}
+
+      ${bodyText(`<strong>Next step:</strong> ${nextStep}`, '0')}`;
+
+    try {
+      await this.sendMail({
+        to: opts.to,
+        subject: `Leave Request ${actionLabel} — ${opts.leaveType} (${dateRange})`,
+        html: emailWrapper(header, body),
+      });
+    } catch (error) {
+      this.logger.error('Failed to send leave review email', error);
+    }
+  }
+
+  // ─── Overtime Review ─────────────────────────────────────────────────────────
+
+  async sendOvertimeReviewEmail(opts: {
+    to: string;
+    employeeName: string;
+    reviewerName: string;
+    action: 'APPROVED' | 'DENIED';
+    otType: string;
+    otDate: string;
+    startTime: string;
+    endTime: string;
+    plannedHours: number;
+    reason?: string | null;
+  }): Promise<void> {
+    const isApproved  = opts.action === 'APPROVED';
+    const actionLabel = isApproved ? 'Approved' : 'Denied';
+    const st          = isApproved ? STATUS.success : STATUS.danger;
+
+    const typeLabel: Record<string, string> = {
+      NORMAL:   'Normal Overtime',
+      REST_DAY: 'Rest Day Overtime',
+      HOLIDAY:  'Holiday Overtime',
+    };
+    const fmtType = typeLabel[opts.otType] ?? opts.otType;
+
+    const fmtDate = new Date(`${opts.otDate}T12:00:00`).toLocaleDateString('en-US', {
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    });
+
+    const reviewNoteSection = opts.reason ? noteCard('Note from HR', opts.reason) : '';
+    const nextStep = isApproved
+      ? 'Your overtime request has been approved. Please ensure you clock in/out as scheduled.'
+      : 'If you believe this is incorrect, please contact your HR administrator.';
+
+    const header = brandHeader(
+      `Overtime Request ${actionLabel}`,
+      'Your overtime request has been reviewed',
+      st.headerBg,
+    );
+
+    const body = `
+      ${bodyText(`Hi <strong>${opts.employeeName}</strong>, your overtime request has been reviewed.`)}
+
+      <div style="background:${st.bg};border:1px solid ${st.border};border-radius:12px;padding:20px 24px;margin:20px 0;">
+        ${statusBadge(actionLabel, st.text, st.bg, st.border)}
+        <p style="margin:8px 0 0;font-size:14px;font-weight:600;color:${st.text};font-family:'Poppins',sans-serif;">${fmtType}</p>
+        <p style="margin:4px 0 0;font-size:13px;color:${BRAND.textMuted};">${fmtDate} &bull; ${opts.startTime}–${opts.endTime} (${opts.plannedHours}h)</p>
+      </div>
+
+      ${infoCard([
+        { label: 'Date',          value: fmtDate },
+        { label: 'Type',          value: fmtType },
+        { label: 'Time Window',   value: `${opts.startTime} – ${opts.endTime}` },
+        { label: 'Planned Hours', value: `${opts.plannedHours}h` },
+        { label: 'Reviewed by',   value: opts.reviewerName },
+        { label: 'Decision',      value: actionLabel },
+      ], st.bg, st.border)}
+
+      ${reviewNoteSection}
+      ${divider()}
+      ${bodyText(`<strong>Next step:</strong> ${nextStep}`, '0')}`;
+
+    try {
+      await this.sendMail({
+        to: opts.to,
+        subject: `Overtime Request ${actionLabel} – ${fmtDate}`,
+        html: emailWrapper(header, body),
+      });
+    } catch (error) {
+      this.logger.error('Failed to send overtime review email', error);
     }
   }
 }

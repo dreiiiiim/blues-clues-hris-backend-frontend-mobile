@@ -20,6 +20,8 @@ import { OnboardingModule } from './onboarding/onboarding.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { LeaveModule } from './leave/leave.module';
+import { OvertimeModule } from './overtime/overtime.module';
+import { LeaveBalancesModule } from './leave-balances/leave-balances.module';
 import { PayrollModule } from './payroll/payroll.module';
 import { CnbModule } from './cnb/cnb.module';
 import { OffboardingModule } from './offboarding/offboarding.module';
@@ -51,6 +53,8 @@ const shouldValidateEnv = process.env.NODE_ENV === 'production';
     NotificationsModule,
     SubscriptionModule,
     LeaveModule,
+    OvertimeModule,
+    LeaveBalancesModule,
     PayrollModule,
     CnbModule,
     OffboardingModule,

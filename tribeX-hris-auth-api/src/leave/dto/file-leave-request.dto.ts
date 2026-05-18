@@ -4,6 +4,7 @@ import {
   IsIn,
   IsDateString,
   IsNotEmpty,
+  IsUrl,
   MaxLength,
 } from 'class-validator';
 
@@ -12,8 +13,8 @@ export const LEAVE_TYPES = [
   'Sick Leave',
   'Emergency Leave',
   'Personal Leave',
-  'WFH / Remote',
-  'Other',
+  'Maternity Leave',
+  'Paternity Leave',
 ] as const;
 
 export type LeaveType = (typeof LEAVE_TYPES)[number];
@@ -44,4 +45,8 @@ export class FileLeaveRequestDto {
   @IsString({ message: 'reason must be a string' })
   @MaxLength(500, { message: 'reason must not exceed 500 characters' })
   reason?: string;
+
+  @IsOptional()
+  @IsUrl({}, { message: 'attachment_url must be a valid URL' })
+  attachment_url?: string;
 }

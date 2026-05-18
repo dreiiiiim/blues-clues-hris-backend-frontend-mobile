@@ -8,8 +8,12 @@ import {
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
   HttpCode,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { memoryStorage } from 'multer';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiQuery } from '@nestjs/swagger';
 import { LeaveService } from './leave.service';
 import { FileLeaveRequestDto } from './dto/file-leave-request.dto';
@@ -76,6 +80,53 @@ export class LeaveController {
   })
   getMyLeaveRequests(@Req() req: AuthenticatedRequest) {
     return this.leaveService.getMyLeaveRequests(req.user.sub_userid);
+  }
+
+  @Patch('requests/:requestId/cancel')
+  @ApiOperation({ summary: 'Employee: Cancel a pending leave request (instant)' })
+  cancelPendingLeave(
+    @Param('requestId') requestId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.leaveService.cancelPendingLeave(requestId, req.user.sub_userid);
+  }
+
+  @Patch('requests/:requestId/request-revocation')
+  @ApiOperation({ summary: 'Employee: Request revocation of an approved leave (future dates only)' })
+  requestLeaveRevocation(
+    @Param('requestId') requestId: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { reason: string },
+  ) {
+    return this.leaveService.requestLeaveRevocation(requestId, req.user.sub_userid, body.reason);
+  }
+
+  @Patch('requests/:requestId/review-revocation')
+  @UseGuards(RolesGuard)
+  @Roles(...HR_AND_ABOVE)
+  @ApiOperation({ summary: 'HR: Approve or reject an employee revocation request' })
+  reviewLeaveRevocation(
+    @Param('requestId') requestId: string,
+    @Req() req: AuthenticatedRequest,
+    @Body() body: { action: 'approve' | 'reject' },
+  ) {
+    return this.leaveService.reviewLeaveRevocation(
+      requestId,
+      req.user.sub_userid,
+      req.user.company_id,
+      body.action,
+    );
+  }
+
+  @Post('upload-attachment')
+  @HttpCode(200)
+  @UseInterceptors(FileInterceptor('file', { storage: memoryStorage() }))
+  @ApiOperation({ summary: 'Employee: Upload leave proof attachment (image or PDF)' })
+  uploadAttachment(
+    @Req() req: AuthenticatedRequest,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.leaveService.uploadLeaveAttachment(req.user.sub_userid, file);
   }
 
   // ── HR ROUTES ────────────────────────────────────────────────

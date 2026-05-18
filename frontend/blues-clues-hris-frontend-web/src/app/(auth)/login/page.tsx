@@ -13,6 +13,7 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
 import { AlertCircle, Loader2, Clock, Users, Shield, UserX } from "lucide-react";
 
+
 export default function EmployeeLoginPage() {
   const router = useRouter();
 
@@ -74,11 +75,9 @@ export default function EmployeeLoginPage() {
 
         <div className="mb-auto relative z-10">
           <div className="flex items-center gap-3 mb-14">
-            <div className="h-10 w-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
-              <Shield className="h-5 w-5 text-white" />
-            </div>
+            <img src="/blues-clues-logo.png" alt="Blues Clues HRIS" className="h-11 w-11 object-contain shrink-0" />
             <div>
-              <p className="text-white font-bold text-sm leading-none">Blue&apos;s Clues HRIS</p>
+              <p className="text-white font-bold text-sm leading-none">Blue&apos;s Clues <span className="text-emerald-400">HRIS</span></p>
               <p className="text-white/50 text-[10px] uppercase tracking-widest mt-0.5">Internal Staff Portal</p>
             </div>
           </div>
