@@ -135,6 +135,7 @@ export default function HROfficerPerformancePage() {
   // Violation form
   const [expandedPicker, setExpandedPicker] = useState<"employee" | "type" | "severity" | null>(null);
   const [violationForm, setViolationForm] = useState({
+    employeeId: "",
     employee: "",
     type: "Attendance",
     severity: "Medium",
@@ -143,6 +144,22 @@ export default function HROfficerPerformancePage() {
   });
   const [evidenceUploading, setEvidenceUploading] = useState(false);
   const evidenceInputRef = useRef<HTMLInputElement>(null);
+
+  const employeeNameCounts = employees.reduce<Record<string, number>>((acc, employee) => {
+    const name = `${employee.first_name} ${employee.last_name}`.trim();
+    acc[name] = (acc[name] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  const employeePickerOptions = employees.map((employee) => {
+    const fullName = `${employee.first_name} ${employee.last_name}`.trim();
+    const disambiguator = employee.employee_id || employee.email || employee.user_id;
+    return {
+      id: String(employee.user_id ?? ""),
+      label: employeeNameCounts[fullName] > 1 ? `${fullName} (${disambiguator})` : fullName,
+      value: fullName,
+    };
+  });
 
   const fetchApprovals = async () => {
     setApprovalsLoading(true);
@@ -172,14 +189,17 @@ export default function HROfficerPerformancePage() {
         const emps = Array.isArray(empData) ? empData : [];
         setEmployees(emps);
         if (emps.length > 0) {
-          setViolationForm(f => ({ ...f, employee: `${emps[0].first_name} ${emps[0].last_name}` }));
+          setViolationForm(f => ({
+            ...f,
+            employeeId: String(emps[0].user_id ?? ""),
+            employee: `${emps[0].first_name} ${emps[0].last_name}`,
+          }));
         }
       })
       .catch(() => toast.error("Failed to load HR performance data"));
   }, []);
 
   const pickerOptions = {
-    employee: employees.map(e => `${e.first_name} ${e.last_name}`),
     type: ["Tardiness", "Insubordination", "Policy Violation", "Misconduct", "Negligence", "Attendance", "Performance", "Security", "Other"],
     severity: ["Low", "Medium", "High", "Critical"],
   };
@@ -276,7 +296,7 @@ export default function HROfficerPerformancePage() {
 
   const handleLogViolation = async () => {
     if (!violationForm.description.trim()) return;
-    const empEntry = employees.find(e => `${e.first_name} ${e.last_name}` === violationForm.employee);
+    const empEntry = employees.find(e => String(e.user_id ?? "") === violationForm.employeeId);
     try {
       const res = await authFetch(`${API_BASE_URL}/performance/violations`, {
         method: "POST",
@@ -302,7 +322,14 @@ export default function HROfficerPerformancePage() {
         avatar: violationForm.employee.split(" ").map((n: string) => n[0] ?? "").join("").toUpperCase().slice(0, 2),
       }), ...prev]);
       setViolationModalOpen(false);
-      setViolationForm({ employee: employees[0] ? `${employees[0].first_name} ${employees[0].last_name}` : "", type: "Attendance", severity: "Medium", description: "", evidenceFile: null });
+      setViolationForm({
+        employeeId: employees[0] ? String(employees[0].user_id ?? "") : "",
+        employee: employees[0] ? `${employees[0].first_name} ${employees[0].last_name}` : "",
+        type: "Attendance",
+        severity: "Medium",
+        description: "",
+        evidenceFile: null,
+      });
       if (evidenceInputRef.current) evidenceInputRef.current.value = "";
       toast.success("Violation logged");
     } catch (err: any) {
@@ -365,6 +392,11 @@ export default function HROfficerPerformancePage() {
 
   const selectPickerOption = (field: "employee" | "type" | "severity", val: string) => {
     setViolationForm(prev => ({ ...prev, [field]: val }));
+    setExpandedPicker(null);
+  };
+
+  const selectEmployeePickerOption = (employeeId: string, employeeName: string) => {
+    setViolationForm(prev => ({ ...prev, employeeId, employee: employeeName }));
     setExpandedPicker(null);
   };
 
@@ -639,11 +671,11 @@ export default function HROfficerPerformancePage() {
               </button>
               {expandedPicker === "employee" && (
                 <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white border border-border rounded-xl shadow-lg overflow-hidden max-h-48 overflow-y-auto">
-                  {pickerOptions.employee.map(opt => (
-                    <button key={opt} onClick={() => selectPickerOption("employee", opt)}
+                  {employeePickerOptions.map((opt) => (
+                    <button key={opt.id} onClick={() => selectEmployeePickerOption(opt.id, opt.value)}
                       className="w-full flex items-center justify-between px-4 py-3 hover:bg-muted/50 text-sm border-b border-border last:border-0">
-                      <span className={violationForm.employee === opt ? "text-primary font-bold" : "text-foreground"}>{opt}</span>
-                      {violationForm.employee === opt && <Check className="h-4 w-4 text-primary" />}
+                      <span className={violationForm.employeeId === opt.id ? "text-primary font-bold" : "text-foreground"}>{opt.label}</span>
+                      {violationForm.employeeId === opt.id && <Check className="h-4 w-4 text-primary" />}
                     </button>
                   ))}
                 </div>

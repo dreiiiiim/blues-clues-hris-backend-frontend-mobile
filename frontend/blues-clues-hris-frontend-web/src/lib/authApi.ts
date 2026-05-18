@@ -912,6 +912,66 @@ export async function fileLeaveRequestApi(body: {
 }
 
 // ---------------------------------------------------------------------------
+// Overtime Requests API
+// ---------------------------------------------------------------------------
+
+export type OvertimeType = "NORMAL" | "REST_DAY" | "HOLIDAY";
+
+export type OvertimeRequest = {
+  ot_id: string;
+  employee_id: string;
+  ot_type: OvertimeType;
+  ot_date: string;
+  start_time: string;
+  end_time: string;
+  planned_hours: number;
+  reason?: string | null;
+  log_status: "PENDING" | "APPROVED" | "DENIED";
+  reviewed_by?: string | null;
+  reviewed_at?: string | null;
+  review_reason?: string | null;
+  created_at: string;
+};
+
+export async function getMyOvertimeRequests(): Promise<OvertimeRequest[]> {
+  const res = await authFetch(`${API_BASE_URL}/overtime/requests/me`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to load overtime requests");
+  return (Array.isArray(data) ? data : []) as OvertimeRequest[];
+}
+
+export async function fileOvertimeRequestApi(body: {
+  ot_type: OvertimeType;
+  ot_date: string;
+  start_time: string;
+  end_time: string;
+  latitude: number;
+  longitude: number;
+  reason?: string;
+}): Promise<OvertimeRequest> {
+  const res = await authFetch(`${API_BASE_URL}/overtime/requests`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to file overtime request");
+  return data as OvertimeRequest;
+}
+
+export async function getMyOvertimeSummary(month?: string): Promise<{ approved_planned_hours: number }> {
+  const url = month
+    ? `${API_BASE_URL}/overtime/my-summary?month=${encodeURIComponent(month)}`
+    : `${API_BASE_URL}/overtime/my-summary`;
+  const res = await authFetch(url);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to load overtime summary");
+  return {
+    approved_planned_hours: Number((data as { approved_planned_hours?: number })?.approved_planned_hours ?? 0),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Employee Documents API
 // ---------------------------------------------------------------------------
 

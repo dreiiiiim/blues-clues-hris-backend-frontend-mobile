@@ -44,4 +44,8 @@ export class FileLeaveRequestDto {
   @IsString({ message: 'reason must be a string' })
   @MaxLength(500, { message: 'reason must not exceed 500 characters' })
   reason?: string;
+
+  @IsOptional()
+  @IsString({ message: 'attachment_url must be a string' })
+  attachment_url?: string;
 }

@@ -1029,6 +1029,170 @@ export class MailService {
       this.logger.error('Failed to send absence review email', error);
     }
   }
+
+  // ─── Leave Review ───────────────────────────────────────────────────────────
+
+  async sendLeaveReviewEmail(opts: {
+    to: string;
+    employeeName: string;
+    reviewerName: string;
+    status: 'Approved' | 'Rejected';
+    leaveType: string;
+    startDate: string;
+    endDate: string;
+    totalDays: number;
+    rejectionReason?: string | null;
+  }): Promise<void> {
+    const isApproved  = opts.status === 'Approved';
+    const st          = isApproved ? STATUS.success : STATUS.danger;
+    const actionLabel = opts.status;
+
+    const fmt = (d: string) =>
+      new Date(`${d}T12:00:00`).toLocaleDateString('en-US', {
+        month: 'long', day: 'numeric', year: 'numeric',
+      });
+
+    const dateRange = opts.startDate === opts.endDate
+      ? fmt(opts.startDate)
+      : `${fmt(opts.startDate)} – ${fmt(opts.endDate)}`;
+
+    const rejectionSection = !isApproved && opts.rejectionReason
+      ? noteCard('Reason for Rejection', opts.rejectionReason, STATUS.danger.bg, STATUS.danger.border)
+      : '';
+
+    const nextStep = isApproved
+      ? 'Your leave has been recorded. Enjoy your time off and take care!'
+      : 'If you believe this decision is incorrect, please reach out to your HR administrator.';
+
+    const header = brandHeader(
+      `Leave Request ${actionLabel}`,
+      'Your leave request has been reviewed by HR',
+      st.headerBg,
+    );
+
+    const body = `
+      ${bodyText(`Hi <strong>${opts.employeeName}</strong>, your leave request has been reviewed.`)}
+
+      <div style="background:${st.bg};border:1px solid ${st.border};border-radius:12px;padding:20px 24px;margin:20px 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tr><td>${statusBadge(actionLabel, st.text, st.bg, st.border)}</td></tr>
+          <tr>
+            <td style="padding-top:10px;">
+              <p style="margin:0;font-size:15px;font-weight:600;color:${st.text};font-family:'Poppins',sans-serif;">${opts.leaveType}</p>
+              <p style="margin:4px 0 0;font-size:13px;color:${BRAND.textMuted};font-family:'Open Sans',sans-serif;">${dateRange}</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      ${infoCard([
+        { label: 'Leave Type',   value: opts.leaveType },
+        { label: 'Period',       value: dateRange },
+        { label: 'Total Days',   value: `${opts.totalDays} day${opts.totalDays !== 1 ? 's' : ''}` },
+        { label: 'Reviewed by',  value: opts.reviewerName },
+        { label: 'Decision',     value: actionLabel },
+      ], st.bg, st.border)}
+
+      ${rejectionSection}
+
+      ${divider()}
+
+      ${bodyText(`<strong>Next step:</strong> ${nextStep}`, '0')}`;
+
+    try {
+      await this.sendMail({
+        from: this.from,
+        to: opts.to,
+        subject: `Leave Request ${actionLabel} — ${opts.leaveType} (${dateRange})`,
+        html: emailWrapper(header, body),
+      });
+    } catch (error) {
+      this.logger.error('Failed to send leave review email', error);
+    }
+  }
+
+  async sendOvertimeReviewEmail(opts: {
+    to: string;
+    employeeName: string;
+    reviewerName: string;
+    status: 'APPROVED' | 'DENIED';
+    overtimeType: string;
+    otDate: string;
+    startTime: string;
+    endTime: string;
+    plannedHours: number;
+    denialReason?: string | null;
+  }): Promise<void> {
+    const isApproved = opts.status === 'APPROVED';
+    const st = isApproved ? STATUS.success : STATUS.danger;
+    const actionLabel = isApproved ? 'Approved' : 'Denied';
+
+    const fmt = (d: string) =>
+      new Date(`${d}T12:00:00`).toLocaleDateString('en-US', {
+        month: 'long', day: 'numeric', year: 'numeric',
+      });
+
+    const denialSection = !isApproved && opts.denialReason
+      ? noteCard('Reason for Denial', opts.denialReason, STATUS.danger.bg, STATUS.danger.border)
+      : '';
+
+    const nextStep = isApproved
+      ? 'Your overtime has been recorded. Please track your overtime hours accordingly.'
+      : 'If you believe this decision is incorrect, please reach out to your HR administrator.';
+
+    const typeMap: Record<string, string> = {
+      NORMAL: 'Normal Overtime',
+      REST_DAY: 'Rest Day Overtime',
+      HOLIDAY: 'Holiday Overtime',
+    };
+
+    const header = brandHeader(
+      `Overtime Request ${actionLabel}`,
+      'Your overtime request has been reviewed by HR',
+      st.headerBg,
+    );
+
+    const body = `
+      ${bodyText(`Hi <strong>${opts.employeeName}</strong>, your overtime request has been reviewed.`)}
+
+      <div style="background:${st.bg};border:1px solid ${st.border};border-radius:12px;padding:20px 24px;margin:20px 0;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+          <tr><td>${statusBadge(actionLabel, st.text, st.bg, st.border)}</td></tr>
+          <tr>
+            <td style="padding-top:10px;">
+              <p style="margin:0;font-size:15px;font-weight:600;color:${st.text};font-family:'Poppins',sans-serif;">${typeMap[opts.overtimeType] || opts.overtimeType}</p>
+              <p style="margin:4px 0 0;font-size:13px;color:${BRAND.textMuted};font-family:'Open Sans',sans-serif;">${fmt(opts.otDate)} — ${opts.startTime} to ${opts.endTime}</p>
+            </td>
+          </tr>
+        </table>
+      </div>
+
+      ${infoCard([
+        { label: 'Overtime Type', value: typeMap[opts.overtimeType] || opts.overtimeType },
+        { label: 'Date', value: fmt(opts.otDate) },
+        { label: 'Time Window', value: `${opts.startTime} – ${opts.endTime}` },
+        { label: 'Planned Hours', value: `${opts.plannedHours}h` },
+        { label: 'Reviewed by', value: opts.reviewerName },
+        { label: 'Decision', value: actionLabel },
+      ], st.bg, st.border)}
+
+      ${denialSection}
+
+      ${divider()}
+
+      ${bodyText(`<strong>Next step:</strong> ${nextStep}`, '0')}`;
+
+    try {
+      await this.sendMail({
+        from: this.from,
+        to: opts.to,
+        subject: `Overtime Request ${actionLabel} — ${typeMap[opts.overtimeType] || opts.overtimeType} (${fmt(opts.otDate)})`,
+        html: emailWrapper(header, body),
+      });
+    } catch (error) {
+      this.logger.error('Failed to send overtime review email', error);
+    }
+  }
 }
 
 
