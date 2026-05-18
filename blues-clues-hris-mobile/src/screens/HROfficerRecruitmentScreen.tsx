@@ -455,11 +455,6 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                           )}
                         </View>
                       </View>
-                            <Text style={[styles.statusText, { color: s.text }]}>{s.label}</Text>
-                          </View>
-                          <Text style={styles.applicantDate}>{formatDate(app.applied_at)}</Text>
-                        </View>
-                      </View>
                     );
                   })}
                 </View>

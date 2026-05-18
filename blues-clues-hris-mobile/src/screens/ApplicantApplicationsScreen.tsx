@@ -731,14 +731,6 @@ function ApplicationCard({ app, onPress }: { readonly app: Application; readonly
   );
 }
 
-function StatBox({ label, value, color }: { readonly label: string; readonly value: string; readonly color: string }) {
-  return (
-    <View style={[styles.statBox, { borderTopColor: color }]}>
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  );
-}
 
 function MetaItem({ icon, label, value }: { readonly icon: any; readonly label: string; readonly value: string }) {
   return (
