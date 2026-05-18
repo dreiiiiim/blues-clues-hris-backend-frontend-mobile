@@ -63,7 +63,6 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
       items: [
         { name: "Dashboard",   href: "/hr",             icon: LayoutDashboard },
         { name: "Timekeeping", href: "/hr/timekeeping", icon: Clock },
-        { name: "My Payslips", href: "/hr/payslips",    icon: DollarSign },
       ],
     },
     {
@@ -91,7 +90,6 @@ const MENU_CONFIG: Record<PersonaType, MenuSection[]> = {
         { name: "Team",        href: "/manager/team",        icon: Users },
         { name: "Performance", href: "/manager/performance", icon: BarChart },
         { name: "Timekeeping", href: "/manager/timekeeping", icon: Clock },
-        { name: "My Payslips", href: "/manager/payslips",    icon: DollarSign },
         { name: "Offboarding", href: "/manager/offboarding", icon: LogOut },
         { name: "Approvals",   href: "/manager/approvals",   icon: ClipboardCheck },
       ],
@@ -170,7 +168,7 @@ export function Sidebar({
   const pathname = usePathname();
   const [user, setUser] = useState<StoredUser | null>(null);
   const [collapsed, setCollapsed] = useState(() => {
-    if (typeof window !== "undefined") {
+    if (globalThis.window) {
       return localStorage.getItem("sidebar_collapsed") === "true";
     }
     return false;
@@ -220,10 +218,17 @@ export function Sidebar({
   const sections = MENU_CONFIG[persona] || [];
   // Append additionalItems to the last section
   const allSections: MenuSection[] = additionalItems.length > 0
-    ? [...sections.slice(0, -1), {
-        ...sections[sections.length - 1],
-        items: [...(sections[sections.length - 1]?.items ?? []), ...additionalItems],
-      }]
+    ? (() => {
+        const lastSection = sections.at(-1);
+        if (!lastSection) return sections;
+        return [
+          ...sections.slice(0, -1),
+          {
+            ...lastSection,
+            items: [...(lastSection.items ?? []), ...additionalItems],
+          },
+        ];
+      })()
     : sections;
 
   const visibleSections =
@@ -259,7 +264,7 @@ export function Sidebar({
       {/* Navigation Section */}
       <div className={["flex-1 overflow-y-auto py-4", collapsed ? "px-2" : "px-3"].join(" ")}>
         {visibleSections.map((section, si) => (
-          <div key={si} className={si > 0 ? "mt-4" : ""}>
+          <div key={`${section.group ?? "section"}-${section.items[0]?.href ?? si}`} className={si > 0 ? "mt-4" : ""}>
             {/* Section eyebrow label — hidden when collapsed */}
             {section.group && !collapsed && (
               <p className="text-[9px] font-bold text-sidebar-foreground/35 mb-1.5 px-3 tracking-[0.18em] uppercase">

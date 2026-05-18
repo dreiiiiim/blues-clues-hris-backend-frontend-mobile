@@ -359,6 +359,18 @@ CREATE TABLE public.employee_id_sequence (
   CONSTRAINT employee_id_sequence_pkey PRIMARY KEY (company_id),
   CONSTRAINT employee_id_sequence_company_id_fkey FOREIGN KEY (company_id) REFERENCES public.company(company_id)
 );
+CREATE TABLE public.employee_leave_balances (
+  employee_id text NOT NULL,
+  company_id character varying NOT NULL,
+  leave_category text NOT NULL CHECK (leave_category = ANY (ARRAY['Sick Leave'::text, 'Vacation Leave'::text, 'Personal Leave'::text, 'Emergency Leave'::text, 'Maternity Leave'::text, 'Paternity Leave'::text])),
+  entitled_days numeric NOT NULL DEFAULT 0,
+  used_days numeric NOT NULL DEFAULT 0,
+  balance_source text NOT NULL DEFAULT 'default'::text CHECK (balance_source = ANY (ARRAY['individual'::text, 'bulk'::text, 'default'::text])),
+  updated_by uuid,
+  updated_by_name text,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT employee_leave_balances_pkey PRIMARY KEY (employee_id, leave_category)
+);
 CREATE TABLE public.employee_staging (
   profile_id uuid NOT NULL,
   session_id uuid NOT NULL,
@@ -496,6 +508,25 @@ CREATE TABLE public.knowledge_transfer (
   CONSTRAINT knowledge_transfer_pkey PRIMARY KEY (kt_id),
   CONSTRAINT knowledge_transfer_case_id_fkey FOREIGN KEY (case_id) REFERENCES public.offboarding_cases(case_id),
   CONSTRAINT knowledge_transfer_signed_off_by_id_fkey FOREIGN KEY (signed_off_by_id) REFERENCES public.user_profile(user_id)
+);
+CREATE TABLE public.leave_balance_company_defaults (
+  company_id character varying NOT NULL,
+  leave_category text NOT NULL CHECK (leave_category = ANY (ARRAY['Sick Leave'::text, 'Vacation Leave'::text, 'Personal Leave'::text, 'Emergency Leave'::text, 'Maternity Leave'::text, 'Paternity Leave'::text])),
+  default_days numeric NOT NULL DEFAULT 0,
+  updated_by uuid,
+  updated_by_name text,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT leave_balance_company_defaults_pkey PRIMARY KEY (company_id, leave_category)
+);
+CREATE TABLE public.leave_balance_department_defaults (
+  department_id uuid NOT NULL,
+  company_id character varying NOT NULL,
+  leave_category text NOT NULL CHECK (leave_category = ANY (ARRAY['Sick Leave'::text, 'Vacation Leave'::text, 'Personal Leave'::text, 'Emergency Leave'::text, 'Maternity Leave'::text, 'Paternity Leave'::text])),
+  default_days numeric NOT NULL DEFAULT 0,
+  updated_by uuid,
+  updated_by_name text,
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT leave_balance_department_defaults_pkey PRIMARY KEY (department_id, leave_category)
 );
 CREATE TABLE public.leave_config (
   config_id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -733,20 +764,24 @@ CREATE TABLE public.onboarding_templates (
   CONSTRAINT onboarding_templates_position_id_fkey FOREIGN KEY (position_id) REFERENCES public.job_positions(position_id)
 );
 CREATE TABLE public.overtime_requests (
-  overtime_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  ot_id uuid NOT NULL DEFAULT gen_random_uuid(),
   employee_id text NOT NULL,
-  company_id uuid NOT NULL,
+  ot_type text NOT NULL CHECK (ot_type = ANY (ARRAY['NORMAL'::text, 'REST_DAY'::text, 'HOLIDAY'::text])),
   ot_date date NOT NULL,
-  hours_requested numeric NOT NULL CHECK (hours_requested > 0::numeric AND hours_requested <= 24::numeric),
-  reason text NOT NULL,
-  status text NOT NULL DEFAULT 'Pending'::text CHECK (status = ANY (ARRAY['Pending'::text, 'Approved'::text, 'Rejected'::text])),
-  reviewed_by text,
+  start_time time without time zone NOT NULL,
+  end_time time without time zone NOT NULL,
+  planned_hours numeric NOT NULL,
+  reason text,
+  log_status text NOT NULL DEFAULT 'PENDING'::text CHECK (log_status = ANY (ARRAY['PENDING'::text, 'APPROVED'::text, 'DENIED'::text])),
+  latitude double precision,
+  longitude double precision,
+  ip_address text,
+  requested_by uuid NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  reviewed_by uuid,
   reviewed_at timestamp with time zone,
   review_reason text,
-  created_at timestamp with time zone NOT NULL DEFAULT now(),
-  updated_at timestamp with time zone NOT NULL DEFAULT now(),
-  ot_type text NOT NULL DEFAULT 'Regular OT'::text CHECK (ot_type = ANY (ARRAY['Regular OT'::text, 'Rest Day OT'::text])),
-  CONSTRAINT overtime_requests_pkey PRIMARY KEY (overtime_id)
+  CONSTRAINT overtime_requests_pkey PRIMARY KEY (ot_id)
 );
 CREATE TABLE public.payroll_log (
   log_id uuid NOT NULL DEFAULT gen_random_uuid(),
@@ -1066,6 +1101,12 @@ CREATE TABLE public.role_feature (
   CONSTRAINT role_feature_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.role(role_id),
   CONSTRAINT role_feature_feature_id_fkey FOREIGN KEY (feature_id) REFERENCES public.feature(feature_id)
 );
+CREATE TABLE public.role_portal_map (
+  role_id character varying NOT NULL,
+  portal_key text NOT NULL CHECK (portal_key = ANY (ARRAY['employee'::text, 'hr'::text, 'manager'::text, 'admin'::text, 'system-admin'::text, 'applicant'::text])),
+  CONSTRAINT role_portal_map_pkey PRIMARY KEY (role_id, portal_key),
+  CONSTRAINT role_portal_map_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.role(role_id)
+);
 CREATE TABLE public.schedules (
   sched_id character varying NOT NULL DEFAULT (gen_random_uuid())::character varying,
   employee_id character varying NOT NULL,
@@ -1319,4 +1360,17 @@ CREATE TABLE public.user_profile (
   CONSTRAINT user_profile_applicant_id_fkey FOREIGN KEY (applicant_id) REFERENCES public.applicant_profile(applicant_id),
   CONSTRAINT user_profile_department_id_fkey FOREIGN KEY (department_id) REFERENCES public.department(department_id),
   CONSTRAINT user_profile_promotion_tagged_by_fkey FOREIGN KEY (promotion_tagged_by) REFERENCES public.user_profile(user_id)
+);
+CREATE TABLE public.user_role_assignments (
+  assignment_id uuid NOT NULL DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL,
+  role_id character varying NOT NULL,
+  is_primary boolean NOT NULL DEFAULT false,
+  is_active boolean NOT NULL DEFAULT true,
+  assigned_at timestamp with time zone NOT NULL DEFAULT now(),
+  assigned_by uuid,
+  CONSTRAINT user_role_assignments_pkey PRIMARY KEY (assignment_id),
+  CONSTRAINT user_role_assignments_user_id_fkey FOREIGN KEY (user_id) REFERENCES public.user_profile(user_id),
+  CONSTRAINT user_role_assignments_role_id_fkey FOREIGN KEY (role_id) REFERENCES public.role(role_id),
+  CONSTRAINT user_role_assignments_assigned_by_fkey FOREIGN KEY (assigned_by) REFERENCES public.user_profile(user_id)
 );

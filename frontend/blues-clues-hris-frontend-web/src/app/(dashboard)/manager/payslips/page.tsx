@@ -1,5 +1,5 @@
-import { SelfPayslipsPage } from "@/components/payroll/SelfPayslipsPage";
+import { redirect } from "next/navigation";
 
 export default function ManagerPayslipsPage() {
-  return <SelfPayslipsPage personaLabel="Management Self-Service" />;
+  redirect("/employee/payslips");
 }

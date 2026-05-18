@@ -21,6 +21,7 @@ import {
   createSystemAdminOffboardingTemplate,
   deleteSystemAdminOffboardingTemplate,
   getSystemAdminOffboardingTemplates,
+  getSystemAdminSystemAccessOptions,
   updateSystemAdminOffboardingTemplate,
   type OffboardingTemplateCategory,
   type OffboardingTemplateItemInput,
@@ -120,6 +121,7 @@ export default function SystemAdminOffboardingPage() {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [systemAccessOptions, setSystemAccessOptions] = useState<string[]>([]);
   const [form, setForm] = useState<TemplateFormState>(EMPTY_FORM);
 
   useEffect(() => {
@@ -139,6 +141,14 @@ export default function SystemAdminOffboardingPage() {
   useEffect(() => {
     if (!selectedCompanyId) return;
     void loadTemplates(selectedCompanyId);
+  }, [selectedCompanyId]);
+
+  useEffect(() => {
+    if (!selectedCompanyId) {
+      setSystemAccessOptions([]);
+      return;
+    }
+    void loadSystemAccessOptions(selectedCompanyId);
   }, [selectedCompanyId]);
 
   async function loadTemplates(companyId: string) {
@@ -164,6 +174,16 @@ export default function SystemAdminOffboardingPage() {
       setForm(EMPTY_FORM);
     } finally {
       setLoadingTemplates(false);
+    }
+  }
+
+  async function loadSystemAccessOptions(companyId: string) {
+    try {
+      const result = await getSystemAdminSystemAccessOptions(companyId);
+      setSystemAccessOptions(result);
+    } catch (error: any) {
+      toast.error(error?.message || "Failed to load system access options.");
+      setSystemAccessOptions([]);
     }
   }
 
@@ -233,7 +253,10 @@ export default function SystemAdminOffboardingPage() {
   function addSystemAccess() {
     setForm((prev) => ({
       ...prev,
-      system_access_to_revoke: [...prev.system_access_to_revoke, ""],
+      system_access_to_revoke: [
+        ...prev.system_access_to_revoke,
+        systemAccessOptions.find((option) => !prev.system_access_to_revoke.includes(option)) ?? "",
+      ],
     }));
   }
 
@@ -246,6 +269,13 @@ export default function SystemAdminOffboardingPage() {
           : prev.system_access_to_revoke.filter((_, itemIndex) => itemIndex !== index),
     }));
   }
+
+  const availableSystemOptions = useMemo(() => {
+    const selectedOptions = form.system_access_to_revoke
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+    return [...new Set([...systemAccessOptions, ...selectedOptions])].sort((a, b) => a.localeCompare(b));
+  }, [form.system_access_to_revoke, systemAccessOptions]);
 
   function toggleApplicableType(value: ApplicableType, checked: boolean) {
     setForm((prev) => ({
@@ -315,7 +345,7 @@ export default function SystemAdminOffboardingPage() {
 
   async function handleDelete(template: SystemAdminOffboardingTemplate) {
     if (!selectedCompanyId) return;
-    if (!window.confirm(`Delete "${template.template_name}"? This cannot be undone.`)) return;
+    if (!globalThis.confirm(`Delete "${template.template_name}"? This cannot be undone.`)) return;
 
     setDeletingId(template.template_id);
     try {
@@ -409,61 +439,67 @@ export default function SystemAdminOffboardingPage() {
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 Loading templates...
               </div>
-            ) : templates.length === 0 ? (
+            ) : null}
+            {!loadingTemplates && templates.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-8 text-center text-sm text-muted-foreground">
                 No offboarding templates yet.
               </div>
-            ) : (
-              templates.map((template) => (
-                <button
-                  type="button"
-                  key={template.template_id}
-                  onClick={() => chooseTemplate(template)}
-                  className={`w-full rounded-2xl border px-4 py-4 text-left transition-colors ${
-                    selectedTemplateId === template.template_id
-                      ? "border-primary bg-primary/5"
-                      : "border-border hover:border-primary/40 hover:bg-muted/20"
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-base font-semibold text-foreground">{template.template_name}</p>
-                        {template.is_default ? (
-                          <Badge className="border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
-                            Default
-                          </Badge>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                        {template.description || "No description provided."}
-                      </p>
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        {template.offboarding_checklist_template_items.length} checklist item(s) • Created {formatDate(template.created_at)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); chooseTemplate(template); }} title="Edit template">
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button type="button" variant="ghost" size="icon" onClick={(event) => { event.stopPropagation(); duplicateTemplate(template); }} title="Duplicate template">
-                        <Copy className="h-4 w-4" />
-                      </Button>
-                      <Button
+            ) : null}
+            {!loadingTemplates && templates.length > 0 ? (
+              <div className="space-y-3">
+                {templates.map((template) => (
+                  <div
+                    key={template.template_id}
+                    className={`w-full rounded-2xl border px-4 py-4 text-left transition-colors ${
+                      selectedTemplateId === template.template_id
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/40 hover:bg-muted/20"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <button
                         type="button"
-                        variant="ghost"
-                        size="icon"
-                        onClick={(event) => { event.stopPropagation(); void handleDelete(template); }}
-                        disabled={deletingId === template.template_id}
-                        title="Delete template"
+                        onClick={() => chooseTemplate(template)}
+                        className="min-w-0 flex-1 text-left"
                       >
-                        {deletingId === template.template_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-500" />}
-                      </Button>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-base font-semibold text-foreground">{template.template_name}</p>
+                          {template.is_default ? (
+                            <Badge className="border border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-50">
+                              Default
+                            </Badge>
+                          ) : null}
+                        </div>
+                        <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                          {template.description || "No description provided."}
+                        </p>
+                        <p className="mt-2 text-xs text-muted-foreground">
+                          {template.offboarding_checklist_template_items.length} checklist item(s) • Created {formatDate(template.created_at)}
+                        </p>
+                      </button>
+                      <div className="flex items-center gap-1">
+                        <Button type="button" variant="ghost" size="icon" onClick={() => chooseTemplate(template)} title="Edit template">
+                          <Pencil className="h-4 w-4" />
+                        </Button>
+                        <Button type="button" variant="ghost" size="icon" onClick={() => duplicateTemplate(template)} title="Duplicate template">
+                          <Copy className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => void handleDelete(template)}
+                          disabled={deletingId === template.template_id}
+                          title="Delete template"
+                        >
+                          {deletingId === template.template_id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 text-red-500" />}
+                        </Button>
+                      </div>
                     </div>
                   </div>
-                </button>
-              ))
-            )}
+                ))}
+              </div>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -556,7 +592,7 @@ export default function SystemAdminOffboardingPage() {
 
               <div className="space-y-3">
                 {form.items.map((item, index) => (
-                  <div key={`item-${index}`} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+                  <div key={`${item.item_name || "item"}-${item.category || "Task"}-${index}`} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_180px_auto]">
                     <Input
                       value={item.item_name}
                       onChange={(event) => updateItem(index, { item_name: event.target.value })}
@@ -602,13 +638,27 @@ export default function SystemAdminOffboardingPage() {
 
               <div className="space-y-3">
                 {form.system_access_to_revoke.map((item, index) => (
-                  <div key={`access-${index}`} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
-                    <Input
-                      value={item}
-                      onChange={(event) => updateSystemAccess(index, event.target.value)}
-                      placeholder={index === form.system_access_to_revoke.length - 1 ? "e.g., Email, VPN, Database" : "System name"}
-                      className="rounded-2xl"
-                    />
+                  <div key={`${item || "access"}-${index}`} className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                    <Select
+                      value={item || undefined}
+                      onValueChange={(value) => updateSystemAccess(index, value)}
+                    >
+                      <SelectTrigger className="rounded-2xl">
+                        <SelectValue placeholder="Select system access to revoke" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableSystemOptions.map((option) => {
+                          const selectedElsewhere = form.system_access_to_revoke.some(
+                            (selectedItem, selectedIndex) => selectedIndex !== index && selectedItem === option,
+                          );
+                          return (
+                            <SelectItem key={`${option}-${index}`} value={option} disabled={selectedElsewhere}>
+                              {option}
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                     <Button type="button" variant="ghost" size="icon" onClick={() => removeSystemAccess(index)}>
                       <X className="h-4 w-4 text-red-500" />
                     </Button>

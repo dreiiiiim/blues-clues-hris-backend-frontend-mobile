@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, type FormEvent } from "react";
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
 import { useWelcomeToast } from "@/lib/useWelcomeToast";
 import { getUserInfo, getAccessToken, parseJwt } from "@/lib/authStorage";
@@ -17,8 +17,8 @@ import {
 import {
   Search, UserPlus, MoreHorizontal, X,
   ChevronLeft, ChevronRight, Pencil, UserX, UserCheck,
-  Filter, Download, Check, Mail, Eye, Hash, User,
-  Building2, Calendar, Shield, Loader2, Plus, Trash2,
+  Filter, Download, Check, Mail, Eye,
+  Building2, Shield, Loader2, Plus, Trash2,
   AlertTriangle, Clock3, UsersRound, TimerReset,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -73,6 +73,42 @@ function effectiveStatus(e: { account_status: string; invite_expires_at: string 
     if (ms <= 0) return "Expired";
   }
   return e.account_status;
+}
+
+function normalizeInviteFilter(value: string | null): "" | "expired" | "expiring" {
+  return value === "expired" || value === "expiring" ? value : "";
+}
+
+function getCsvScalar(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  if (value instanceof Date) return value.toISOString();
+  return JSON.stringify(value);
+}
+
+function getStatusTone(status: "Active" | "Inactive" | "Pending") {
+  if (status === "Active") {
+    return {
+      selected: "border-green-500 bg-green-600 text-white",
+      idle: "border-green-200 bg-green-50 text-green-700 hover:bg-green-100",
+    };
+  }
+  if (status === "Inactive") {
+    return {
+      selected: "border-red-500 bg-red-600 text-white",
+      idle: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
+    };
+  }
+  return {
+    selected: "border-amber-500 bg-amber-500 text-white",
+    idle: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100",
+  };
+}
+
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return count === 1 ? singular : plural;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -344,8 +380,8 @@ function EditEmployeeModal({
   onSaved: (updated: Employee) => void;
 }>) {
   const [form, setForm] = useState({
-    first_name: employee.first_name,
-    last_name: employee.last_name,
+    first_name: employee.first_name ?? "",
+    last_name: employee.last_name ?? "",
     role_id: employee.role_id ?? "",
     department_id: employee.department_id ?? "",
     start_date: employee.start_date ?? "",
@@ -363,7 +399,7 @@ function EditEmployeeModal({
     return e;
   };
 
-  const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSave = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const errs = validate();
     if (Object.keys(errs).length) { setErrors(errs); return; }
@@ -409,7 +445,7 @@ function EditEmployeeModal({
         <form onSubmit={handleSave} className="px-6 py-5 space-y-4">
           <div className="space-y-1.5">
             <label htmlFor="edit-username" className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Username</label>
-            <Input id="edit-username" value={employee.username} disabled className="opacity-60 cursor-not-allowed h-10" />
+            <Input id="edit-username" value={employee.username ?? ""} disabled className="opacity-60 cursor-not-allowed h-10" />
             <p className="text-[11px] text-muted-foreground">Username cannot be changed after account creation.</p>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -631,11 +667,15 @@ function DeptManageSheet({
                       }`}>
                       <input type="checkbox" checked={checked}
                         onChange={() => {
-                          setPendingAssign(prev => {
-                            const next = new Set(prev);
-                            checked ? next.delete(emp.user_id) : next.add(emp.user_id);
-                            return next;
-                          });
+                            setPendingAssign(prev => {
+                              const next = new Set(prev);
+                              if (checked) {
+                                next.delete(emp.user_id);
+                              } else {
+                                next.add(emp.user_id);
+                              }
+                              return next;
+                            });
                         }}
                         className="h-3.5 w-3.5 accent-primary shrink-0" />
                       <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center text-[10px] font-bold shrink-0">
@@ -664,7 +704,7 @@ function DeptManageSheet({
             <Button className="w-full gap-2" onClick={handleAssign} disabled={loading}>
               {loading
                 ? <Loader2 className="h-4 w-4 animate-spin" />
-                : <><Plus className="h-4 w-4" /> Assign {pendingAssign.size} Employee{pendingAssign.size === 1 ? "" : "s"} to {dept.department_name}</>
+                : <><Plus className="h-4 w-4" /> Assign {pendingAssign.size} {pluralize(pendingAssign.size, "Employee")} to {dept.department_name}</>
               }
             </Button>
           </div>
@@ -711,7 +751,7 @@ function daysUntil(value: string | null): number | null {
 }
 
 function toCsvValue(value: unknown): string {
-  const raw = value == null ? "" : String(value);
+  const raw = getCsvScalar(value);
   return `"${raw.replace(/"/g, '""')}"`;
 }
 
@@ -732,8 +772,7 @@ export default function AdminUsersPage() {
   const [loading, setLoading]             = useState(true);
   const [search, setSearch]               = useState(searchParams.get("q") ?? "");
   const [inviteFilter, setInviteFilter]   = useState<"" | "expired" | "expiring">(() => {
-    const inv = searchParams.get("invite");
-    return (inv === "expired" || inv === "expiring") ? inv : "";
+    return normalizeInviteFilter(searchParams.get("invite"));
   });
 
   // Sync URL params → local state on navigation
@@ -741,8 +780,7 @@ export default function AdminUsersPage() {
     setSearch(searchParams.get("q") ?? "");
     const s = searchParams.get("status");
     if (s) setStatusFilter(new Set([s]));
-    const inv = searchParams.get("invite");
-    setInviteFilter((inv === "expired" || inv === "expiring") ? inv : "");
+    setInviteFilter(normalizeInviteFilter(searchParams.get("invite")));
   }, [searchParams]);
   const [page, setPage]                   = useState(1);
 
@@ -1114,20 +1152,7 @@ export default function AdminUsersPage() {
                 <div className="grid grid-cols-3 gap-2">
                   {(["Active", "Inactive", "Pending"] as const).map(s => {
                     const selected = statusFilter.has(s);
-                    const tone = s === "Active"
-                      ? {
-                          selected: "border-green-500 bg-green-600 text-white",
-                          idle: "border-green-200 bg-green-50 text-green-700 hover:bg-green-100",
-                        }
-                      : s === "Inactive"
-                        ? {
-                            selected: "border-red-500 bg-red-600 text-white",
-                            idle: "border-red-200 bg-red-50 text-red-700 hover:bg-red-100",
-                          }
-                        : {
-                            selected: "border-amber-500 bg-amber-500 text-white",
-                            idle: "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100",
-                          };
+                    const tone = getStatusTone(s);
                     return (
                       <button
                         key={s}
@@ -1264,7 +1289,7 @@ export default function AdminUsersPage() {
               <p className="text-sm font-bold text-amber-950">Invite follow-up</p>
               <p className="mt-1 text-xs text-amber-800">
                 {expiringInvites.length > 0
-                  ? `${expiringInvites.length} pending invite${expiringInvites.length === 1 ? "" : "s"} expiring within 3 days.`
+                  ? `${expiringInvites.length} pending ${pluralize(expiringInvites.length, "invite")} expiring within 3 days.`
                   : "No pending invites need immediate follow-up."}
               </p>
             </div>

@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -1505,7 +1506,7 @@ export class TimekeepingService {
       .eq('log_id', logId)
       .maybeSingle();
 
-    if (targetError) throw new Error(targetError.message);
+    if (targetError) throw new InternalServerErrorException(targetError.message);
     if (!target || target.log_type !== 'absence') {
       throw new NotFoundException('Absence request not found.');
     }
@@ -1517,8 +1518,11 @@ export class TimekeepingService {
       .eq('company_id', companyId)
       .maybeSingle();
 
-    if (ownerError) throw new Error(ownerError.message);
+    if (ownerError) throw new InternalServerErrorException(ownerError.message);
     if (!owner) throw new NotFoundException('Absence request not found in your company.');
+    if (String(owner.user_id ?? '') === reviewerUserId) {
+      throw new ForbiddenException('You cannot review your own absence request.');
+    }
 
     const nextStatus =
       dto.action === AbsenceReviewAction.APPROVE ? 'APPROVED' : 'DENIED';
@@ -1545,7 +1549,7 @@ export class TimekeepingService {
         .maybeSingle(),
     ]);
 
-    if (updateError) throw new Error(updateError.message);
+    if (updateError) throw new InternalServerErrorException(updateError.message);
     if (!updated) throw new NotFoundException('Absence request not found.');
 
     const reviewerName = reviewer

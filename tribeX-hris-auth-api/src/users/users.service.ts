@@ -4,6 +4,7 @@ import {
   ConflictException,
   NotFoundException,
   InternalServerErrorException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -65,6 +66,29 @@ const PERMISSION_COLUMNS = {
 const PERMISSION_KEYS = Object.keys(
   PERMISSION_COLUMNS,
 ) as Array<keyof typeof PERMISSION_COLUMNS>;
+
+const MULTI_PORTAL_ELIGIBLE_ROLE_NAMES = new Set([
+  'hr officer',
+  'hr recruiter',
+  'hr interviewer',
+  'hr compensation and benefits officer',
+  'hr offboarding officer/coordinator',
+  'hr onboarding officer',
+  'hr performance management officer',
+  'manager',
+  'group head',
+  'admin',
+]);
+
+function roleNameToPortal(roleName: string | null | undefined): string {
+  const normalized = String(roleName ?? '').trim().toLowerCase();
+  if (normalized === 'system admin') return 'system-admin';
+  if (normalized === 'admin') return 'admin';
+  if (normalized === 'manager' || normalized === 'group head') return 'manager';
+  if (normalized === 'active employee' || normalized === 'employee') return 'employee';
+  if (normalized === 'applicant') return 'applicant';
+  return 'hr';
+}
 
 const ROLE_DISPLAY_ORDER = [
   'System Admin',
@@ -201,6 +225,103 @@ export class UsersService {
     private readonly notificationsService: NotificationsService,
     private readonly timekeepingService: TimekeepingService,
   ) {}
+
+  private async syncUserPortalAssignments(params: {
+    userId: string;
+    companyId: string;
+    roleId: string;
+    roleName?: string | null;
+    setPrimary?: boolean;
+  }) {
+    const supabase = this.supabaseService.getClient();
+    const roleName = String(params.roleName ?? '').trim();
+    const normalizedRoleName = roleName.toLowerCase();
+    const targetPortal = roleNameToPortal(roleName);
+
+    if (params.setPrimary) {
+      await supabase
+        .from('user_role_assignments')
+        .update({ is_primary: false, is_active: false })
+        .eq('user_id', params.userId);
+    }
+
+    await supabase.from('user_role_assignments').upsert(
+      {
+        user_id: params.userId,
+        role_id: params.roleId,
+        is_primary: !!params.setPrimary,
+        is_active: true,
+      },
+      { onConflict: 'user_id,role_id' },
+    );
+
+    await supabase.from('role_portal_map').upsert(
+      {
+        role_id: params.roleId,
+        portal_key: targetPortal,
+      },
+      { onConflict: 'role_id,portal_key' },
+    );
+
+    await supabase
+      .from('role_portal_map')
+      .delete()
+      .eq('role_id', params.roleId)
+      .neq('portal_key', targetPortal);
+
+    if (normalizedRoleName === 'system admin') {
+      await supabase
+        .from('user_role_assignments')
+        .update({ is_active: false, is_primary: false })
+        .eq('user_id', params.userId)
+        .neq('role_id', params.roleId);
+
+      await supabase
+        .from('user_role_assignments')
+        .update({ is_active: true, is_primary: true })
+        .eq('user_id', params.userId)
+        .eq('role_id', params.roleId);
+      return;
+    }
+
+    if (!MULTI_PORTAL_ELIGIBLE_ROLE_NAMES.has(normalizedRoleName)) {
+      return;
+    }
+
+    const { data: employeeRole } = await supabase
+      .from('role')
+      .select('role_id')
+      .eq('company_id', params.companyId)
+      .in('role_name', ['Active Employee', 'Employee'])
+      .order('role_name', { ascending: true })
+      .maybeSingle();
+
+    if (!employeeRole?.role_id) return;
+
+    await supabase.from('user_role_assignments').upsert(
+      {
+        user_id: params.userId,
+        role_id: String(employeeRole.role_id),
+        is_primary: false,
+        is_active: true,
+      },
+      { onConflict: 'user_id,role_id' },
+    );
+
+    await supabase.from('role_portal_map').upsert(
+      {
+        role_id: String(employeeRole.role_id),
+        portal_key: 'employee',
+      },
+      { onConflict: 'role_id,portal_key' },
+    );
+
+    await supabase
+      .from('role_portal_map')
+      .delete()
+      .eq('role_id', String(employeeRole.role_id))
+      .neq('portal_key', 'employee');
+  }
 
   // All queries filter by company_id. company_id comes from req.user.
 
@@ -369,7 +490,9 @@ export class UsersService {
   private normalizeOptionalString(value: unknown): string | null | undefined {
     if (value === undefined) return undefined;
     if (value === null) return null;
-    if (typeof value !== 'string') return String(value);
+    if (typeof value !== 'string') {
+      throw new BadRequestException('Expected a string value.');
+    }
     const normalized = value.trim();
     return normalized.length > 0 ? normalized : null;
   }
@@ -474,10 +597,10 @@ export class UsersService {
     if (featuresError)
       throw new InternalServerErrorException(featuresError.message);
 
-    const roleGroups = this.mapRoleIdsByRoleName((roles ?? []) as RoleRow[]);
-    const featureIdsByModule = this.mapFeatureIdsByModule(
-      (features ?? []) as FeatureRow[],
-    );
+    const roleRows: RoleRow[] = roles ?? [];
+    const featureRows: FeatureRow[] = features ?? [];
+    const roleGroups = this.mapRoleIdsByRoleName(roleRows);
+    const featureIdsByModule = this.mapFeatureIdsByModule(featureRows);
     const allRoleIds = [...new Set(roleGroups.flatMap((group) => group.role_ids))];
     const allFeatureIds = [
       ...new Set(Object.values(featureIdsByModule).flat()),
@@ -497,7 +620,7 @@ export class UsersService {
         throw new InternalServerErrorException(error.message);
       }
 
-      roleFeatureRows = (data ?? []) as RoleFeatureRow[];
+      roleFeatureRows = data ?? [];
     }
 
     const roleFeatureMap = new Map(
@@ -566,13 +689,11 @@ export class UsersService {
     if (featuresError)
       throw new InternalServerErrorException(featuresError.message);
 
-    const roleGroups = this.mapRoleIdsByRoleName(
-      (roles ?? []) as RoleRow[],
-    );
+    const roleRows: RoleRow[] = roles ?? [];
+    const featureRows: FeatureRow[] = features ?? [];
+    const roleGroups = this.mapRoleIdsByRoleName(roleRows);
     const roleNames = roleGroups.map((role) => role.role_name);
-    const featureIdsByModule = this.mapFeatureIdsByModule(
-      (features ?? []) as FeatureRow[],
-    );
+    const featureIdsByModule = this.mapFeatureIdsByModule(featureRows);
     const normalizedModules = this.normalizeLifecycleModules(modules, roleNames);
 
     const rowsToUpsert: RoleFeatureRow[] = [];
@@ -1152,7 +1273,7 @@ export class UsersService {
       this.getInviteExpiryMap(userIds),
       roleIds.length > 0
         ? this.supabaseService.getClient().from('role').select('role_id, role_name').in('role_id', roleIds).then((result) => result.data ?? [])
-        : Promise.resolve([] as RoleRow[]),
+        : Promise.resolve([]),
     ]);
     const roleNameById = new Map((roles ?? []).map((role) => [role.role_id, role.role_name ?? null]));
 
@@ -1231,7 +1352,7 @@ export class UsersService {
 
     const { data: roleRow, error: roleError } = await supabase
       .from('role')
-      .select('role_id, company_id')
+      .select('role_id, role_name, company_id')
       .eq('role_id', dto.role_id)
       .maybeSingle();
     if (roleError) throw new InternalServerErrorException(roleError.message);
@@ -1270,6 +1391,14 @@ export class UsersService {
     if (insertError) {
       this.throwInsertUserError(insertError);
     }
+
+    await this.syncUserPortalAssignments({
+      userId: user_id,
+      companyId,
+      roleId: dto.role_id,
+      roleName: (roleRow as any).role_name,
+      setPrimary: true,
+    });
 
     try {
       await this.timekeepingService.assignInitialScheduleForEmployee({
@@ -1357,6 +1486,7 @@ export class UsersService {
     const normalizedFirstName = this.normalizeOptionalString(dto.first_name);
     const normalizedLastName = this.normalizeOptionalString(dto.last_name);
     const normalizedRoleId = this.normalizeOptionalString(dto.role_id);
+    let normalizedRoleName: string | null = null;
     const normalizedDepartmentId = this.normalizeOptionalString(
       dto.department_id,
     );
@@ -1384,6 +1514,12 @@ export class UsersService {
         throw new BadRequestException('role_id is required.');
       }
       await this.validateRoleBelongsToCompany(supabase, normalizedRoleId, companyId);
+      const { data: roleRow } = await supabase
+        .from('role')
+        .select('role_name')
+        .eq('role_id', normalizedRoleId)
+        .maybeSingle();
+      normalizedRoleName = (roleRow as any)?.role_name ?? null;
       updates.role_id = normalizedRoleId;
     }
 
@@ -1468,6 +1604,16 @@ export class UsersService {
           }`,
         );
       }
+    }
+
+    if (normalizedRoleId) {
+      await this.syncUserPortalAssignments({
+        userId: id,
+        companyId,
+        roleId: normalizedRoleId,
+        roleName: normalizedRoleName,
+        setPrimary: true,
+      });
     }
 
     const changes = Object.keys(updates)
@@ -2107,7 +2253,7 @@ export class UsersService {
 
     const { data: pendingDoc, error: pendingDocError } = await supabase
       .from('employee_documents')
-      .select('id, status')
+      .select('id, status, user_id')
       .eq('id', docId)
       .maybeSingle();
 
@@ -2116,6 +2262,9 @@ export class UsersService {
     if (pendingDoc) {
       if (pendingDoc.status !== 'pending') {
         throw new BadRequestException('This document has already been reviewed.');
+      }
+      if (String((pendingDoc as any).user_id ?? '') === reviewerId) {
+        throw new ForbiddenException('You cannot review your own document request.');
       }
 
       const { error } = await supabase
@@ -2134,7 +2283,7 @@ export class UsersService {
 
     const { data: replacementRequest, error: replacementError } = await supabase
       .from('document_replacement_requests')
-      .select('id, document_id, new_file_path, new_file_url, status')
+      .select('id, document_id, employee_id, new_file_path, new_file_url, status')
       .eq('id', docId)
       .maybeSingle();
 
@@ -2142,6 +2291,9 @@ export class UsersService {
     if (!replacementRequest) throw new NotFoundException('Document not found.');
     if (replacementRequest.status !== 'pending') {
       throw new BadRequestException('This replacement request has already been reviewed.');
+    }
+    if (String((replacementRequest as any).employee_id ?? '') === reviewerId) {
+      throw new ForbiddenException('You cannot review your own document replacement request.');
     }
 
     const replacementPath = replacementRequest.new_file_path || replacementRequest.new_file_url;
@@ -2196,7 +2348,7 @@ export class UsersService {
 
     const { data: pendingDoc, error: pendingDocError } = await supabase
       .from('employee_documents')
-      .select('id, status')
+      .select('id, status, user_id')
       .eq('id', docId)
       .maybeSingle();
 
@@ -2205,6 +2357,9 @@ export class UsersService {
     if (pendingDoc) {
       if (pendingDoc.status !== 'pending') {
         throw new BadRequestException('This document has already been reviewed.');
+      }
+      if (String((pendingDoc as any).user_id ?? '') === reviewerId) {
+        throw new ForbiddenException('You cannot review your own document request.');
       }
 
       const { error } = await supabase
@@ -2223,7 +2378,7 @@ export class UsersService {
 
     const { data: replacementRequest, error: replacementError } = await supabase
       .from('document_replacement_requests')
-      .select('id, status, document_id')
+      .select('id, status, document_id, employee_id')
       .eq('id', docId)
       .maybeSingle();
 
@@ -2231,6 +2386,9 @@ export class UsersService {
     if (!replacementRequest) throw new NotFoundException('Document not found.');
     if (replacementRequest.status !== 'pending') {
       throw new BadRequestException('This replacement request has already been reviewed.');
+    }
+    if (String((replacementRequest as any).employee_id ?? '') === reviewerId) {
+      throw new ForbiddenException('You cannot review your own document replacement request.');
     }
 
     const { error } = await supabase
@@ -2550,6 +2708,9 @@ export class UsersService {
 
     if (fetchErr || !request) throw new NotFoundException('Change request not found.');
     if (request.status !== 'pending') throw new BadRequestException('This request has already been reviewed.');
+    if (String(request.employee_id ?? '') === reviewerId) {
+      throw new ForbiddenException('You cannot review your own profile change request.');
+    }
 
     // Update request status
     const { data: updated, error: updateErr } = await supabase

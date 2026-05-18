@@ -558,6 +558,16 @@ export async function getSystemAdminOffboardingTemplates(
   return handleResponse<SystemAdminOffboardingTemplate[]>(res);
 }
 
+export async function getSystemAdminSystemAccessOptions(
+  companyId: string,
+): Promise<string[]> {
+  const res = await fetch(
+    `${API_BASE_URL}/offboarding/system-admin/tenants/${companyId}/system-access-options`,
+    { headers: headers() },
+  );
+  return handleResponse<string[]>(res);
+}
+
 export async function getHROffboardingTemplates(): Promise<SystemAdminOffboardingTemplate[]> {
   const res = await fetch(
     `${API_BASE_URL}/offboarding/hr/checklist-templates`,

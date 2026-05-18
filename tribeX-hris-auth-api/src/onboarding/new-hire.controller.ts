@@ -75,7 +75,12 @@ export class NewHireController {
     @Body('role_id') roleId: string,
     @Req() req: any,
   ) {
-    return this.onboardingService.approveOnboardingSubmission(id, roleId, req.user.company_id);
+    return this.onboardingService.approveOnboardingSubmission(
+      id,
+      roleId,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
   }
 
   @Post('submissions/:id/reject')
@@ -87,6 +92,11 @@ export class NewHireController {
     @Body('hr_notes') hrNotes: string,
     @Req() req: any,
   ) {
-    return this.onboardingService.rejectOnboardingSubmission(id, hrNotes, req.user.company_id);
+    return this.onboardingService.rejectOnboardingSubmission(
+      id,
+      hrNotes,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
   }
 }

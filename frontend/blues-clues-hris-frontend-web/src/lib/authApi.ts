@@ -9,6 +9,21 @@ import {
 
 let refreshPromise: Promise<any> | null = null;
 
+export type RoleSwitchOption = {
+  role_id: string;
+  role_name: string;
+  portal_key: string;
+};
+
+export type LoginResponse = {
+  access_token: string;
+  active_role?: string;
+  active_portal?: string;
+  available_portals?: string[];
+  role_switch_options?: RoleSwitchOption[];
+  requires_portal_selection?: boolean;
+};
+
 export async function loginApi(body: {
   identifier: string;
   password: string;
@@ -34,7 +49,22 @@ export async function loginApi(body: {
 
   if (!res.ok) throw new Error(data?.message || "Login failed");
 
-  return data as { access_token: string };
+  return data as LoginResponse;
+}
+
+export async function switchRoleApi(body: { role_id: string }) {
+  const res = await authFetch(`${API_BASE_URL}/switch-role`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as any)?.message || "Role switch failed");
+  if (!(data as any)?.access_token) throw new Error("Missing access_token");
+
+  writeAccessToken((data as any).access_token);
+  return data as LoginResponse;
 }
 
 export async function applicantRegisterApi(

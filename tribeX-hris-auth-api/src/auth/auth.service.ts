@@ -26,7 +26,50 @@ type RoleAssignment = {
   role_id: string;
   role_name: string;
   is_primary: boolean;
+  portal_key: string;
 };
+
+type AssignedRoleSummary = {
+  activeRoleId: string;
+  activeRoleName: string;
+  activePortal: string;
+  roleNames: string[];
+  roleIds: string[];
+  availablePortals: string[];
+  switchOptions: Array<{ role_id: string; role_name: string; portal_key: string }>;
+};
+
+const EMPLOYEE_PORTAL_ELIGIBLE_ROLES = new Set([
+  'hr officer',
+  'hr recruiter',
+  'hr interviewer',
+  'hr compensation and benefits officer',
+  'hr offboarding officer/coordinator',
+  'hr onboarding officer',
+  'hr performance management officer',
+  'manager',
+  'group head',
+  'admin',
+]);
+
+function normalizePortalKey(value: string | null | undefined): string {
+  const cleaned = String(value ?? '').trim().toLowerCase();
+  return cleaned || 'employee';
+}
+
+function roleNameToPortal(roleName: string | null | undefined): string {
+  const normalized = String(roleName ?? '').trim().toLowerCase();
+  if (normalized === 'system admin') return 'system-admin';
+  if (normalized === 'admin') return 'admin';
+  if (normalized === 'manager' || normalized === 'group head') return 'manager';
+  if (normalized === 'active employee' || normalized === 'employee') return 'employee';
+  if (normalized === 'applicant') return 'applicant';
+  return 'hr';
+}
+
+function normalizeRoleName(roleName: string | null | undefined): string {
+  return String(roleName ?? '').trim().toLowerCase();
+}
 
 function sha256(input: string) {
   return crypto.createHash('sha256').update(input).digest('hex');
@@ -83,40 +126,263 @@ export class AuthService {
 
   private async getAssignedRoles(
     user: Pick<UserRow, 'role_id'>,
-  ): Promise<{
-    activeRoleId: string;
-    activeRoleName: string;
-    roleNames: string[];
-    roleIds: string[];
-  }> {
+    options?: { userId?: string; companyId?: string; requestedRoleId?: string | null },
+  ): Promise<AssignedRoleSummary> {
     const supabase = this.supabaseService.getClient();
-    const activeRoleId = String(user.role_id ?? '').trim();
-    if (!activeRoleId) {
+    const userId = String(options?.userId ?? '').trim();
+    const companyId = String(options?.companyId ?? '').trim();
+
+    if (userId && companyId) {
+      await this.ensureEmployeeRoleAssignment(userId, companyId);
+    }
+
+    const requestedRoleId = String(options?.requestedRoleId ?? '').trim() || null;
+    const fallbackRoleId = String(user.role_id ?? '').trim();
+    const targetRoleId = requestedRoleId ?? fallbackRoleId;
+    if (!targetRoleId) {
       throw new UnauthorizedException('Role not found');
     }
 
-    const { data: roleRow, error: roleError } = await supabase
-      .from('role')
-      .select('role_id, role_name')
-      .eq('role_id', activeRoleId)
-      .maybeSingle();
+    let assignments: RoleAssignment[] = [];
 
-    if (roleError || !roleRow?.role_id || !roleRow?.role_name) {
+    if (userId) {
+      const { data: assignmentRows, error: assignmentsError } = await supabase
+        .from('user_role_assignments')
+        .select('role_id, is_primary')
+        .eq('user_id', userId)
+        .eq('is_active', true);
+
+      if (assignmentsError) {
+        throw new UnauthorizedException('Role lookup failed');
+      }
+
+      const roleIds = [...new Set((assignmentRows ?? []).map((row: any) => String(row.role_id ?? '').trim()).filter(Boolean))];
+      if (roleIds.length) {
+        const { data: roleRows } = await supabase
+          .from('role')
+          .select('role_id, role_name')
+          .in('role_id', roleIds);
+
+        const roleNameById = new Map<string, string>(
+          (roleRows ?? []).map((role: any) => [String(role.role_id), String(role.role_name ?? '').trim()]),
+        );
+
+        assignments = (assignmentRows ?? [])
+          .map((row: any) => {
+            const roleId = String(row.role_id ?? '').trim();
+            const roleName = roleNameById.get(roleId) ?? '';
+            if (!roleId || !roleName) return null;
+            return {
+              role_id: roleId,
+              role_name: roleName,
+              is_primary: !!row.is_primary,
+              portal_key: roleNameToPortal(roleName),
+            };
+          })
+          .filter(Boolean) as RoleAssignment[];
+      }
+    }
+
+    if (!assignments.length) {
+      const { data: roleRow, error: roleError } = await supabase
+        .from('role')
+        .select('role_id, role_name')
+        .eq('role_id', targetRoleId)
+        .maybeSingle();
+
+      if (roleError || !roleRow?.role_id || !roleRow?.role_name) {
+        throw new UnauthorizedException('Role not found');
+      }
+
+      assignments = [
+        {
+          role_id: String(roleRow.role_id),
+          role_name: String(roleRow.role_name).trim(),
+          is_primary: true,
+          portal_key: roleNameToPortal(roleRow.role_name),
+        },
+      ];
+
+      if (userId) {
+        await supabase.from('user_role_assignments').upsert(
+          {
+            user_id: userId,
+            role_id: String(roleRow.role_id),
+            is_primary: true,
+            is_active: true,
+          },
+          { onConflict: 'user_id,role_id' },
+        );
+        await supabase
+          .from('role_portal_map')
+          .upsert(
+            {
+              role_id: String(roleRow.role_id),
+              portal_key: roleNameToPortal(roleRow.role_name),
+            },
+            { onConflict: 'role_id,portal_key' },
+          );
+      }
+    }
+
+    assignments = await this.enforceSystemAdminSinglePortal(userId, assignments);
+
+    const explicitActive = assignments.find((role) => role.role_id === targetRoleId);
+    if (requestedRoleId && !explicitActive) {
+      throw new UnauthorizedException('Role not assigned to this account');
+    }
+
+    const active = explicitActive ?? assignments.find((role) => role.is_primary) ?? assignments[0];
+
+    if (!active) {
       throw new UnauthorizedException('Role not found');
     }
 
-    const active: RoleAssignment = {
-      role_id: String(roleRow.role_id),
-      role_name: String(roleRow.role_name).trim(),
-      is_primary: true,
-    };
+    const roleNames = [...new Set(assignments.map((role) => role.role_name))];
+    const roleIds = [...new Set(assignments.map((role) => role.role_id))];
+    const availablePortals = [...new Set(assignments.map((role) => role.portal_key))];
 
     return {
       activeRoleId: active.role_id,
       activeRoleName: active.role_name,
-      roleNames: [active.role_name],
-      roleIds: [active.role_id],
+      activePortal: active.portal_key,
+      roleNames,
+      roleIds,
+      availablePortals,
+      switchOptions: assignments.map((role) => ({
+        role_id: role.role_id,
+        role_name: role.role_name,
+        portal_key: role.portal_key,
+      })),
     };
+  }
+
+  private async enforceSystemAdminSinglePortal(
+    userId: string,
+    assignments: RoleAssignment[],
+  ): Promise<RoleAssignment[]> {
+    const systemAdminAssignments = assignments.filter(
+      (role) => normalizeRoleName(role.role_name) === 'system admin',
+    );
+    if (systemAdminAssignments.length === 0) {
+      return assignments;
+    }
+
+    const keptAssignment = systemAdminAssignments.find((role) => role.is_primary)
+      ?? systemAdminAssignments[0];
+    if (!keptAssignment) {
+      return assignments;
+    }
+
+    if (userId && assignments.length > 1) {
+      const supabase = this.supabaseService.getClient();
+      const staleRoleIds = assignments
+        .filter((role) => role.role_id !== keptAssignment.role_id)
+        .map((role) => role.role_id);
+
+      if (staleRoleIds.length > 0) {
+        await supabase
+          .from('user_role_assignments')
+          .update({ is_active: false, is_primary: false })
+          .eq('user_id', userId)
+          .in('role_id', staleRoleIds);
+      }
+
+      await supabase
+        .from('user_role_assignments')
+        .update({ is_active: true, is_primary: true })
+        .eq('user_id', userId)
+        .eq('role_id', keptAssignment.role_id);
+    }
+
+    return [
+      {
+        ...keptAssignment,
+        is_primary: true,
+        portal_key: 'system-admin',
+      },
+    ];
+  }
+
+  private async ensureEmployeeRoleAssignment(userId: string, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: activeRoles, error: activeRolesError } = await supabase
+      .from('user_role_assignments')
+      .select('role_id')
+      .eq('user_id', userId)
+      .eq('is_active', true);
+
+    if (activeRolesError) return;
+
+    const roleIds = [...new Set((activeRoles ?? []).map((entry: any) => String(entry.role_id ?? '').trim()).filter(Boolean))];
+    if (!roleIds.length) {
+      const { data: userRow } = await supabase
+        .from('user_profile')
+        .select('role_id')
+        .eq('user_id', userId)
+        .maybeSingle();
+      const fallbackRoleId = String((userRow as any)?.role_id ?? '').trim();
+      if (!fallbackRoleId) return;
+
+      await supabase.from('user_role_assignments').upsert(
+        {
+          user_id: userId,
+          role_id: fallbackRoleId,
+          is_primary: true,
+          is_active: true,
+        },
+        { onConflict: 'user_id,role_id' },
+      );
+      roleIds.push(fallbackRoleId);
+    }
+
+    const { data: roleRows, error: roleRowsError } = await supabase
+      .from('role')
+      .select('role_name')
+      .in('role_id', roleIds);
+
+    if (roleRowsError) return;
+
+    const roleNames = (roleRows ?? [])
+      .map((entry: any) => normalizeRoleName(entry.role_name))
+      .filter(Boolean);
+
+    if (!roleNames.length) return;
+    if (roleNames.includes('system admin')) {
+      return;
+    }
+    if (roleNames.some((roleName) => roleName === 'active employee' || roleName === 'employee')) {
+      return;
+    }
+
+    if (!roleNames.some((roleName) => EMPLOYEE_PORTAL_ELIGIBLE_ROLES.has(roleName))) {
+      return;
+    }
+
+    const { data: employeeRole } = await supabase
+      .from('role')
+      .select('role_id')
+      .eq('company_id', companyId)
+      .in('role_name', ['Active Employee', 'Employee'])
+      .order('role_name', { ascending: true })
+      .maybeSingle();
+
+    if (!employeeRole?.role_id) return;
+
+    await supabase.from('user_role_assignments').upsert(
+      {
+        user_id: userId,
+        role_id: String(employeeRole.role_id),
+        is_active: true,
+        is_primary: false,
+      },
+      { onConflict: 'user_id,role_id' },
+    );
+
+    await supabase
+      .from('role_portal_map')
+      .upsert({ role_id: String(employeeRole.role_id), portal_key: 'employee' }, { onConflict: 'role_id,portal_key' });
   }
 
   private buildAccessPayload(input: {
@@ -124,6 +390,10 @@ export class AuthService {
     activeRoleId: string;
     activeRoleName: string;
     roleNames: string[];
+    roleIds: string[];
+    availablePortals: string[];
+    activePortal: string;
+    switchOptions: Array<{ role_id: string; role_name: string; portal_key: string }>;
     companyName: string;
   }) {
     return {
@@ -133,6 +403,10 @@ export class AuthService {
       role_id: input.activeRoleId,
       role_name: input.activeRoleName,
       roles: input.roleNames,
+      role_ids: input.roleIds,
+      available_portals: input.availablePortals,
+      active_portal: input.activePortal,
+      role_switch_options: input.switchOptions,
       company_name: input.companyName,
       first_name: input.user.first_name,
       last_name: input.user.last_name,
@@ -333,7 +607,10 @@ export class AuthService {
 
     if (companyError || !companydb) throw new UnauthorizedException('Company not found');
 
-    const assignedRoles = await this.getAssignedRoles(user);
+    const assignedRoles = await this.getAssignedRoles(user, {
+      userId: user.user_id,
+      companyId: user.company_id,
+    });
 
     const login_id = crypto.randomUUID();
     const session_id = crypto.randomUUID();
@@ -343,6 +620,10 @@ export class AuthService {
       activeRoleId: assignedRoles.activeRoleId,
       activeRoleName: assignedRoles.activeRoleName,
       roleNames: assignedRoles.roleNames,
+      roleIds: assignedRoles.roleIds,
+      availablePortals: assignedRoles.availablePortals,
+      activePortal: assignedRoles.activePortal,
+      switchOptions: assignedRoles.switchOptions,
       companyName: companydb.company_name,
     });
 
@@ -358,7 +639,11 @@ export class AuthService {
           type: 'refresh',
           sub_userid: user.user_id,
           role_id: assignedRoles.activeRoleId,
+          role_ids: assignedRoles.roleIds,
           roles: assignedRoles.roleNames,
+          available_portals: assignedRoles.availablePortals,
+          active_portal: assignedRoles.activePortal,
+          role_switch_options: assignedRoles.switchOptions,
           login_id,
           session_id,
         },
@@ -393,6 +678,10 @@ export class AuthService {
       refresh_max_age_ms: refreshMaxAgeMs,
       roles: assignedRoles.roleNames,
       active_role: assignedRoles.activeRoleName,
+      active_portal: assignedRoles.activePortal,
+      available_portals: assignedRoles.availablePortals,
+      role_switch_options: assignedRoles.switchOptions,
+      requires_portal_selection: assignedRoles.availablePortals.length > 1,
     };
   }
 
@@ -503,13 +792,21 @@ export class AuthService {
       throw new UnauthorizedException('Company not found');
 
     // ✅ first_name and last_name included in refresh too
-    const assignedRoles = await this.getAssignedRoles(user);
+    const assignedRoles = await this.getAssignedRoles(user, {
+      userId: user.user_id,
+      companyId: user.company_id,
+      requestedRoleId: decoded.role_id,
+    });
 
     const accessPayload = this.buildAccessPayload({
       user,
       activeRoleId: assignedRoles.activeRoleId,
       activeRoleName: assignedRoles.activeRoleName,
       roleNames: assignedRoles.roleNames,
+      roleIds: assignedRoles.roleIds,
+      availablePortals: assignedRoles.availablePortals,
+      activePortal: assignedRoles.activePortal,
+      switchOptions: assignedRoles.switchOptions,
       companyName: companydb.company_name,
     });
 
@@ -528,7 +825,11 @@ export class AuthService {
         type: 'refresh',
         sub_userid: user.user_id,
         role_id: assignedRoles.activeRoleId,
+        role_ids: assignedRoles.roleIds,
         roles: assignedRoles.roleNames,
+        available_portals: assignedRoles.availablePortals,
+        active_portal: assignedRoles.activePortal,
+        role_switch_options: assignedRoles.switchOptions,
         login_id: decoded.login_id ?? crypto.randomUUID(),
         session_id: decoded.session_id ?? crypto.randomUUID(),
       },
@@ -577,7 +878,7 @@ export class AuthService {
       const { data: user, error } = await supabase
         .from('user_profile')
         .select(
-          'user_id, email, username, employee_id, company_id, role_id, account_status',
+          'user_id, email, username, employee_id, company_id, role_id, first_name, last_name, account_status',
         )
         .eq('user_id', userId)
         .maybeSingle<UserRow>();
@@ -586,26 +887,32 @@ export class AuthService {
       if (user.account_status === 'Inactive')
         throw new UnauthorizedException('Account deactivated');
 
+      const assignedRoles = await this.getAssignedRoles(user, {
+        userId: user.user_id,
+        companyId: user.company_id,
+        requestedRoleId: typeof decoded.role_id === 'string' ? decoded.role_id : null,
+      });
+
       return {
         user_id: user.user_id,
         email: user.email,
         username: user.username,
         employee_id: user.employee_id,
         company_id: user.company_id,
-        role_id: decoded.role_id ?? user.role_id,
-        role_name: decoded.role_name,
-        roles: Array.isArray(decoded.roles)
-          ? decoded.roles
-          : decoded.role_name
-            ? [decoded.role_name]
-            : [],
+        role_id: assignedRoles.activeRoleId,
+        role_name: assignedRoles.activeRoleName,
+        role_ids: assignedRoles.roleIds,
+        active_portal: assignedRoles.activePortal,
+        available_portals: assignedRoles.availablePortals,
+        role_switch_options: assignedRoles.switchOptions,
+        roles: assignedRoles.roleNames,
       };
     } catch {
       throw new UnauthorizedException('Invalid token');
     }
   }
 
-  async switchRole(userId: string, companyId: string) {
+  async switchRole(userId: string, companyId: string, requestedRoleId?: string) {
     const supabase = this.supabaseService.getClient();
     const { data: user, error } = await supabase
       .from('user_profile')
@@ -629,12 +936,20 @@ export class AuthService {
       throw new UnauthorizedException('Company not found');
     }
 
-    const assignedRoles = await this.getAssignedRoles(user);
+    const assignedRoles = await this.getAssignedRoles(user, {
+      userId: user.user_id,
+      companyId: user.company_id,
+      requestedRoleId,
+    });
     const accessPayload = this.buildAccessPayload({
       user,
       activeRoleId: assignedRoles.activeRoleId,
       activeRoleName: assignedRoles.activeRoleName,
       roleNames: assignedRoles.roleNames,
+      roleIds: assignedRoles.roleIds,
+      availablePortals: assignedRoles.availablePortals,
+      activePortal: assignedRoles.activePortal,
+      switchOptions: assignedRoles.switchOptions,
       companyName: companydb.company_name,
     });
 
@@ -644,6 +959,10 @@ export class AuthService {
       }),
       roles: assignedRoles.roleNames,
       active_role: assignedRoles.activeRoleName,
+      active_portal: assignedRoles.activePortal,
+      available_portals: assignedRoles.availablePortals,
+      role_switch_options: assignedRoles.switchOptions,
+      requires_portal_selection: assignedRoles.availablePortals.length > 1,
     };
   }
 

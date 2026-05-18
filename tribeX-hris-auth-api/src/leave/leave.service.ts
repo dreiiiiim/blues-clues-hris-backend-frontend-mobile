@@ -3,6 +3,7 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  InternalServerErrorException,
   Logger,
 } from '@nestjs/common';
 import * as crypto from 'node:crypto';
@@ -54,7 +55,7 @@ export class LeaveService {
         const total = row ? Number(row.allocated_days) : defaultTotal;
         const used = row ? Number(row.used_days) : 0;
         return {
-          type: type.replace(' Leave', '') as string,
+          type: type.replace(' Leave', ''),
           remaining: Math.max(0, total - used),
           total,
         };
@@ -78,7 +79,7 @@ export class LeaveService {
     const start = new Date(dto.start_date);
     const end = new Date(dto.end_date);
 
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
       throw new BadRequestException('Invalid date format. Use YYYY-MM-DD.');
     }
     if (end < start) {
@@ -219,10 +220,13 @@ export class LeaveService {
       .eq('company_id', companyId)
       .maybeSingle();
 
-    if (fetchErr) throw new Error(fetchErr.message);
+    if (fetchErr) throw new InternalServerErrorException(fetchErr.message);
     if (!request) throw new NotFoundException('Leave request not found.');
     if (request.status !== 'Pending') {
       throw new BadRequestException('This request has already been reviewed.');
+    }
+    if (String(request.user_id ?? '') === reviewerId) {
+      throw new ForbiddenException('You cannot review your own leave request.');
     }
 
     const { data: updated, error: updateErr } = await supabase
@@ -238,7 +242,7 @@ export class LeaveService {
       .select()
       .single();
 
-    if (updateErr) throw new Error(updateErr.message);
+    if (updateErr) throw new InternalServerErrorException(updateErr.message);
 
     // If approved, deduct from balance
     if (dto.status === 'Approved') {

@@ -1,5 +1,5 @@
-import { SelfPayslipsPage } from "@/components/payroll/SelfPayslipsPage";
+import { redirect } from "next/navigation";
 
 export default function HrPayslipsPage() {
-  return <SelfPayslipsPage personaLabel="HR Self-Service" />;
+  redirect("/employee/payslips");
 }

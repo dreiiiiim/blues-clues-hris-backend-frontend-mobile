@@ -32,6 +32,11 @@ export function buildVacatedPositionTitle(input: {
 @Injectable()
 export class OffboardingService {
   private readonly logger = new Logger(OffboardingService.name);
+  private readonly defaultSystemAccessOptions = [
+    'Email',
+    'HRIS System',
+    'Timekeeping System',
+  ] as const;
 
   constructor(
     private readonly supabaseService: SupabaseService,
@@ -59,24 +64,88 @@ export class OffboardingService {
     return result;
   }
 
+  private parsePayslipMetadata(value: unknown): Record<string, unknown> | null {
+    if (typeof value !== 'string' || !value.trim()) return null;
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? (parsed as Record<string, unknown>)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private isSettlementPayslipForCase(
+    row: Record<string, unknown>,
+    caseId: string,
+  ): boolean {
+    const metadata = this.parsePayslipMetadata(row.other_deductions);
+    return metadata?.settlement_case_id === caseId;
+  }
+
+  private isOffboardingSettlementPayslip(row: Record<string, unknown>): boolean {
+    const metadata = this.parsePayslipMetadata(row.other_deductions);
+    return metadata?.settlement_type === 'offboarding_final_pay';
+  }
+
+  private async findSettlementPayslips(companyId: string, caseId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('cnb_payslips')
+      .select('payslip_id, other_deductions')
+      .eq('company_id', companyId)
+      .order('created_at', { ascending: false })
+      .limit(25);
+
+    if (error) {
+      DatabaseErrorHandler.handle(error, 'findSettlementPayslips', this.logger);
+    }
+
+    return (data ?? []).filter((row) =>
+      this.isSettlementPayslipForCase(row as Record<string, unknown>, caseId),
+    );
+  }
+
+  private async updateSettlementPayslipStatus(
+    companyId: string,
+    caseId: string,
+    status: 'Final Pay' | 'Transfer Confirmed',
+  ) {
+    const supabase = this.supabaseService.getClient();
+    const payslips = await this.findSettlementPayslips(companyId, caseId);
+    const payslipIds = payslips.map((row) => String(row.payslip_id ?? '')).filter(Boolean);
+    if (payslipIds.length === 0) return;
+
+    const { error } = await supabase
+      .from('cnb_payslips')
+      .update({ status })
+      .in('payslip_id', payslipIds);
+
+    if (error) {
+      DatabaseErrorHandler.handle(error, 'updateSettlementPayslipStatus', this.logger);
+    }
+  }
+
   private async getFinalSettlementPayslip(caseId: string, companyId: string) {
     const supabase = this.supabaseService.getClient();
     const { data, error } = await supabase
       .from('cnb_payslips')
       .select(
-        'payslip_id, basic_pay_earned, total_allowances, gross_pay, tax_deduction, statutory_deductions, total_deductions, net_pay, status, employee_ack_status, created_at, period:period_id(period_id, cutoff_start_date, cutoff_end_date, payout_date, status)',
+        'payslip_id, basic_pay_earned, total_allowances, gross_pay, tax_deduction, statutory_deductions, total_deductions, net_pay, status, employee_ack_status, created_at, other_deductions, period:period_id(period_id, cutoff_start_date, cutoff_end_date, payout_date, status)',
       )
       .eq('company_id', companyId)
-      .ilike('other_deductions', `%\"settlement_case_id\":\"${caseId}\"%`)
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(25);
 
     if (error) {
       DatabaseErrorHandler.handle(error, 'getFinalSettlementPayslip', this.logger);
     }
-    if (!data) return null;
-    return this.decryptPayslipFields(data);
+    const settlementPayslip = (data ?? []).find((row) =>
+      this.isSettlementPayslipForCase(row as Record<string, unknown>, caseId),
+    );
+    if (!settlementPayslip) return null;
+    return this.decryptPayslipFields(settlementPayslip);
   }
 
   private async ensureFinalSettlementPeriod(
@@ -151,15 +220,19 @@ export class OffboardingService {
 
     const enc = (n: number) => this.encryption.encryptNumber(this.roundCurrency(n));
 
-    const otherDeductions = JSON.stringify({
+    const otherDeductionDetails = {
       settlement_case_id: input.caseId,
       settlement_type: 'offboarding_final_pay',
       leave_encashment: this.roundCurrency(input.finalPay.leave_encashment),
       additional_pay: this.roundCurrency(input.finalPay.additional_pay),
       tax_deduction: this.roundCurrency(input.finalPay.tax_deduction),
       statutory_deductions: this.roundCurrency(input.finalPay.statutory_deductions),
-      ...(input.breakdown ?? {}),
-    });
+    };
+    const otherDeductions = JSON.stringify(
+      input.breakdown
+        ? { ...otherDeductionDetails, ...input.breakdown }
+        : otherDeductionDetails,
+    );
 
     const grossPay =
       input.finalPay.salary_balance +
@@ -221,22 +294,23 @@ export class OffboardingService {
     lastWorkingDay?: string | null,
   ) {
     const supabase = this.supabaseService.getClient();
-    let query = supabase
+    const { data, error } = await supabase
       .from('cnb_payslips')
       .select(
-        'payslip_id, net_pay, gross_pay, total_deductions, created_at, status, period:period_id(period_id, cutoff_start_date, cutoff_end_date, payout_date)',
+        'payslip_id, net_pay, gross_pay, total_deductions, created_at, status, other_deductions, period:period_id(period_id, cutoff_start_date, cutoff_end_date, payout_date)',
       )
       .eq('user_id', employeeId)
       .eq('company_id', companyId)
-      .not('other_deductions', 'ilike', '%"settlement_type":"offboarding_final_pay"%')
-      .order('created_at', { ascending: false });
-
-    const { data, error } = await query.limit(1).maybeSingle();
+      .order('created_at', { ascending: false })
+      .limit(25);
     if (error) {
       DatabaseErrorHandler.handle(error, 'getLinkedPayrollReference', this.logger);
     }
-    if (!data) return null;
-    return this.decryptPayslipFields(data);
+    const linkedPayroll = data?.find(
+      (row) => !this.isOffboardingSettlementPayslip(row as Record<string, unknown>),
+    );
+    if (!linkedPayroll) return null;
+    return this.decryptPayslipFields(linkedPayroll);
   }
 
   private async recomputeFinalPayFromCompensation(caseId: string) {
@@ -398,10 +472,12 @@ export class OffboardingService {
   async configureChecklistTemplate(dto: ConfigureChecklistTemplateDto, companyId: string, hrUserId: string) {
     const supabase = this.supabaseService.getClient();
     const templateId = crypto.randomUUID();
-    const applicableTypes = (dto.applicable_offboarding_types ?? []).filter(Boolean);
-    const systemAccessToRevoke = (dto.system_access_to_revoke ?? [])
-      .map((value) => String(value).trim())
-      .filter((value) => value.length > 0);
+    const applicableTypes = [...new Set((dto.applicable_offboarding_types ?? []).filter(Boolean))];
+    const systemAccessToRevoke = [...new Set(
+      (dto.system_access_to_revoke ?? [])
+        .map((value) => String(value).trim())
+        .filter((value) => value.length > 0),
+    )];
 
     const { data: template, error: tErr } = await supabase
       .from('offboarding_checklist_templates')
@@ -455,6 +531,74 @@ export class OffboardingService {
     return data ?? [];
   }
 
+  async getSystemAccessOptions(companyId: string): Promise<string[]> {
+    const supabase = this.supabaseService.getClient();
+    const options = new Set<string>(this.defaultSystemAccessOptions);
+
+    const { data: templates, error: templateError } = await supabase
+      .from('offboarding_checklist_templates')
+      .select('system_access_to_revoke')
+      .eq('company_id', companyId);
+    if (templateError) {
+      DatabaseErrorHandler.handle(templateError, 'getSystemAccessOptions.templates', this.logger);
+    }
+
+    for (const template of templates ?? []) {
+      const configuredSystems = Array.isArray((template as any)?.system_access_to_revoke)
+        ? ((template as any).system_access_to_revoke as unknown[])
+        : [];
+      for (const value of configuredSystems) {
+        const normalized = String(value ?? '').trim();
+        if (normalized) options.add(normalized);
+      }
+    }
+
+    const { data: companyEmployees, error: employeeError } = await supabase
+      .from('user_profile')
+      .select('user_id')
+      .eq('company_id', companyId);
+    if (employeeError) {
+      DatabaseErrorHandler.handle(employeeError, 'getSystemAccessOptions.companyEmployees', this.logger);
+    }
+
+    const employeeIds = (companyEmployees ?? [])
+      .map((row: any) => String(row.user_id ?? '').trim())
+      .filter(Boolean);
+
+    if (employeeIds.length > 0) {
+      const { data: companyCases, error: caseError } = await supabase
+        .from('offboarding_cases')
+        .select('case_id')
+        .in('employee_id', employeeIds);
+      if (caseError) {
+        DatabaseErrorHandler.handle(caseError, 'getSystemAccessOptions.cases', this.logger);
+      }
+
+      const caseIds = (companyCases ?? [])
+        .map((row: any) => String(row.case_id ?? '').trim())
+        .filter(Boolean);
+
+      if (caseIds.length === 0) {
+        return [...options].sort((a, b) => a.localeCompare(b));
+      }
+
+      const { data: systemRows, error: systemError } = await supabase
+        .from('system_access')
+        .select('system_name')
+        .in('case_id', caseIds);
+      if (systemError) {
+        DatabaseErrorHandler.handle(systemError, 'getSystemAccessOptions.system_access', this.logger);
+      }
+
+      for (const row of systemRows ?? []) {
+        const normalized = String((row as any)?.system_name ?? '').trim();
+        if (normalized) options.add(normalized);
+      }
+    }
+
+    return [...options].sort((a, b) => a.localeCompare(b));
+  }
+
   async updateChecklistTemplate(
     templateId: string,
     dto: ConfigureChecklistTemplateDto,
@@ -479,12 +623,14 @@ export class OffboardingService {
         template_name: dto.template_name,
         employee_type: dto.employee_type ?? null,
         description: dto.description ?? null,
-        applicable_offboarding_types: (dto.applicable_offboarding_types ?? []).filter(Boolean),
+        applicable_offboarding_types: [...new Set((dto.applicable_offboarding_types ?? []).filter(Boolean))],
         is_default: dto.is_default ?? false,
         require_knowledge_transfer: dto.require_knowledge_transfer ?? true,
-        system_access_to_revoke: (dto.system_access_to_revoke ?? [])
-          .map((value) => String(value).trim())
-          .filter((value) => value.length > 0),
+        system_access_to_revoke: [...new Set(
+          (dto.system_access_to_revoke ?? [])
+            .map((value) => String(value).trim())
+            .filter((value) => value.length > 0),
+        )],
       })
       .eq('template_id', templateId)
       .eq('company_id', companyId)
@@ -609,8 +755,12 @@ export class OffboardingService {
       supabase
         .from('cnb_payslips')
         .delete()
-        .eq('company_id', companyId)
-        .ilike('other_deductions', `%"settlement_case_id":"${caseId}"%`),
+        .in(
+          'payslip_id',
+          (await this.findSettlementPayslips(companyId, caseId))
+            .map((row) => String(row.payslip_id ?? ''))
+            .filter(Boolean),
+        ),
     ]);
 
     const { error: deleteCaseError } = await supabase
@@ -850,6 +1000,9 @@ export class OffboardingService {
     const { data: c } = await supabase
       .from('offboarding_cases').select('*').eq('case_id', caseId).maybeSingle();
     if (!c) throw new NotFoundException('Case not found.');
+    if (String((c as any).employee_id ?? '') === hrUserId) {
+      throw new ForbiddenException('You cannot review your own resignation request.');
+    }
     if ((c as any).status !== 'Submitted' && (c as any).status !== 'Manager_Acknowledged') {
       throw new BadRequestException('Case must be in Submitted or Manager_Acknowledged status to accept/reject.');
     }
@@ -915,8 +1068,10 @@ export class OffboardingService {
       });
     }
 
+    const auditAction = `OFFBOARDING_CASE_${action.toUpperCase()}: case ${caseId}`;
+    const auditReason = action === 'Rejected' ? ` reason: ${rejectionReason}` : '';
     this.auditService.log(
-      `OFFBOARDING_CASE_${action.toUpperCase()}: case ${caseId}${action === 'Rejected' ? ` reason: ${rejectionReason}` : ''}`,
+      `${auditAction}${auditReason}`,
       hrUserId, companyId, (c as any).employee_id,
     ).catch(err => this.logger.error('Audit failed in acceptRejectCase', err));
 
@@ -944,7 +1099,7 @@ export class OffboardingService {
     const normalize = (value: unknown) => String(value ?? '').trim().toLowerCase();
     const parseTokens = (value: unknown) =>
       String(value ?? '')
-        .split(/[\/,|]/)
+        .split(/[/,|]/)
         .map((entry) => entry.trim())
         .filter(Boolean);
 
@@ -1736,11 +1891,7 @@ export class OffboardingService {
         .eq('case_id', caseId)
         .maybeSingle();
       // Status-only transition — update the existing payslip status without touching encrypted amounts
-      await supabase
-        .from('cnb_payslips')
-        .update({ status: 'Final Pay' })
-        .eq('company_id', (emp as any)?.company_id ?? '')
-        .ilike('other_deductions', `%"settlement_case_id":"${caseId}"%`);
+      await this.updateSettlementPayslipStatus((emp as any)?.company_id ?? '', caseId, 'Final Pay');
       this.notificationsService.createNotification({
         userId: (c as any).employee_id, companyId: (emp as any)?.company_id ?? '',
         type: 'OFFBOARDING_FINAL_PAY_RELEASED',
@@ -1804,11 +1955,11 @@ export class OffboardingService {
       .eq('case_id', caseId)
       .maybeSingle();
     // Status-only transition — update the existing payslip status without touching encrypted amounts
-    await supabase
-      .from('cnb_payslips')
-      .update({ status: 'Transfer Confirmed' })
-      .eq('company_id', (emp as any)?.company_id ?? '')
-      .ilike('other_deductions', `%"settlement_case_id":"${caseId}"%`);
+    await this.updateSettlementPayslipStatus(
+      (emp as any)?.company_id ?? '',
+      caseId,
+      'Transfer Confirmed',
+    );
 
     this.auditService.log(
       `OFFBOARDING_BANK_TRANSFER_CONFIRMED: case ${caseId}`,

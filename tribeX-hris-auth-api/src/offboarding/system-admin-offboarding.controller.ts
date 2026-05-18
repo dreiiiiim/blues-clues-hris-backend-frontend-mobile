@@ -65,6 +65,13 @@ export class SystemAdminOffboardingController {
     return this.offboardingService.getChecklistTemplates(companyId);
   }
 
+  @Get('tenants/:companyId/system-access-options')
+  @Roles(...SYSTEM_ADMIN_ONLY)
+  @ApiOperation({ summary: 'Get system access options for a tenant as System Admin' })
+  getSystemAccessOptions(@Param('companyId') companyId: string) {
+    return this.offboardingService.getSystemAccessOptions(companyId);
+  }
+
   @Patch('tenants/:companyId/checklist-templates/:templateId')
   @Roles(...SYSTEM_ADMIN_ONLY)
   @ApiOperation({ summary: 'Update an offboarding checklist template for a tenant as System Admin' })
