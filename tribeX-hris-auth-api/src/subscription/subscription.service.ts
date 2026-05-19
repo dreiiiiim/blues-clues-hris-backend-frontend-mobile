@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ConflictException,
   Injectable,
   InternalServerErrorException,
   Logger,
@@ -193,7 +192,7 @@ export class SubscriptionService {
     if (updateErr) throw new InternalServerErrorException(updateErr.message);
 
     return {
-      checkout_url: session.checkoutUrl,
+      checkout_url: session.redirectUrl,
       checkout_id: session.checkoutId,
     };
   }
@@ -221,6 +220,11 @@ export class SubscriptionService {
 
     if (fetchErr) throw new InternalServerErrorException(fetchErr.message);
     if (!registration) throw new NotFoundException('Registration not found');
+    if (!registration.checkout_id) {
+      throw new BadRequestException(
+        'Missing checkout session for this registration',
+      );
+    }
 
     if (registration.payment_status === 'Paid') {
       if (registration.company_id) {
@@ -237,25 +241,27 @@ export class SubscriptionService {
       };
     }
 
-    const { data: dupeTxn } = await supabase
-      .from('company_registrations')
-      .select('registration_id')
-      .eq('transaction_id', dto.transaction_id)
-      .neq('registration_id', dto.registration_id)
-      .maybeSingle();
+    const checkoutSession = await this.apiCenterSdkService
+      .getClient()
+      .paymentGetCheckoutSession(registration.checkout_id);
 
-    if (dupeTxn) {
-      throw new ConflictException(
-        'Transaction ID already used by another registration',
+    if (checkoutSession.status !== 'paid') {
+      throw new BadRequestException(
+        `Checkout not paid yet. Current status: ${checkoutSession.status}`,
       );
     }
+
+    const transactionId =
+      checkoutSession.referenceId ??
+      checkoutSession.checkoutId ??
+      registration.checkout_id;
 
     const { error: paymentErr } = await supabase
       .from('company_registrations')
       .update({
         payment_status: 'Paid',
         payment_date: new Date().toISOString(),
-        transaction_id: dto.transaction_id,
+        transaction_id: transactionId,
         subscription_status: 'Active',
       })
       .eq('registration_id', dto.registration_id);
