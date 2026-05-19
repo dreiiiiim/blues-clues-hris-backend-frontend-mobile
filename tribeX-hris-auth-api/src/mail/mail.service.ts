@@ -33,6 +33,14 @@ const STATUS = {
   info:    { bg: '#eff6ff', border: '#bfdbfe', text: '#1e40af', badge: '#3b82f6', headerBg: BRAND.headerBg },
 };
 
+function normalizeEmail(input: string): string {
+  return (input ?? '').trim().toLowerCase();
+}
+
+function isValidEmail(input: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input);
+}
+
 function emailWrapper(headerHtml: string, bodyHtml: string, footerExtra = '') {
   return `
 <!DOCTYPE html>
@@ -207,7 +215,10 @@ export class MailService {
 
   private async sendMail(options: SendMailOptions): Promise<void> {
     if (!this.apiKey || !this.senderEmail) {
-      throw new Error('Brevo email is not configured');
+      this.logger.debug(
+        `Email skipped (Brevo not configured): ${options.subject} → ${normalizeEmail(options.to)}`,
+      );
+      return;
     }
 
     const controller = new AbortController();
@@ -1191,6 +1202,68 @@ export class MailService {
       });
     } catch (error) {
       this.logger.error('Failed to send overtime review email', error);
+    }
+  }
+
+  async sendRenewalReminder(
+    to: string,
+    companyName: string,
+    daysRemaining: number,
+    plan: string,
+  ): Promise<void> {
+    const urgency = daysRemaining < 0
+      ? `Your subscription has <strong>expired ${Math.abs(daysRemaining)} days ago</strong>.`
+      : daysRemaining === 0
+        ? `Your subscription <strong>expires today</strong>.`
+        : `Your subscription expires in <strong>${daysRemaining} day${daysRemaining !== 1 ? 's' : ''}</strong>.`;
+
+    const header = emailWrapper(
+      `<div style="background:${STATUS.warning.headerBg};padding:32px 40px 28px;">
+        <div style="font-size:28px;font-weight:700;color:#ffffff;font-family:Poppins,sans-serif;margin-bottom:4px;">Subscription Renewal Reminder</div>
+        <div style="color:rgba(255,255,255,0.7);font-size:14px;">Blues Clues HRIS</div>
+      </div>`,
+      `<p style="font-size:15px;color:${BRAND.textBody};margin:0 0 16px;">${urgency}</p>
+       <p style="font-size:14px;color:${BRAND.textMuted};margin:0 0 8px;"><strong>Company:</strong> ${companyName}</p>
+       <p style="font-size:14px;color:${BRAND.textMuted};margin:0 0 24px;"><strong>Plan:</strong> ${plan ?? 'Professional'}</p>
+       <p style="font-size:13px;color:${BRAND.textMuted};">Please contact support to renew and maintain uninterrupted access.</p>`,
+    );
+
+    try {
+      await this.sendMail({
+        from: this.from,
+        to: normalizeEmail(to),
+        subject: `Renewal Reminder — ${companyName} (${daysRemaining < 0 ? 'Expired' : `${daysRemaining}d left`})`,
+        html: header,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send renewal reminder to ${to}`, error);
+    }
+  }
+
+  async sendSuspensionNotice(to: string, companyName: string): Promise<void> {
+    const header = emailWrapper(
+      `<div style="background:${STATUS.danger.headerBg};padding:32px 40px 28px;">
+        <div style="font-size:28px;font-weight:700;color:#ffffff;font-family:Poppins,sans-serif;margin-bottom:4px;">Account Suspended</div>
+        <div style="color:rgba(255,255,255,0.7);font-size:14px;">Blues Clues HRIS</div>
+      </div>`,
+      `<p style="font-size:15px;color:${BRAND.textBody};margin:0 0 16px;">
+         Your HRIS account for <strong>${companyName}</strong> has been suspended.
+       </p>
+       <p style="font-size:14px;color:${BRAND.textMuted};margin:0 0 24px;">
+         All user logins are disabled. Contact
+         <a href="mailto:support@bluesclues.com" style="color:${BRAND.accentDark};">support@bluesclues.com</a> to reactivate.
+       </p>`,
+    );
+
+    try {
+      await this.sendMail({
+        from: this.from,
+        to: normalizeEmail(to),
+        subject: `Your Blues Clues HRIS account has been suspended — ${companyName}`,
+        html: header,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send suspension notice to ${to}`, error);
     }
   }
 }

@@ -115,6 +115,49 @@
   --sidebar-ring: oklch(0.556 0 0);
 }
 
+/* ─── Scrollbar ─────────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #93afd4 transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #93afd4;
+  border-radius: 9999px;
+  border: 1px solid transparent;
+  background-clip: content-box;
+  transition: background 0.2s ease;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #1e3a8a;
+  border-color: transparent;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.dark *::-webkit-scrollbar-thumb {
+  background: oklch(0.35 0 0);
+}
+
+.dark *::-webkit-scrollbar-thumb:hover {
+  background: oklch(0.55 0 0);
+}
+
+/* ─── Base ───────────────────────────────────────────────────────────────────── */
 @layer base {
   * {
     @apply border-border outline-ring/50;
@@ -124,16 +167,13 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-optical-sizing: auto;
+    font-kerning: normal;
   }
 
   h1, h2, h3 {
     text-wrap: balance;
     font-optical-sizing: auto;
-  }
-
-  body {
-    font-optical-sizing: auto;
-    font-kerning: normal;
   }
 
   /* Date / time inputs — blue accent so selected day is a blue rounded pill */

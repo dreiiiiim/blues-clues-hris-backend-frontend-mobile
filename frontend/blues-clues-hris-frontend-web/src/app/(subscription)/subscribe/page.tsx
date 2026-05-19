@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { API_BASE_URL } from "@/lib/api";
 import Link from "next/link";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -36,7 +37,7 @@ import {
 const MONTHLY_PRICE = 4999;
 const ANNUAL_PRICE = 3999;
 
-const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:3001";
+const API_BASE = API_BASE_URL;
 const WEBHOOK_SECRET = process.env.NEXT_PUBLIC_SUBSCRIPTION_WEBHOOK_SECRET ?? "";
 
 const PLAN_FEATURES = [
@@ -1753,65 +1754,44 @@ export default function SubscribePage() {
           (data as { message?: string }).message ?? "Registration failed. Please try again."
         );
       }
-      setRegistrationId((data as { registration_id?: string }).registration_id ?? null);
-      setStep(3);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
+      const regId = (data as { registration_id?: string }).registration_id ?? null;
+      setRegistrationId(regId);
 
-  async function handleConfirmSubmit() {
-    if (!registrationId) {
-      setError("Missing registration. Please restart the process.");
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
-      const total = billing === "annual" ? ANNUAL_PRICE * 12 : MONTHLY_PRICE;
-      const txnId = `HRIS-${Date.now().toString(36).toUpperCase()}`;
+      if (!regId) throw new Error("No registration ID returned. Please try again.");
 
+      // Select plan
       const planRes = await fetch(`${API_BASE}/subscription/select-plan`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          registration_id: registrationId,
-          subscription_plan: "professional",
+          registration_id: regId,
+          subscription_plan: billing === "annual" ? "annual" : "monthly",
           billing_cycle: billing,
         }),
       });
       if (!planRes.ok) {
         const d = await planRes.json().catch(() => ({}));
-        throw new Error(
-          (d as { message?: string }).message ?? "Plan selection failed. Please try again."
-        );
+        throw new Error((d as { message?: string }).message ?? "Plan selection failed.");
       }
 
-      const payRes = await fetch(`${API_BASE}/subscription/payment/confirm`, {
+      // Create PayMongo checkout session
+      const checkoutRes = await fetch(`${API_BASE}/subscription/payment/create-checkout`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-webhook-secret": WEBHOOK_SECRET,
-        },
-        body: JSON.stringify({
-          registration_id: registrationId,
-          transaction_id: txnId,
-          amount: total,
-          payment_method: payData.payment_method,
-          payment_date: new Date().toISOString(),
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ registration_id: regId }),
       });
-      if (!payRes.ok) {
-        const d = await payRes.json().catch(() => ({}));
+      const checkoutData = await checkoutRes.json().catch(() => ({}));
+      if (!checkoutRes.ok) {
         throw new Error(
-          (d as { message?: string }).message ?? "Payment confirmation failed. Please contact support."
+          (checkoutData as { message?: string }).message ?? "Failed to create checkout session."
         );
       }
 
-      setTransactionId(txnId);
-      setDone(true);
+      const checkoutUrl = (checkoutData as { checkout_url?: string }).checkout_url;
+      if (!checkoutUrl) throw new Error("No checkout URL returned.");
+
+      setStep(3);
+      window.location.href = checkoutUrl;
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong. Please try again.");
     } finally {
@@ -1857,23 +1837,16 @@ export default function SubscribePage() {
                 />
               )}
               {step === 3 && (
-                <StepPayment
-                  billing={billing}
-                  payData={payData}
-                  onChange={updatePay}
-                  onBack={() => setStep(2)}
-                  onNext={() => setStep(4)}
-                />
-              )}
-              {step === 4 && (
-                <StepConfirm
-                  billing={billing}
-                  company={company}
-                  payData={payData}
-                  onBack={() => setStep(3)}
-                  onSubmit={handleConfirmSubmit}
-                  loading={loading}
-                />
+                <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary/10">
+                    <svg className="h-7 w-7 animate-spin text-primary" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                    </svg>
+                  </div>
+                  <h2 className="text-lg font-semibold text-slate-800">Redirecting to secure payment…</h2>
+                  <p className="text-sm text-slate-500">You will be redirected to PayMongo to complete your payment.</p>
+                </div>
               )}
             </>
           )}

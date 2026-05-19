@@ -26,6 +26,7 @@ import { PayrollModule } from './payroll/payroll.module';
 import { CnbModule } from './cnb/cnb.module';
 import { OffboardingModule } from './offboarding/offboarding.module';
 import { PerformanceModule } from './performance/performance.module';
+import { SuperAdminModule } from './super-admin/super-admin.module';
 
 const shouldValidateEnv = process.env.NODE_ENV === 'production';
 
@@ -59,6 +60,7 @@ const shouldValidateEnv = process.env.NODE_ENV === 'production';
     CnbModule,
     OffboardingModule,
     PerformanceModule,
+    SuperAdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],
