@@ -33,6 +33,20 @@ const PORTALS: PortalDef[] = [
   { portal_key: "system-admin", label: "System Admin", icon: "layers-outline" },
 ];
 
+function roleToPortalKey(role?: string): string | null {
+  switch (role) {
+    case "employee":
+    case "hr":
+    case "manager":
+    case "admin":
+      return role;
+    case "system_admin":
+      return "system-admin";
+    default:
+      return null;
+  }
+}
+
 interface Props {
   route: {
     params: {
@@ -98,7 +112,11 @@ export const PortalSelectScreen: React.FC<Props> = ({ route, navigation }) => {
     return availablePortals.includes(p.portal_key) || !!option;
   });
 
-  const displayPortals = visiblePortals.length > 0 ? visiblePortals : PORTALS;
+  const currentPortal = roleToPortalKey(session.role);
+  const displayPortals =
+    visiblePortals.length > 0
+      ? visiblePortals
+      : PORTALS.filter((portal) => portal.portal_key === currentPortal);
 
   return (
     <ScrollView

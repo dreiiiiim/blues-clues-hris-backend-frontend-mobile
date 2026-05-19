@@ -38,7 +38,7 @@ const shouldValidateEnv = process.env.NODE_ENV === 'production';
       ...(shouldValidateEnv ? { validate: validateEnv } : {}),
     }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }]),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]),
     SupabaseModule,
     ApiCenterSdkModule,
     HealthModule,

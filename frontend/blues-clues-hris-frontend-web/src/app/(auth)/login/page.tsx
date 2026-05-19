@@ -3,9 +3,8 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { loginApi, authFetch, refreshApi } from "@/lib/authApi";
+import { loginApi, refreshApi } from "@/lib/authApi";
 import { setTokens, saveUserInfo, parseJwt, clearAuthStorage, getRememberMe, getUserInfo } from "@/lib/authStorage";
-import { API_BASE_URL } from "@/lib/api";
 import { roleToPath, portalToPath } from "@/lib/roleMap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,12 +58,10 @@ export default function EmployeeLoginPage() {
         setIsLoading(false);
         return;
       }
-      const meRes = await authFetch(`${API_BASE_URL}/me`);
-      const me = await meRes.json().catch(() => ({}));
-      const name = [payload.first_name ?? "", payload.last_name ?? ""].filter(Boolean).join(" ") || me.username || identifier;
+      const name = [payload.first_name ?? "", payload.last_name ?? ""].filter(Boolean).join(" ") || identifier;
       saveUserInfo({
         name,
-        email: me.email ?? "",
+        email: String(payload.email ?? identifier),
         role,
         role_name: String(payload.role_name ?? ""),
         active_portal: payload.active_portal,

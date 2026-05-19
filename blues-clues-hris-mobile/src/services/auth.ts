@@ -449,6 +449,71 @@ export async function applicantRegister(
 
 // ─── Clear Session ────────────────────────────────────────────────────────────
 
+export async function resendApplicantVerification(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/applicants/resend-verification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Could not resend verification email." };
+    }
+    return {
+      ok: true,
+      message: data?.message || "A new verification email has been sent. Please check your inbox.",
+    };
+  } catch {
+    return { ok: false, error: "Network error. Check your connection." };
+  }
+}
+
+export async function verifyApplicantEmail(
+  token: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/applicants/verify-email?token=${encodeURIComponent(token)}`,
+      { method: "GET" },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Invalid or expired verification link." };
+    }
+    return {
+      ok: true,
+      message: data?.message || "Your email has been verified. You can now sign in.",
+    };
+  } catch {
+    return { ok: false, error: "Network error. Check your connection." };
+  }
+}
+
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Could not send reset instructions." };
+    }
+    return {
+      ok: true,
+      message: data?.message || "If an account exists, reset instructions have been sent.",
+    };
+  } catch {
+    return { ok: false, error: "Network error. Check your connection." };
+  }
+}
+
 export async function clearSession(): Promise<void> {
   try {
     const { refreshToken, isApplicant } = await getRefreshInfo();

@@ -2,19 +2,26 @@ import React, { useState } from "react";
 import { View, Text, TextInput, Pressable } from "react-native";
 import { isValidEmail } from "../lib/utils";
 import { Colors } from "../constants/colors";
+import { requestPasswordReset } from "../services/auth";
 
 export const ForgotPasswordScreen = ({ navigation }: any) => {
   const [email, setEmail]       = useState("");
   const [loading, setLoading]   = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const canSubmit = isValidEmail(email) && !loading;
 
   async function onSubmit() {
     if (!canSubmit) return;
+    setError(null);
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1000));
+    const res = await requestPasswordReset(email.trim());
     setLoading(false);
+    if (res.ok === false) {
+      setError(res.error);
+      return;
+    }
     setSubmitted(true);
   }
 
@@ -62,6 +69,12 @@ export const ForgotPasswordScreen = ({ navigation }: any) => {
                 className="mt-2 rounded-xl border bg-white px-4 py-3"
               />
             </View>
+
+            {error ? (
+              <Text style={{ color: Colors.danger }} className="mt-3 text-sm">
+                {error}
+              </Text>
+            ) : null}
 
             <Pressable
               style={{ backgroundColor: canSubmit ? Colors.primary : Colors.primaryDisabled }}

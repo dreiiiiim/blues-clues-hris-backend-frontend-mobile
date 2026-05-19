@@ -29,20 +29,28 @@ export async function loginApi(body: {
   password: string;
   rememberMe: boolean;
 }) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15_000);
+
   let res: Response;
   try {
     res = await fetch(`${API_BASE_URL}/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      credentials: "include", // receive the HttpOnly refresh_token cookie
+      credentials: "include",
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
-  } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Network request failed";
+  } catch (error: any) {
+    if (error?.name === "AbortError") {
+      throw new Error("Request timed out. The server is taking too long — please try again.");
+    }
+    const message = error instanceof Error ? error.message : "Network request failed";
     throw new Error(
-      `Cannot reach the login server at ${API_BASE_URL}. Check that the backend is running and CORS allows http://localhost:3000. Original error: ${message}`,
+      `Cannot reach the server at ${API_BASE_URL}. Make sure the backend is running. (${message})`,
     );
+  } finally {
+    clearTimeout(timer);
   }
 
   const data = await res.json().catch(() => ({}));

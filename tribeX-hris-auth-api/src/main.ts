@@ -21,7 +21,7 @@ async function bootstrap() {
   app.use(cookieParser());
   app.enableShutdownHooks();
 
-  app.setGlobalPrefix('api/v1');
+  app.setGlobalPrefix('api/tribeX/auth/v1');
   app.enableCors(corsOptions(configService.get<string>('ALLOWED_ORIGINS')));
 
   app.useGlobalPipes(
@@ -42,8 +42,8 @@ async function bootstrap() {
       .build();
 
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/v1/docs', app, document);
-    logger.log('Swagger docs available at /api/v1/docs');
+    SwaggerModule.setup('api/tribeX/auth/v1/docs', app, document);
+    logger.log('Swagger docs available at /api/tribeX/auth/v1/docs');
   }
 
   const port = configService.get<number>('PORT') || 5000;

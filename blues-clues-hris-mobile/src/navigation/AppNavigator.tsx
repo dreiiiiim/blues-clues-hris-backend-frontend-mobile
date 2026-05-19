@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { LoginScreen } from "../screens/LoginScreen";
 import { SignUpScreen } from "../screens/SignUpScreen";
 import { ForgotPasswordScreen } from "../screens/ForgotPasswordScreen";
+import { ApplicantVerifyEmailScreen } from "../screens/ApplicantVerifyEmailScreen";
 import { EmployeeDashboardScreen } from "../screens/EmployeeDashboardScreen";
 import { EmployeeOnboardingScreen } from "../screens/EmployeeOnboardingScreen";
 import { EmployeeOffboardingScreen } from "../screens/EmployeeOffboardingScreen";
@@ -48,6 +49,7 @@ import { ApplicantApplicationsScreen } from "../screens/ApplicantApplicationsScr
 import { ApplicantResumeUploadScreen } from "../screens/ApplicantResumeUploadScreen";
 import { SystemAdminDashboardScreen } from "../screens/SystemAdminDashboardScreen";
 import { SystemAdminOnboardingScreen } from "../screens/SystemAdminOnboardingScreen";
+import { SystemAdminBillingScreen } from "../screens/SystemAdminBillingScreen";
 import { SystemAdminUsersScreen } from "../screens/SystemAdminUsersScreen";
 import { SystemAdminAuditLogsScreen } from "../screens/SystemAdminAuditLogsScreen";
 import { EmployeeTimekeepingScreen } from "../screens/EmployeeTimekeepingScreen";
@@ -59,6 +61,7 @@ export type RootStackParamList = {
   Login: undefined;
   SignUp: undefined;
   ForgotPassword: undefined;
+  ApplicantVerifyEmail: any;
   PortalSelect: any;
 
   // Employee
@@ -132,6 +135,7 @@ export function AppNavigator() {
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+        <Stack.Screen name="ApplicantVerifyEmail" component={ApplicantVerifyEmailScreen} />
         <Stack.Screen name="PortalSelect" component={PortalSelectScreen} />
 
         {/* Employee */}
@@ -181,7 +185,7 @@ export function AppNavigator() {
         <Stack.Screen name="SystemAdminOnboarding" component={SystemAdminOnboardingScreen} />
         <Stack.Screen name="SystemAdminUsers" component={SystemAdminUsersScreen} />
         <Stack.Screen name="SystemAdminAuditLogs" component={SystemAdminAuditLogsScreen} />
-        <Stack.Screen name="SystemAdminBilling" component={SystemAdminSubscriptionsScreen} />
+        <Stack.Screen name="SystemAdminBilling" component={SystemAdminBillingScreen} />
         <Stack.Screen name="SystemAdminTimekeeping" component={SystemAdminTimekeepingScreen} />
         <Stack.Screen name="SystemAdminOffboarding" component={SystemAdminOffboardingScreen} />
         <Stack.Screen name="SystemAdminApprovals" component={SystemAdminApprovalsScreen} />
