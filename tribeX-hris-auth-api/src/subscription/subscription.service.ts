@@ -9,8 +9,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'node:crypto';
+import { ApiCenterSdkService } from '../api-center/api-center-sdk.service';
 import { MailService } from '../mail/mail.service';
 import { SupabaseService } from '../supabase/supabase.service';
+import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { PaymentConfirmDto } from './dto/payment-confirm.dto';
 import { RegisterCompanyDto } from './dto/register-company.dto';
 import { SelectPlanDto } from './dto/select-plan.dto';
@@ -40,6 +42,7 @@ export class SubscriptionService {
     private readonly supabaseService: SupabaseService,
     private readonly mailService: MailService,
     private readonly config: ConfigService,
+    private readonly apiCenterSdkService: ApiCenterSdkService,
   ) {}
 
   getPlans() {
@@ -144,6 +147,55 @@ export class SubscriptionService {
     if (error) throw new InternalServerErrorException(error.message);
     if (!data) throw new NotFoundException('Registration not found');
     return data;
+  }
+
+  async createCheckout(dto: CreateCheckoutDto): Promise<{ checkout_url: string; checkout_id: string }> {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: registration, error: fetchErr } = await supabase
+      .from('company_registrations')
+      .select('registration_id, payment_status, subscription_plan, billing_cycle, company_name')
+      .eq('registration_id', dto.registration_id)
+      .maybeSingle();
+
+    if (fetchErr) throw new InternalServerErrorException(fetchErr.message);
+    if (!registration) throw new NotFoundException('Registration not found');
+    if (registration.payment_status === 'Paid') {
+      throw new BadRequestException('Payment already completed for this registration');
+    }
+
+    const isAnnual = (registration.subscription_plan ?? registration.billing_cycle) === 'annual';
+    const amountCentavos = isAnnual ? 2999900 : 299900; // ₱29,999 or ₱2,999
+    const planName = isAnnual ? 'Annual Plan' : 'Monthly Plan';
+
+    const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
+    const successUrl = `${appUrl}/payment/success?registration_id=${dto.registration_id}`;
+    const cancelUrl = `${appUrl}/payment/cancel?registration_id=${dto.registration_id}`;
+
+    const session = await this.apiCenterSdkService.getClient().paymentCreateCheckoutSession({
+      referenceId: dto.registration_id,
+      successUrl,
+      cancelUrl,
+      lineItems: [
+        {
+          name: planName,
+          quantity: 1,
+          amount: { value: amountCentavos, currency: 'PHP' },
+        },
+      ],
+    });
+
+    const { error: updateErr } = await supabase
+      .from('company_registrations')
+      .update({ checkout_id: session.checkoutId })
+      .eq('registration_id', dto.registration_id);
+
+    if (updateErr) throw new InternalServerErrorException(updateErr.message);
+
+    return {
+      checkout_url: session.checkoutUrl,
+      checkout_id: session.checkoutId,
+    };
   }
 
   async confirmPayment(dto: PaymentConfirmDto, webhookSecret: string) {
