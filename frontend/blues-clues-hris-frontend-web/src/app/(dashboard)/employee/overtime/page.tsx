@@ -39,9 +39,14 @@ function getPlannedHours(startTime: string, endTime: string) {
   const [startHour, startMinute] = startTime.split(":").map(Number);
   const [endHour, endMinute] = endTime.split(":").map(Number);
   const startTotal = startHour * 60 + startMinute;
-  const endTotal = endHour * 60 + endMinute;
-  if (Number.isNaN(startTotal) || Number.isNaN(endTotal) || endTotal <= startTotal) return null;
-  return (endTotal - startTotal) / 60;
+  let endTotal = endHour * 60 + endMinute;
+  if (Number.isNaN(startTotal) || Number.isNaN(endTotal)) return null;
+  // Handle overnight shifts: if end is before start, it crosses midnight
+  if (endTotal <= startTotal) endTotal += 24 * 60;
+  const diff = endTotal - startTotal;
+  // Sanity cap: OT shouldn't exceed 24 hours
+  if (diff <= 0 || diff > 24 * 60) return null;
+  return diff / 60;
 }
 
 export default function EmployeeOvertimePage() {
