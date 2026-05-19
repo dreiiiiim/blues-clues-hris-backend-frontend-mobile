@@ -21,6 +21,7 @@ import {
   AbsenceReviewAction,
 } from './dto/review-absence.dto';
 import { EditAttendanceDto } from './dto/edit-attendance.dto';
+import { OvertimeService } from '../overtime/overtime.service';
 
 type AttendanceLogType = 'time-in' | 'time-out' | 'break-start' | 'break-end' | 'absence';
 type ClockType =
@@ -239,6 +240,7 @@ export class TimekeepingService {
     private readonly supabaseService: SupabaseService,
     private readonly mailService: MailService,
     private readonly leaveBalancesService: LeaveBalancesService,
+    private readonly overtimeService: OvertimeService,
   ) {}
 
   private toCoordinateKey(latitude: number, longitude: number): string {
@@ -755,12 +757,15 @@ export class TimekeepingService {
       );
     }
 
-    const [schedule, existing] = await Promise.all([
+    const [schedule, existing, otReq] = await Promise.all([
       this.getScheduleForToday(employeeId),
       this.getLatestLogForToday(employeeId),
+      this.overtimeService.getApprovedOvertimeForDate(employeeId, today),
     ]);
 
-    if (!schedule) {
+    const isOtDay = otReq?.ot_type === 'REST_DAY' || otReq?.ot_type === 'HOLIDAY';
+
+    if (!schedule && !isOtDay) {
       throw new ForbiddenException(
         'No schedule has been assigned to you. Contact HR to set up your work schedule.',
       );
@@ -788,21 +793,25 @@ export class TimekeepingService {
     }
 
     const nowDate = new Date();
-    const { shiftEnd } = this.buildScheduleWindow(schedule, nowDate);
 
-    if (nowDate.getTime() > shiftEnd.getTime()) {
-      await this.createSystemAbsentLog(
-        employeeId,
-        'Automatically marked absent: attempted clock-in after scheduled shift end.',
-      );
-      throw new BadRequestException(
-        'Clock-in is no longer allowed after your scheduled end time. You were marked absent for today.',
-      );
+    if (schedule) {
+      const { shiftEnd } = this.buildScheduleWindow(schedule, nowDate);
+      if (nowDate.getTime() > shiftEnd.getTime()) {
+        await this.createSystemAbsentLog(
+          employeeId,
+          'Automatically marked absent: attempted clock-in after scheduled shift end.',
+        );
+        throw new BadRequestException(
+          'Clock-in is no longer allowed after your scheduled end time. You were marked absent for today.',
+        );
+      }
     }
 
     const now = nowDate.toISOString();
     const log_id = crypto.randomUUID();
-    const clockType = schedule ? this.computeClockTypeForTimeIn(nowDate, schedule) : null;
+    const clockType = schedule
+      ? this.computeClockTypeForTimeIn(nowDate, schedule)
+      : isOtDay ? 'OVERTIME' : null;
 
     const { error: insertError } = await supabase
       .from('attendance_time_logs')
@@ -819,6 +828,7 @@ export class TimekeepingService {
         clock_type: clockType,
         status: 'PRESENT',
         log_status: 'PENDING',
+        ot_request_id: otReq?.ot_id ?? null,
       });
 
     if (insertError) {
@@ -863,12 +873,15 @@ export class TimekeepingService {
       );
     }
 
-    const [schedule, lastPunch] = await Promise.all([
+    const [schedule, lastPunch, otReqOut] = await Promise.all([
       this.getScheduleForToday(employeeId),
       this.getLatestLogForToday(employeeId),
+      this.overtimeService.getApprovedOvertimeForDate(employeeId, today),
     ]);
 
-    if (!schedule) {
+    const isOtDayOut = otReqOut?.ot_type === 'REST_DAY' || otReqOut?.ot_type === 'HOLIDAY';
+
+    if (!schedule && !isOtDayOut) {
       throw new ForbiddenException(
         'No schedule has been assigned to you. Contact HR to set up your work schedule.',
       );
@@ -895,7 +908,9 @@ export class TimekeepingService {
     const nowDate = new Date();
     const now = nowDate.toISOString();
     const log_id = crypto.randomUUID();
-    const clockType = schedule ? this.computeClockTypeForTimeOut(nowDate, schedule) : null;
+    const clockType = schedule
+      ? this.computeClockTypeForTimeOut(nowDate, schedule)
+      : isOtDayOut ? 'OVERTIME' : null;
 
     const { error: insertError } = await supabase
       .from('attendance_time_logs')
@@ -985,11 +1000,63 @@ export class TimekeepingService {
     );
     const lastPunch = activeLogs.at(-1);
 
+    const timeInLog = logs.find((l) => l.log_type === 'time-in') ?? null;
+    const timeOutLog = logs.find((l) => l.log_type === 'time-out') ?? null;
+
+    const otReq = await this.overtimeService
+      .getApprovedOvertimeForDate(employeeId, today)
+      .catch(() => null);
+
+    let ot_session: null | {
+      ot_id: string;
+      ot_type: string;
+      approved_start: string;
+      approved_end: string;
+      approved_hours: number;
+      actual_ot_minutes: number;
+      capped_ot_minutes: number;
+      in_progress: boolean;
+    } = null;
+
+    if (otReq) {
+      const refMs = timeOutLog
+        ? new Date(timeOutLog.timestamp).getTime()
+        : Date.now();
+
+      let actual_ot_minutes = 0;
+
+      if (otReq.ot_type === 'NORMAL') {
+        if (schedule?.end_time && timeInLog) {
+          const { shiftEnd } = this.buildScheduleWindow(schedule as ScheduleRow, new Date());
+          const rawMs = Math.max(0, refMs - shiftEnd.getTime());
+          actual_ot_minutes = Math.floor(rawMs / 60000);
+        }
+      } else {
+        if (timeInLog) {
+          const timeInMs = new Date(timeInLog.timestamp).getTime();
+          const rawMinutes = Math.floor((refMs - timeInMs) / 60000);
+          actual_ot_minutes = rawMinutes >= 360 ? rawMinutes - 60 : rawMinutes;
+        }
+      }
+
+      const approved_minutes = Math.round((otReq.planned_hours ?? 0) * 60);
+      ot_session = {
+        ot_id: otReq.ot_id,
+        ot_type: otReq.ot_type,
+        approved_start: otReq.start_time,
+        approved_end: otReq.end_time,
+        approved_hours: otReq.planned_hours,
+        actual_ot_minutes,
+        capped_ot_minutes: Math.min(actual_ot_minutes, approved_minutes),
+        in_progress: !!timeInLog && !timeOutLog,
+      };
+    }
+
     return {
       date: today,
       current_status: lastPunch?.log_type ?? null,
-      time_in: logs.find((l) => l.log_type === 'time-in') ?? null,
-      time_out: logs.find((l) => l.log_type === 'time-out') ?? null,
+      time_in: timeInLog,
+      time_out: timeOutLog,
       schedule: schedule
         ? {
             sched_id: schedule.sched_id,
@@ -999,6 +1066,7 @@ export class TimekeepingService {
             is_nightshift: schedule.is_nightshift,
           }
         : null,
+      ot_session,
     };
   }
 

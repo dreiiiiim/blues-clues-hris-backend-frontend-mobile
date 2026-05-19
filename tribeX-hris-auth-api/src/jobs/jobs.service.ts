@@ -2627,6 +2627,68 @@ export class JobsService {
     else cronLogger.log(`Auto clock-out recorded for ${closeRows.length} employee(s) from ${yesterday}`);
   }
 
+  // ─── B8: Cron — Auto clock-out at approved OT end + 15 min grace (every 15 min) ───
+
+  @Cron('*/15 * * * *', { timeZone: 'Asia/Manila', name: 'autoOtClockOut' })
+  async autoOtClockOut() {
+    const supabase = this.supabaseService.getClient();
+    const cronLogger = new Logger('autoOtClockOut');
+
+    const manilaDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+    const todayStart = `${manilaDate}T00:00:00.000+08:00`;
+    const todayEnd = `${manilaDate}T23:59:59.999+08:00`;
+
+    const { data: openOtIns, error: fetchErr } = await supabase
+      .from('attendance_time_logs')
+      .select('log_id, employee_id, schedule_id, ot_request_id, overtime_requests(ot_id, end_time)')
+      .eq('log_type', 'time-in')
+      .not('ot_request_id', 'is', null)
+      .gte('timestamp', todayStart)
+      .lte('timestamp', todayEnd);
+
+    if (fetchErr) { cronLogger.error(`Failed to fetch open OT clock-ins: ${fetchErr.message}`); return; }
+    if (!openOtIns || openOtIns.length === 0) return;
+
+    const empIds = (openOtIns as any[]).map((l) => l.employee_id as string);
+    const { data: timeOuts } = await supabase
+      .from('attendance_time_logs')
+      .select('employee_id')
+      .eq('log_type', 'time-out')
+      .in('employee_id', empIds)
+      .gte('timestamp', todayStart)
+      .lte('timestamp', todayEnd);
+
+    const timedOutSet = new Set<string>((timeOuts ?? []).map((l: any) => l.employee_id as string));
+    const nowMs = Date.now();
+    const GRACE_MS = 15 * 60 * 1000;
+
+    const closeRows = (openOtIns as any[])
+      .filter((l) => {
+        if (timedOutSet.has(l.employee_id as string)) return false;
+        const otEndTime = l.overtime_requests?.end_time;
+        if (!otEndTime) return false;
+        const otEndMs = new Date(`${manilaDate}T${String(otEndTime).substring(0, 5)}+08:00`).getTime();
+        return nowMs >= otEndMs + GRACE_MS;
+      })
+      .map((l) => ({
+        log_id: crypto.randomUUID(),
+        employee_id: l.employee_id,
+        schedule_id: l.schedule_id ?? null,
+        log_type: 'time-out',
+        clock_type: 'OVERTIME',
+        status: 'PRESENT',
+        log_status: 'AUTO_CLOCKED_OUT',
+        timestamp: `${manilaDate}T${String(l.overtime_requests.end_time).substring(0, 5)}:00+08:00`,
+        ot_request_id: l.ot_request_id ?? null,
+      }));
+
+    if (closeRows.length === 0) return;
+
+    const { error: insertErr } = await supabase.from('attendance_time_logs').insert(closeRows);
+    if (insertErr) cronLogger.error(`Failed to insert auto OT clock-outs: ${insertErr.message}`);
+    else cronLogger.log(`Auto OT clock-out recorded for ${closeRows.length} employee(s) (${manilaDate})`);
+  }
+
   // ── SFIA Resume Skill Extraction ────────────────────────────────────────────
 
   private detectResumeDocumentType(

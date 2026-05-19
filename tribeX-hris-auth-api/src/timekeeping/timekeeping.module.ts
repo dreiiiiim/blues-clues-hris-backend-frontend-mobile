@@ -6,6 +6,7 @@ import { AuthModule } from '../auth/auth.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 import { MailModule } from '../mail/mail.module';
 import { LeaveBalancesModule } from '../leave-balances/leave-balances.module';
+import { OvertimeModule } from '../overtime/overtime.module';
 
 @Module({
   imports: [
@@ -13,6 +14,7 @@ import { LeaveBalancesModule } from '../leave-balances/leave-balances.module';
     SupabaseModule,
     MailModule,
     LeaveBalancesModule,
+    OvertimeModule,
   ],
   controllers: [TimekeepingController],
   providers: [TimekeepingService, TimekeepingTasksService],

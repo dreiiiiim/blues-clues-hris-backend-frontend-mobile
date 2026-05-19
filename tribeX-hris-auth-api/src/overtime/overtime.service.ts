@@ -164,33 +164,23 @@ export class OvertimeService {
       }
     }
 
-    // Overlap guard: PENDING or APPROVED OT on same date with overlapping window
-    const dayStart = `${dto.ot_date}T00:00:00.000+08:00`;
-    const dayEnd   = `${dto.ot_date}T23:59:59.999+08:00`;
-
+    // Same-day guard: only one OT request allowed per day
     const { data: existing } = await supabase
       .from('overtime_requests')
-      .select('ot_id, start_time, end_time')
+      .select('ot_id')
       .eq('employee_id', employeeId)
       .in('log_status', ['PENDING', 'APPROVED'])
-      .gte('ot_date', dto.ot_date)
-      .lte('ot_date', dto.ot_date);
+      .eq('ot_date', dto.ot_date)
+      .limit(1);
 
-    for (const row of existing ?? []) {
-      const [rsh, rsm] = (row.start_time as string).split(':').map(Number);
-      const [reh, rem] = (row.end_time as string).split(':').map(Number);
-      const [nsh, nsm] = dto.start_time.split(':').map(Number);
-      const [neh, nem] = dto.end_time.split(':').map(Number);
-      const rsMin = rsh * 60 + rsm;
-      const reMin = reh * 60 + rem;
-      const nsMin = nsh * 60 + nsm;
-      const neMin = neh * 60 + nem;
-      if (nsMin < reMin && neMin > rsMin) {
-        throw new BadRequestException(
-          'An overlapping overtime request already exists for that date and time window.',
-        );
-      }
+    if ((existing ?? []).length > 0) {
+      throw new BadRequestException(
+        'You already have a pending or approved overtime request on this date.',
+      );
     }
+
+    const dayStart = `${dto.ot_date}T00:00:00.000+08:00`;
+    const dayEnd   = `${dto.ot_date}T23:59:59.999+08:00`;
 
     // Absence conflict: non-denied absence log on same date
     const { data: absences } = await supabase
@@ -206,6 +196,23 @@ export class OvertimeService {
     if ((absences ?? []).length > 0) {
       throw new BadRequestException(
         `You have an absence record on ${dto.ot_date}. Cannot request overtime on the same date.`,
+      );
+    }
+
+    // Leave conflict: approved leave request covering this OT date
+    const { data: activeLeaves } = await supabase
+      .from('time_leave_requests')
+      .select('request_id, leave_type')
+      .eq('user_id', userId)
+      .eq('status', 'Approved')
+      .lte('start_date', dto.ot_date)
+      .gte('end_date', dto.ot_date)
+      .limit(1);
+
+    if ((activeLeaves ?? []).length > 0) {
+      const lt = (activeLeaves as any[])[0].leave_type as string;
+      throw new BadRequestException(
+        `You have an approved ${lt} on ${dto.ot_date}. Overtime cannot be requested on an approved leave day.`,
       );
     }
 
