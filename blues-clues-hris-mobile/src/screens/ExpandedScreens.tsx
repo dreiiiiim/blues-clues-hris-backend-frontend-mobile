@@ -809,11 +809,18 @@ export const SystemAdminApprovalsScreen = createBackendScreen({
   role: "system_admin",
   activeScreen: "Approvals",
   load: async ({ session }) => {
-    const [leaveRequests, documents, goals] = await Promise.all([
+    const [leaveRequests, documents, goals, overtimeRequests] = await Promise.all([
       fetchJson("/leave/requests?status=Pending").catch(() => []),
       fetchJson("/users/documents/pending").catch(() => []),
       fetchJson("/performance/goals/all").catch(() => []),
+      fetchJson("/overtime/requests?status=PENDING").catch(() => []),
     ]);
+
+    const totalCount =
+      toArray(leaveRequests).length +
+      toArray(documents).length +
+      toArray(goals).length +
+      toArray(overtimeRequests).length;
 
     return {
       eyebrow: "Approvals",
@@ -821,13 +828,15 @@ export const SystemAdminApprovalsScreen = createBackendScreen({
       subtitle: `Cross-module approval queue for ${nameOf(session)}.`,
       stats: [
         { label: "Leave", value: statValueFromNumber(toArray(leaveRequests).length), helper: "Pending leave requests" },
+        { label: "Overtime", value: statValueFromNumber(toArray(overtimeRequests).length), helper: "Pending OT requests" },
         { label: "Documents", value: statValueFromNumber(toArray(documents).length), helper: "Pending documents" },
-        { label: "Goals", value: statValueFromNumber(toArray(goals).length), helper: "Performance goals" },
-        { label: "Total", value: statValueFromNumber(toArray(leaveRequests).length + toArray(documents).length + toArray(goals).length), helper: "Combined queue" },
+        { label: "Total", value: statValueFromNumber(totalCount), helper: "Combined queue" },
       ],
       sections: [
-        { title: "Leave Requests", subtitle: "Awaiting review.", items: toArray(leaveRequests).map((item: any) => ({ title: `${formatDate(item.start_date)} → ${formatDate(item.end_date)}`, subtitle: item.reason ?? item.leave_type ?? "Leave request", meta: textValue(item.status ?? "Pending"), tone: "warning" })) },
-        { title: "Documents", subtitle: "HR document queue.", items: toArray(documents).map((item: any) => ({ title: item.document_type ?? item.file_name ?? "Document", subtitle: textValue(item.employee_name ?? item.user_id), meta: textValue(item.status ?? "Pending"), tone: "warning" })) },
+        { title: "Leave Requests", subtitle: "Awaiting review.", items: toArray(leaveRequests).map((item: any) => ({ title: `${formatDate(item.start_date)} → ${formatDate(item.end_date)}`, subtitle: item.reason ?? item.leave_type ?? "Leave request", meta: textValue(item.status ?? "Pending"), tone: "warning" as const })) },
+        { title: "Overtime Requests", subtitle: "Pending OT approvals.", items: toArray(overtimeRequests).map((item: any) => ({ title: `${formatDate(item.ot_date)} · ${textValue(item.ot_type ?? "OT")}`, subtitle: `${textValue(item.planned_hours ?? "—")} hrs · ${item.reason ?? "Overtime request"}`, meta: textValue(item.log_status ?? "PENDING"), tone: approvalTone(item.log_status) })) },
+        { title: "Documents", subtitle: "HR document queue.", items: toArray(documents).map((item: any) => ({ title: item.document_type ?? item.file_name ?? "Document", subtitle: textValue(item.employee_name ?? item.user_id), meta: textValue(item.status ?? "Pending"), tone: "warning" as const })) },
+        { title: "Performance Goals", subtitle: "Goals awaiting approval.", items: toArray(goals).slice(0, 20).map((item: any) => ({ title: item.goal_name ?? item.title ?? "Goal", subtitle: textValue(item.user_name ?? item.user_id ?? item.status), meta: textValue(item.status ?? "Open"), tone: approvalTone(item.status) })) },
       ],
     };
   },

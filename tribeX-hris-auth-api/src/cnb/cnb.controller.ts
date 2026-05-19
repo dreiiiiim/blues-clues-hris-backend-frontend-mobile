@@ -503,4 +503,96 @@ export class CnbController {
     );
   }
 
+  // ── Annual net pay ─────────────────────────────────────────────
+
+  @Get('me/annual-pay')
+  @ApiOperation({ summary: 'Get my total net pay for the year (aggregated from all payslips)' })
+  getMyAnnualPay(
+    @Req() req: AuthenticatedRequest,
+    @Query('year') year?: string,
+  ) {
+    const parsedYear = year ? Number(year) : new Date().getFullYear();
+    return this.cnbService.getAnnualNetPay(req.user.sub_userid, req.user.company_id, parsedYear);
+  }
+
+  @Get('annual-pay/:userId')
+  @UseGuards(RolesGuard)
+  @Roles(...CNB_OFFICER_AND_ADMIN)
+  @ApiOperation({ summary: 'Get total net pay for an employee for the year' })
+  getEmployeeAnnualPay(
+    @Param('userId') userId: string,
+    @Req() req: AuthenticatedRequest,
+    @Query('year') year?: string,
+  ) {
+    const parsedYear = year ? Number(year) : new Date().getFullYear();
+    return this.cnbService.getAnnualNetPay(userId, req.user.company_id, parsedYear);
+  }
+
+  // ── Annualization batch ────────────────────────────────────────
+
+  @Post('salary-baselines/annualize/batch')
+  @UseGuards(RolesGuard)
+  @Roles(...CNB_OFFICER_AND_ADMIN)
+  @ApiOperation({
+    summary: 'Apply annual salary increase (%) to all employees in the company',
+    description: 'Inserts new salary baseline rows with the increased salary effective on the given date. Uses compound growth from the current baseline.',
+  })
+  applyAnnualizationBatch(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: {
+      annual_rate_percent: number;
+      effective_date: string;
+      employee_ids?: string[];
+    },
+  ) {
+    return this.cnbService.applyAnnualizationBatch(
+      req.user.company_id,
+      dto.annual_rate_percent,
+      dto.effective_date,
+      req.user.sub_userid,
+      dto.employee_ids,
+    );
+  }
+
+  // ── Retirement benefit ────────────────────────────────────────
+
+  @Get('compute/retirement/:userId')
+  @UseGuards(RolesGuard)
+  @Roles(...CNB_OFFICER_AND_ADMIN)
+  @ApiOperation({
+    summary: 'Compute retirement benefit for an employee',
+    description: 'Returns RA 7641 statutory amount vs company policy amount, uses the higher of the two. Requires a benefit of type "retirement" in the benefits catalog for company policy computation.',
+  })
+  computeRetirement(
+    @Param('userId') userId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.cnbService.computeRetirementBenefit(userId, req.user.company_id);
+  }
+
+  @Get('me/compute/retirement')
+  @ApiOperation({ summary: 'Compute my retirement benefit' })
+  computeRetirementSelf(@Req() req: AuthenticatedRequest) {
+    return this.cnbService.computeRetirementBenefit(req.user.sub_userid, req.user.company_id);
+  }
+
+  // ── Company branding ──────────────────────────────────────────
+
+  @Get('company/branding')
+  @ApiOperation({ summary: 'Get company logo, display name, and brand color' })
+  getCompanyBranding(@Req() req: AuthenticatedRequest) {
+    return this.cnbService.getCompanyBranding(req.user.company_id);
+  }
+
+  @Patch('company/branding')
+  @UseGuards(RolesGuard)
+  @Roles(...SYSTEM_ADMIN_ONLY)
+  @ApiOperation({ summary: 'Update company logo URL, display name, or brand color' })
+  updateCompanyBranding(
+    @Req() req: AuthenticatedRequest,
+    @Body() dto: { logo_url?: string; display_name?: string; primary_color?: string },
+  ) {
+    return this.cnbService.updateCompanyBranding(req.user.company_id, dto, req.user.sub_userid);
+  }
+
 }

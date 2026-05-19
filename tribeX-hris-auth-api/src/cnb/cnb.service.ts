@@ -2476,5 +2476,257 @@ export class CnbService {
     };
   }
 
+  // ── Annual net pay aggregation ─────────────────────────────────────────
+  async getAnnualNetPay(userId: string, companyId: string, year: number) {
+    const supabase = this.supabaseService.getClient();
+
+    const startOfYear = `${year}-01-01`;
+    const endOfYear   = `${year}-12-31`;
+
+    const { data, error } = await supabase
+      .from('cnb_payslips')
+      .select(`
+        payslip_id, net_pay, gross_pay, basic_pay_earned,
+        total_allowances, total_deductions, tax_deduction,
+        status, created_at,
+        period:period_id(payout_date, cutoff_start_date, cutoff_end_date)
+      `)
+      .eq('user_id', userId)
+      .eq('company_id', companyId)
+      .gte('created_at', `${startOfYear}T00:00:00.000Z`)
+      .lte('created_at', `${endOfYear}T23:59:59.999Z`)
+      .order('created_at', { ascending: true });
+
+    if (error) throw new BadRequestException(error.message);
+
+    const rows = data ?? [];
+    const periods = rows.map((row: any) => ({
+      payslip_id:   row.payslip_id,
+      payslip_code: this.formatPayslipCode({ payslipId: row.payslip_id, payoutDate: row.period?.payout_date, createdAt: row.created_at }),
+      pay_period:   row.period ? `${row.period.cutoff_start_date} → ${row.period.cutoff_end_date}` : '—',
+      net_pay:      this.roundCurrency(this.encryption.decryptToNumber(row.net_pay)),
+      gross_pay:    this.roundCurrency(this.encryption.decryptToNumber(row.gross_pay)),
+      deductions:   this.roundCurrency(this.encryption.decryptToNumber(row.total_deductions)),
+      tax:          this.roundCurrency(this.encryption.decryptToNumber(row.tax_deduction)),
+      status:       row.status,
+      payout_date:  row.period?.payout_date ?? null,
+    }));
+
+    const totalNetPay     = this.roundCurrency(periods.reduce((s, p) => s + p.net_pay,    0));
+    const totalGrossPay   = this.roundCurrency(periods.reduce((s, p) => s + p.gross_pay,  0));
+    const totalDeductions = this.roundCurrency(periods.reduce((s, p) => s + p.deductions, 0));
+    const totalTax        = this.roundCurrency(periods.reduce((s, p) => s + p.tax,        0));
+
+    return {
+      year,
+      payslip_count:    periods.length,
+      total_net_pay:    totalNetPay,
+      total_gross_pay:  totalGrossPay,
+      total_deductions: totalDeductions,
+      total_tax:        totalTax,
+      periods,
+    };
+  }
+
+  // ── Annualization batch — apply % salary increase to all employees ──────
+  async applyAnnualizationBatch(
+    companyId: string,
+    annualRatePercent: number,
+    effectiveDate: string,
+    actorId: string,
+    employeeIds?: string[],
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    // Get current salary baselines
+    let baselineQuery = supabase
+      .from('cnb_salary_baselines')
+      .select('baseline_id, user_id, basic_salary, pay_frequency, effective_date')
+      .eq('company_id', companyId)
+      .lte('effective_date', effectiveDate)
+      .order('effective_date', { ascending: false });
+
+    const { data: allBaselines, error: baselineErr } = await baselineQuery;
+    if (baselineErr) throw new BadRequestException(baselineErr.message);
+
+    // Keep only latest baseline per user
+    const latestByUser = new Map<string, any>();
+    for (const row of allBaselines ?? []) {
+      if (!latestByUser.has(row.user_id)) latestByUser.set(row.user_id, row);
+    }
+
+    let targets = [...latestByUser.values()];
+    if (employeeIds && employeeIds.length > 0) {
+      const idSet = new Set(employeeIds);
+      targets = targets.filter((t) => idSet.has(t.user_id));
+    }
+
+    if (targets.length === 0) {
+      return { count: 0, message: 'No eligible employees found.', results: [] };
+    }
+
+    const growthFactor = 1 + annualRatePercent / 100;
+    const insertRows = targets.map((row) => {
+      const currentSalary = Number(this.encryption.decrypt(String(row.basic_salary)));
+      const newSalary = this.roundCurrency(currentSalary * growthFactor);
+      return {
+        baseline_id:    crypto.randomUUID(),
+        user_id:        row.user_id,
+        company_id:     companyId,
+        pay_frequency:  row.pay_frequency,
+        basic_salary:   this.encryption.encryptNumber(newSalary),
+        effective_date: effectiveDate,
+        created_at:     new Date().toISOString(),
+        updated_at:     new Date().toISOString(),
+      };
+    });
+
+    const { error: insertErr } = await supabase
+      .from('cnb_salary_baselines')
+      .insert(insertRows);
+
+    if (insertErr) throw new BadRequestException(insertErr.message);
+
+    await this.writeAudit({
+      companyId,
+      actorId,
+      actionType: 'SALARY_ANNUALIZATION_BATCH',
+      targetTable: 'cnb_salary_baselines',
+      targetRecordId: crypto.randomUUID(),
+      newValue: {
+        annual_rate_percent: annualRatePercent,
+        effective_date: effectiveDate,
+        employee_count: targets.length,
+      },
+    });
+
+    return {
+      count: targets.length,
+      annual_rate_percent: annualRatePercent,
+      effective_date: effectiveDate,
+      message: `Salary increased by ${annualRatePercent}% for ${targets.length} employees effective ${effectiveDate}.`,
+      results: targets.map((row) => ({
+        user_id: row.user_id,
+        old_salary: Number(this.encryption.decrypt(String(row.basic_salary))),
+        new_salary: this.roundCurrency(Number(this.encryption.decrypt(String(row.basic_salary))) * growthFactor),
+      })),
+    };
+  }
+
+  // ── Retirement benefit computation ─────────────────────────────────────
+  async computeRetirementBenefit(userId: string, companyId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const [salary, profileRes, retirementBenefitRes] = await Promise.all([
+      this.getSalaryBaseline(userId, companyId),
+      supabase
+        .from('user_profile')
+        .select('start_date, first_name, last_name, employee_id')
+        .eq('user_id', userId)
+        .eq('company_id', companyId)
+        .maybeSingle(),
+      supabase
+        .from('cnb_benefits_catalog')
+        .select('benefit_id, benefit_name, default_amount, benefit_type')
+        .eq('company_id', companyId)
+        .eq('benefit_type', 'retirement')
+        .eq('is_active', true)
+        .maybeSingle(),
+    ]);
+
+    if (profileRes.error) throw new BadRequestException(profileRes.error.message);
+
+    const profile = profileRes.data;
+    const retirementBenefit = retirementBenefitRes.data;
+
+    const startDate = profile?.start_date ? new Date(String(profile.start_date)) : null;
+    const today = new Date();
+    const yearsOfService = startDate
+      ? Math.floor((today.getTime() - startDate.getTime()) / (365.25 * 24 * 3600 * 1000))
+      : 0;
+    const monthsOfService = startDate
+      ? Math.floor((today.getTime() - startDate.getTime()) / (30.44 * 24 * 3600 * 1000))
+      : 0;
+
+    const monthlyEquivalent = salary
+      ? this.roundCurrency(this.toMonthlyEquivalent(Number(salary.basic_salary), salary.pay_frequency))
+      : 0;
+
+    // Philippine retirement formula: 22.5 × monthly_salary × years_of_service (RA 7641)
+    const ra7641Amount = this.roundCurrency(22.5 * monthlyEquivalent * yearsOfService / 12);
+
+    // Company-defined benefit rate (per year of service, stored as default_amount)
+    const companyRatePerYear = retirementBenefit ? Number(retirementBenefit.default_amount) : 0;
+    const companyAmount = this.roundCurrency(companyRatePerYear * yearsOfService);
+
+    // Use the higher of the two
+    const recommendedAmount = Math.max(ra7641Amount, companyAmount);
+
+    return {
+      user_id:              userId,
+      employee_id:          profile?.employee_id ?? null,
+      name:                 profile ? `${profile.first_name} ${profile.last_name}` : null,
+      start_date:           profile?.start_date ?? null,
+      years_of_service:     yearsOfService,
+      months_of_service:    monthsOfService,
+      monthly_salary:       monthlyEquivalent,
+      computation: {
+        ra7641_amount:          ra7641Amount,
+        ra7641_formula:         '22.5 × monthly_salary × (years_of_service / 12)',
+        company_rate_per_year:  companyRatePerYear,
+        company_amount:         companyAmount,
+        recommended_amount:     recommendedAmount,
+        basis:                  recommendedAmount === ra7641Amount ? 'RA 7641' : 'Company Policy',
+      },
+      benefit_catalog_entry:  retirementBenefit ?? null,
+    };
+  }
+
+  // ── Company branding: logo & display name ──────────────────────────────
+  async updateCompanyBranding(
+    companyId: string,
+    updates: { logo_url?: string; display_name?: string; primary_color?: string },
+    actorId: string,
+  ) {
+    const supabase = this.supabaseService.getClient();
+
+    const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (updates.logo_url    !== undefined) payload.logo_url     = updates.logo_url;
+    if (updates.display_name !== undefined) payload.display_name = updates.display_name;
+    if (updates.primary_color !== undefined) payload.primary_color = updates.primary_color;
+
+    const { data, error } = await supabase
+      .from('company')
+      .update(payload)
+      .eq('company_id', companyId)
+      .select('company_id, company_name, display_name, logo_url, primary_color, updated_at')
+      .maybeSingle();
+
+    if (error) throw new BadRequestException(error.message);
+
+    await this.writeAudit({
+      companyId,
+      actorId,
+      actionType: 'COMPANY_BRANDING_UPDATE',
+      targetTable: 'company',
+      targetRecordId: companyId,
+      newValue: updates,
+    });
+
+    return data;
+  }
+
+  async getCompanyBranding(companyId: string) {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('company')
+      .select('company_id, company_name, display_name, logo_url, primary_color, subscription_status, subscription_duration')
+      .eq('company_id', companyId)
+      .maybeSingle();
+
+    if (error) throw new BadRequestException(error.message);
+    return data;
+  }
+
 }
 

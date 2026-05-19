@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
-import { FileLeaveRequestDto } from './dto/file-leave-request.dto';
+import { FileLeaveRequestDto, RETRO_ELIGIBLE_LEAVE_TYPES } from './dto/file-leave-request.dto';
 import { ReviewLeaveRequestDto } from './dto/review-leave-request.dto';
 import { MailService } from '../mail/mail.service';
 import { LeaveBalancesService } from '../leave-balances/leave-balances.service';
@@ -90,6 +90,32 @@ export class LeaveService {
       throw new BadRequestException('end_date must be on or after start_date.');
     }
 
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const isRetro = dto.is_retro === true;
+
+    // Retro-filing: only Sick Leave and Emergency Leave are backward-compatible
+    if (isRetro) {
+      if (!RETRO_ELIGIBLE_LEAVE_TYPES.includes(dto.leave_type)) {
+        throw new BadRequestException(
+          `Retro-filing is only allowed for: ${RETRO_ELIGIBLE_LEAVE_TYPES.join(', ')}. Use a standard request for ${dto.leave_type}.`,
+        );
+      }
+      if (!dto.retro_reason) {
+        throw new BadRequestException('retro_reason is required when filing a retro leave request.');
+      }
+      if (start >= today) {
+        throw new BadRequestException('Retro leave requests must have a start_date in the past.');
+      }
+    } else {
+      // Standard filing: reject past-date requests (except same-day)
+      if (start < today && dto.leave_type === 'Sick Leave') {
+        throw new BadRequestException(
+          'Sick leave for past dates must use retro-filing (set is_retro: true and provide retro_reason).',
+        );
+      }
+    }
+
     const msPerDay = 1000 * 60 * 60 * 24;
     const totalDays =
       Math.round((end.getTime() - start.getTime()) / msPerDay) + 1;
@@ -147,6 +173,8 @@ export class LeaveService {
         total_days: totalDays,
         reason: dto.reason ?? null,
         attachment_url: dto.attachment_url ?? null,
+        is_retro: dto.is_retro ?? false,
+        retro_reason: dto.retro_reason ?? null,
         status: 'Pending',
       })
       .select()
