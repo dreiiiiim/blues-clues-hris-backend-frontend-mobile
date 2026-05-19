@@ -993,6 +993,77 @@ export class LeaveBalancesService {
     if (updateErr) throw new Error(updateErr.message);
   }
 
+  // ── Yearly rollover: carry unused days into the next year ────────────────────
+
+  async rolloverYearlyBalances(
+    companyId: string,
+    fromYear: number,
+    toYear: number,
+    carryOverCategories: string[] = ['Vacation Leave', 'Sick Leave', 'Personal Leave'],
+    updaterUserId?: string,
+  ): Promise<{
+    employees_processed: number;
+    summary: Array<{ user_id: string; category: string; carried_days: number }>;
+  }> {
+    const employees = await this.getEmployeesForCompany(companyId);
+    if (!employees.length) return { employees_processed: 0, summary: [] };
+
+    const now = new Date().toISOString();
+    const summary: Array<{ user_id: string; category: string; carried_days: number }> = [];
+
+    for (const emp of employees) {
+      const fromMap = await this.getTimeBalancesByUser(emp.user_id, companyId, fromYear);
+      const toMap   = await this.getTimeBalancesByUser(emp.user_id, companyId, toYear);
+
+      for (const cat of carryOverCategories as LeaveCategory[]) {
+        const fromRow = fromMap.get(cat);
+        if (!fromRow) continue;
+        const unused = Math.max(0, Number(fromRow.allocated_days) - Number(fromRow.used_days));
+        if (unused === 0) continue;
+
+        const toRow = toMap.get(cat);
+        const newAllocated = Number(toRow?.allocated_days ?? 0) + unused;
+
+        if (toRow) {
+          const { data: existing } = await this.db
+            .from('time_leave_balances')
+            .select('balance_id')
+            .eq('user_id', emp.user_id)
+            .eq('company_id', companyId)
+            .eq('leave_type', cat)
+            .eq('year', toYear)
+            .maybeSingle();
+
+          if (existing?.balance_id) {
+            await this.db
+              .from('time_leave_balances')
+              .update({ allocated_days: newAllocated, updated_at: now })
+              .eq('balance_id', existing.balance_id);
+          }
+        } else {
+          const defaults = await this.getCompanyDefaults(companyId);
+          const base = (defaults.find((d: any) => d.leave_category === cat) as any)?.default_days ?? 0;
+          await this.db.from('time_leave_balances').insert({
+            user_id: emp.user_id,
+            company_id: companyId,
+            leave_type: cat,
+            year: toYear,
+            allocated_days: Number(base) + unused,
+            used_days: 0,
+            updated_at: now,
+          });
+        }
+
+        summary.push({ user_id: emp.user_id, category: cat, carried_days: unused });
+        this.logger.log(
+          `Carryover — user: ${emp.user_id}, cat: ${cat}, from: ${fromYear}→${toYear}, days: ${unused}`,
+        );
+      }
+    }
+
+    return { employees_processed: employees.length, summary };
+  }
+
   // ── Auto-assign hook (called at employee create / dept change / onboarding) ───
 
   async assignInitialLeaveBalancesForEmployee(params: {

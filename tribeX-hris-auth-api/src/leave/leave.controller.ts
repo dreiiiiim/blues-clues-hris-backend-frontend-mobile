@@ -91,6 +91,15 @@ export class LeaveController {
     return this.leaveService.cancelPendingLeave(requestId, req.user.sub_userid);
   }
 
+  @Patch('requests/:requestId/cancel-revocation')
+  @ApiOperation({ summary: 'Employee: Cancel own pending revocation request' })
+  cancelLeaveRevocationRequest(
+    @Param('requestId') requestId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.leaveService.cancelLeaveRevocationRequest(requestId, req.user.sub_userid);
+  }
+
   @Patch('requests/:requestId/request-revocation')
   @ApiOperation({ summary: 'Employee: Request revocation of an approved leave (future dates only)' })
   requestLeaveRevocation(

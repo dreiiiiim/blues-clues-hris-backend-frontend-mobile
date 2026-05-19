@@ -18,9 +18,18 @@ const DEFAULT_LEAVE_ALLOCATIONS: Record<string, number> = {
   'Sick Leave': 10,
   'Emergency Leave': 3,
   'Personal Leave': 2,
-  'Maternity Leave': 0,
-  'Paternity Leave': 0,
+  'Maternity Leave': 105,
+  'Paternity Leave': 7,
 };
+
+// Law-mandated paid days; excess up to extension limit is unpaid (no balance deduction)
+const FIXED_PAID_DAYS: Record<string, number> = {
+  'Maternity Leave': 105,
+  'Paternity Leave': 7,
+};
+
+// Configurable per company — default 30 unpaid extension days
+const DEFAULT_UNPAID_EXTENSION_MAX = 30;
 
 @Injectable()
 export class LeaveService {
@@ -129,10 +138,23 @@ export class LeaveService {
     const used = Number(categoryRow?.used_days ?? 0);
     const remaining = allocated - used;
 
-    if (totalDays > remaining) {
-      throw new BadRequestException(
-        `Insufficient ${dto.leave_type} balance. Remaining: ${remaining} day(s), requested: ${totalDays}.`,
-      );
+    const fixedPaid = FIXED_PAID_DAYS[dto.leave_type];
+    if (fixedPaid !== undefined) {
+      // Maternity / Paternity: law-mandated paid days + configurable unpaid extension
+      const extensionMax = DEFAULT_UNPAID_EXTENSION_MAX;
+      const maxAllowed = allocated + extensionMax;
+      if (totalDays > maxAllowed) {
+        throw new BadRequestException(
+          `${dto.leave_type} allows ${allocated} paid day(s) + up to ${extensionMax} unpaid extension days (${maxAllowed} total). Requested: ${totalDays}.`,
+        );
+      }
+      // Days beyond paid balance are unpaid — no insufficient-balance error
+    } else {
+      if (totalDays > remaining) {
+        throw new BadRequestException(
+          `Insufficient ${dto.leave_type} balance. Remaining: ${remaining} day(s), requested: ${totalDays}.`,
+        );
+      }
     }
 
     const { data, error } = await supabase
@@ -282,13 +304,21 @@ export class LeaveService {
 
     // If approved, deduct from balance and backfill past attendance
     if (dto.status === 'Approved') {
-      await this.deductLeaveBalance(
-        request.user_id,
-        companyId,
-        request.leave_type,
-        Number(request.total_days),
-        new Date(request.start_date).getFullYear(),
-      );
+      // For Maternity/Paternity, only deduct the paid portion (excess is unpaid — no deduction)
+      const fixedPaidMax = FIXED_PAID_DAYS[request.leave_type] ?? null;
+      const daysToDeduct = fixedPaidMax !== null
+        ? Math.min(Number(request.total_days), fixedPaidMax)
+        : Number(request.total_days);
+
+      if (daysToDeduct > 0) {
+        await this.deductLeaveBalance(
+          request.user_id,
+          companyId,
+          request.leave_type,
+          daysToDeduct,
+          new Date(request.start_date).getFullYear(),
+        );
+      }
 
       // Backfill attendance only for past date ranges
       const todayPH = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
@@ -415,6 +445,41 @@ export class LeaveService {
     if (updateErr) throw new Error(updateErr.message);
 
     this.logger.log(`Leave revocation requested — request: ${requestId}, user: ${userId}`);
+    return { success: true };
+  }
+
+  // ──────────────────────────────────────────────────────────────
+  // EMPLOYEE: Cancel own pending revocation request (before HR acts)
+  // PATCH /leave/requests/:requestId/cancel-revocation
+  // ──────────────────────────────────────────────────────────────
+  async cancelLeaveRevocationRequest(requestId: string, userId: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: request, error: fetchErr } = await supabase
+      .from('time_leave_requests')
+      .select('*')
+      .eq('request_id', requestId)
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (fetchErr) throw new Error(fetchErr.message);
+    if (!request) throw new NotFoundException('Leave request not found.');
+    if (request.status !== 'RevocationRequested') {
+      throw new BadRequestException('Only revocation-pending requests can be cancelled.');
+    }
+
+    const { error: updateErr } = await supabase
+      .from('time_leave_requests')
+      .update({
+        status: 'Approved',
+        revocation_reason: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('request_id', requestId);
+
+    if (updateErr) throw new Error(updateErr.message);
+
+    this.logger.log(`Leave revocation request cancelled — request: ${requestId}, user: ${userId}`);
     return { success: true };
   }
 

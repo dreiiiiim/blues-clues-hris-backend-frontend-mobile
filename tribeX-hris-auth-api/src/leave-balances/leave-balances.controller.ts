@@ -188,6 +188,36 @@ export class LeaveBalancesController {
     );
   }
 
+  // ── Yearly rollover ──────────────────────────────────────────────────────────
+
+  @Post('rollover')
+  @UseGuards(RolesGuard)
+  @Roles(...LEAVE_BALANCE_MANAGERS)
+  @ApiOperation({
+    summary: 'HR: Carry unused leave days from one year into the next',
+    description:
+      'Reads unused days per employee for from_year and adds them to to_year allocated_days. ' +
+      'categories defaults to [Vacation Leave, Sick Leave, Personal Leave]. ' +
+      'Maternity/Paternity excluded by default (statutory, non-accumulating).',
+  })
+  rolloverYearlyBalances(
+    @Req() req: AuthenticatedRequest,
+    @Body()
+    body: {
+      from_year: number;
+      to_year: number;
+      categories?: string[];
+    },
+  ) {
+    return this.leaveBalancesService.rolloverYearlyBalances(
+      req.user.company_id,
+      body.from_year,
+      body.to_year,
+      body.categories,
+      req.user.sub_userid,
+    );
+  }
+
   // ── Bulk ─────────────────────────────────────────────────────────────────────
 
   @Post('bulk')
