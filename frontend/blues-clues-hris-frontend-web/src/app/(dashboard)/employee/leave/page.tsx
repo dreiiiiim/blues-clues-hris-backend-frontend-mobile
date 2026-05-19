@@ -63,6 +63,7 @@ export default function EmployeeLeavePage() {
   const [attachmentFile, setAttachmentFile] = useState<File | null>(null);
   const [selectedRequest, setSelectedRequest] = useState<LeaveRequestItem | null>(null);
   const [historyFilter, setHistoryFilter] = useState<"all" | "pending" | "approved" | "rejected" | "revoked" | "cancelled" | "revocation_requested">("all");
+  const [historyTab, setHistoryTab] = useState<"active" | "past">("active");
   const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   const [revoking, setRevoking] = useState(false);
   const [revocationReason, setRevocationReason] = useState("");
@@ -480,6 +481,22 @@ export default function EmployeeLeavePage() {
                 <CalendarDays className="h-4 w-4" />
                 Leave History
               </CardTitle>
+              <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
+                {(["active", "past"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => setHistoryTab(tab)}
+                    className={`px-3 py-1 rounded-md text-xs font-semibold transition-all duration-150 cursor-pointer ${
+                      historyTab === tab
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {tab === "active" ? "Active / Upcoming" : "Past / History"}
+                  </button>
+                ))}
+              </div>
             </div>
             {!loading && requests.length > 0 && (
               <div className="flex items-center gap-2 flex-wrap">
@@ -569,21 +586,23 @@ export default function EmployeeLeavePage() {
           )}
           {!loading && requests.length > 0 && (() => {
             const filtered = requests
+              .filter(r => {
+                const end = r.end_date ?? r.date;
+                return historyTab === "active" ? end >= today : end < today;
+              })
               .filter(r => historyFilter === "all" || r.status === historyFilter)
               .filter(r => leaveTypeFilter === "all" || (r.leave_type ?? r.reason) === leaveTypeFilter)
               .sort((a, b) => {
-                const aEnd = a.end_date ?? a.date;
-                const bEnd = b.end_date ?? b.date;
-                const aPast = aEnd < today;
-                const bPast = bEnd < today;
-                if (aPast !== bPast) return aPast ? 1 : -1;
+                if (historyTab === "active") {
+                  return (a.start_date ?? a.date).localeCompare(b.start_date ?? b.date);
+                }
                 return (b.start_date ?? b.date).localeCompare(a.start_date ?? a.date);
               });
             return (
               <div className="space-y-2.5">
                 {filtered.length === 0 ? (
                   <p className="text-sm text-muted-foreground py-4 text-center">
-                    No {historyFilter} requests.
+                    No {historyTab === "active" ? "active or upcoming" : "past"} {historyFilter !== "all" ? historyFilter + " " : ""}requests.
                   </p>
                 ) : filtered.map((req) => {
                   const cfg = LEAVE_REASON_CONFIG.find(c => c.value === req.leave_type || c.value === req.reason);
@@ -597,7 +616,7 @@ export default function EmployeeLeavePage() {
                       key={req.request_id}
                       type="button"
                       onClick={() => setSelectedRequest(req)}
-                      className={`w-full rounded-xl border p-3.5 flex items-center justify-between gap-3 text-left hover:bg-muted/30 hover:border-primary/20 transition-all duration-150 cursor-pointer group ${isPast ? "opacity-55" : ""}`}
+                      className="w-full rounded-xl border p-3.5 flex items-center justify-between gap-3 text-left hover:bg-muted/30 hover:border-primary/20 transition-all duration-150 cursor-pointer group"
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         {Icon && (
@@ -611,9 +630,8 @@ export default function EmployeeLeavePage() {
                             {formatDate(req.start_date ?? req.date)}
                             {req.end_date && req.end_date !== (req.start_date ?? req.date)
                               ? ` – ${formatDate(req.end_date)}` : ""}
-                            {isPast && <span className="ml-1.5 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">· past</span>}
                           </p>
-                          {req.status !== "pending" && !isStale && (
+                          {(req.status === "approved" || req.status === "rejected") && !isStale && (
                             <div className={`mt-0.5 flex items-center gap-1 text-xs font-medium ${req.status === "approved" ? "text-emerald-600" : "text-rose-600"}`}>
                               {req.status === "approved"
                                 ? <CheckCircle className="h-3 w-3 shrink-0" />
@@ -623,6 +641,12 @@ export default function EmployeeLeavePage() {
                                 {req.reviewer_name ? ` by ${req.reviewer_name}` : ""}
                                 {req.reviewed_at ? ` · ${formatDate(req.reviewed_at.split("T")[0])}` : ""}
                               </span>
+                            </div>
+                          )}
+                          {req.status === "revocation_requested" && !isStale && (
+                            <div className="mt-0.5 flex items-center gap-1 text-xs font-medium text-violet-600">
+                              <RotateCcw className="h-3 w-3 shrink-0" />
+                              <span className="truncate">Revocation pending HR review</span>
                             </div>
                           )}
                         </div>

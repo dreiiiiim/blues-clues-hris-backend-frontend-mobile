@@ -919,6 +919,15 @@ export async function requestLeaveRevocationApi(requestId: string, reason: strin
   return data as { success: boolean };
 }
 
+export async function cancelLeaveRevocationApi(requestId: string): Promise<{ success: boolean }> {
+  const res = await authFetch(`${API_BASE_URL}/leave/requests/${requestId}/cancel-revocation`, {
+    method: 'PATCH',
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((data as { message?: string })?.message || 'Failed to cancel revocation request');
+  return data as { success: boolean };
+}
+
 // ---------------------------------------------------------------------------
 // Overtime API (Employee)
 // ---------------------------------------------------------------------------

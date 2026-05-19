@@ -12,7 +12,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { authFetch, logoutApi, getMyOvertimeSummary, getMyLeaveRequests, getMyNewLeaveBalances, type LeaveRequestItem, type LeaveBalanceCategory } from "@/lib/authApi";
+import { authFetch, logoutApi, getMyOvertimeSummary, getMyOvertimeRequests, getMyLeaveRequests, getMyNewLeaveBalances, cancelLeaveRevocationApi, type LeaveRequestItem, type LeaveBalanceCategory } from "@/lib/authApi";
 import { LEAVE_CATEGORIES } from "@/lib/leaveCategories";
 import { API_BASE_URL } from "@/lib/api";
 import {
@@ -25,11 +25,23 @@ import {
 
 // â"€â"€â"€ Types â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
 
+type OtSession = {
+  ot_id: string;
+  ot_type: "NORMAL" | "REST_DAY" | "HOLIDAY";
+  approved_start: string;
+  approved_end: string;
+  approved_hours: number;
+  actual_ot_minutes: number;
+  capped_ot_minutes: number;
+  in_progress: boolean;
+};
+
 type MyStatus = {
   date: string;
   current_status: "time-in" | "time-out" | "absence" | null;
   time_in: { timestamp: string; latitude: number; longitude: number; location_name?: string | null } | null;
   time_out: { timestamp: string; latitude: number; longitude: number; location_name?: string | null } | null;
+  ot_session?: OtSession | null;
 };
 
 type AbsenceEntry = {
@@ -121,6 +133,12 @@ function calcDuration(from: string, to: Date = new Date()): string {
   const diff = to.getTime() - parseTs(from).getTime();
   const h = Math.floor(diff / 3600000);
   const m = Math.floor((diff % 3600000) / 60000);
+  return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+function fmtMins(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
@@ -371,8 +389,34 @@ type ScheduleInfo = {
   is_nightshift: boolean | null;
 } | null;
 
+function CancelRevocationButton({ requestId, onSuccess }: { requestId: string; onSuccess: () => void }) {
+  const [loading, setLoading] = useState(false);
+  async function handle() {
+    setLoading(true);
+    try {
+      await cancelLeaveRevocationApi(requestId);
+      onSuccess();
+    } catch (e: unknown) {
+      alert((e as Error).message || "Failed to cancel revocation");
+    } finally {
+      setLoading(false);
+    }
+  }
+  return (
+    <button
+      type="button"
+      disabled={loading}
+      onClick={() => void handle()}
+      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-violet-300 text-xs font-semibold text-violet-700 hover:bg-violet-100 transition-colors cursor-pointer disabled:opacity-50"
+    >
+      {loading ? <span className="animate-spin h-3 w-3 border-2 border-violet-400 border-t-transparent rounded-full" /> : <X className="h-3.5 w-3.5" />}
+      Cancel Revocation Request
+    </button>
+  );
+}
+
 function CalendarDayModal({
-  dateStr, entry, onClose, schedule, locationDisplayMode, leaveRequest,
+  dateStr, entry, onClose, schedule, locationDisplayMode, leaveRequest, onLeaveChanged,
 }: Readonly<{
   dateStr: string;
   entry: TimesheetEntry | null;
@@ -380,6 +424,7 @@ function CalendarDayModal({
   schedule: ScheduleInfo;
   locationDisplayMode: LocationDisplayMode;
   leaveRequest?: LeaveRequestItem | null;
+  onLeaveChanged?: () => void;
 }>) {
   const isFuture = dateStr > todayPST();
   const absenceMeta = getAbsenceReviewMeta(entry?.absence?.log_status);
@@ -476,11 +521,14 @@ function CalendarDayModal({
             </div>
           )}
 
-          {/* Approved leave section */}
+          {/* Approved / revocation-pending leave section */}
           {leaveRequest && (
             <div>
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Approved Leave</p>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">
+                {leaveRequest.status === 'revocation_requested' ? 'Leave (Revocation Pending)' : 'Approved Leave'}
+              </p>
               {(() => {
+                const isRevoc = leaveRequest.status === 'revocation_requested';
                 const leaveCfg = ABSENCE_REASONS.find(r => r.value === leaveRequest.leave_type) ?? ABSENCE_REASONS.find(r => r.value === "Other")!;
                 const LeaveIcon = leaveCfg.icon;
                 const startLabel = new Date((leaveRequest.start_date ?? leaveRequest.date) + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -488,31 +536,33 @@ function CalendarDayModal({
                   ? new Date(leaveRequest.end_date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
                   : null;
                 return (
-                  <div className={`rounded-xl border ${leaveCfg.border} ${leaveCfg.bg} p-3.5 space-y-2`}>
+                  <div className={`rounded-xl border ${isRevoc ? "border-violet-200 bg-violet-50" : `${leaveCfg.border} ${leaveCfg.bg}`} p-3.5 space-y-2`}>
                     <div className="flex items-center gap-2">
-                      <div className={`p-1.5 rounded-lg bg-white border ${leaveCfg.border} shrink-0`}>
-                        <LeaveIcon className={`h-3.5 w-3.5 ${leaveCfg.color}`} />
+                      <div className={`p-1.5 rounded-lg bg-white border ${isRevoc ? "border-violet-200" : leaveCfg.border} shrink-0`}>
+                        <LeaveIcon className={`h-3.5 w-3.5 ${isRevoc ? "text-violet-600" : leaveCfg.color}`} />
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-bold text-foreground">{leaveRequest.leave_type}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {startLabel}{endLabel ? ` – ${endLabel}` : ""}
-                        </p>
+                        <p className="text-xs text-muted-foreground">{startLabel}{endLabel ? ` – ${endLabel}` : ""}</p>
                       </div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 border border-emerald-200 shrink-0">
-                        Excused
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 ${isRevoc ? "bg-violet-100 text-violet-700 border-violet-200" : "bg-emerald-100 text-emerald-700 border-emerald-200"}`}>
+                        {isRevoc ? "Revoc. Req." : "Excused"}
                       </span>
                     </div>
-                    {leaveRequest.reason && (
-                      <p className="text-xs text-muted-foreground italic px-1">
-                        &ldquo;{leaveRequest.reason}&rdquo;
-                      </p>
+                    {isRevoc && leaveRequest.revocation_reason && (
+                      <p className="text-xs text-violet-700 italic px-1">Reason: &ldquo;{leaveRequest.revocation_reason}&rdquo;</p>
                     )}
-                    {leaveRequest.reviewer_name && (
+                    {!isRevoc && leaveRequest.reviewer_name && (
                       <div className="flex items-center gap-1.5 text-xs text-emerald-700 font-medium pt-1 border-t border-emerald-200/60">
                         <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
                         Approved by {leaveRequest.reviewer_name}
                         {leaveRequest.reviewed_at ? ` · ${new Date(leaveRequest.reviewed_at.split("T")[0] + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}` : ""}
+                      </div>
+                    )}
+                    {isRevoc && (
+                      <div className="pt-1 border-t border-violet-200/60">
+                        <p className="text-xs text-violet-600 mb-2">HR is reviewing your revocation request. Cancel to keep the leave approved.</p>
+                        <CancelRevocationButton requestId={leaveRequest.request_id} onSuccess={() => { onLeaveChanged?.(); onClose(); }} />
                       </div>
                     )}
                   </div>
@@ -695,6 +745,7 @@ export default function EmployeeTimekeepingPage() {
   // Modal state
   const [modal, setModal] = useState<null | "time-in" | "time-out" | "rest-day-ot">(null);
   const [approvedOtHours, setApprovedOtHours] = useState(0);
+  const [todayRestDayOtApproved, setTodayRestDayOtApproved] = useState(false);
   const [myLeaves, setMyLeaves] = useState<LeaveRequestItem[]>([]);
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalanceCategory[]>([]);
 
@@ -792,14 +843,23 @@ export default function EmployeeTimekeepingPage() {
       .then(data => { if (data) setMySchedule(data); })
       .catch(() => {});
 
-    // Approved OT hours for current month
+    // Approved OT hours for current month + check for today's approved REST_DAY OT
     getMyOvertimeSummary()
       .then(s => setApprovedOtHours((s as any).approved_planned_hours ?? (s as any).approved_ot_hours ?? 0))
       .catch(() => {});
 
-    // Approved leave requests for calendar overlay
+    getMyOvertimeRequests()
+      .then(reqs => {
+        const todayStr = todayPST();
+        setTodayRestDayOtApproved(
+          reqs.some(r => r.ot_date === todayStr && r.ot_type === 'REST_DAY' && r.log_status === 'APPROVED'),
+        );
+      })
+      .catch(() => {});
+
+    // Approved + revocation-pending leave requests for calendar overlay
     getMyLeaveRequests()
-      .then(data => setMyLeaves(data.filter(r => r.status === 'approved')))
+      .then(data => setMyLeaves(data.filter(r => r.status === 'approved' || r.status === 'revocation_requested')))
       .catch(() => {});
 
     // Leave balances
@@ -1147,8 +1207,10 @@ export default function EmployeeTimekeepingPage() {
           const isRestDayOtCell = entryStatus === "rest-day-ot";
           const dayLeave = leaveMap.get(dateStr);
 
+          const isRevocPending = dayLeave?.status === 'revocation_requested';
           let cellClass = "bg-background border-border hover:border-primary/30";
-          if (dayLeave && !cfg)           cellClass = "bg-emerald-50 border-emerald-200 hover:border-emerald-400";
+          if (dayLeave && !cfg && isRevocPending)  cellClass = "bg-violet-50 border-violet-200 hover:border-violet-400";
+          else if (dayLeave && !cfg)               cellClass = "bg-emerald-50 border-emerald-200 hover:border-emerald-400";
           else if (isToday && cfg)        cellClass = `${cfg.cell} border-primary shadow-md ring-2 ring-primary/20`;
           else if (isToday)               cellClass = "bg-primary/10 border-primary shadow-md";
           else if (cfg)                   cellClass = `${cfg.cell} border hover:opacity-90`;
@@ -1166,13 +1228,19 @@ export default function EmployeeTimekeepingPage() {
             >
               <div className={`text-sm font-bold mb-1 ${isToday ? "text-primary" : "text-foreground"}`}>{day}</div>
 
-              {/* Approved leave indicator */}
+              {/* Leave indicator */}
               {dayLeave && (
                 <div className="flex-1 mt-0.5 space-y-0.5">
-                  <span className="inline-flex items-center px-1 py-0.5 rounded-md text-[7px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 leading-tight">
-                    On Leave
-                  </span>
-                  <p className="text-[7px] font-semibold text-emerald-700 truncate leading-tight px-0.5">
+                  {isRevocPending ? (
+                    <span className="inline-flex items-center px-1 py-0.5 rounded-md text-[7px] font-bold bg-violet-100 text-violet-700 border border-violet-200 leading-tight">
+                      Revoc. Req.
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center px-1 py-0.5 rounded-md text-[7px] font-bold bg-emerald-100 text-emerald-700 border border-emerald-200 leading-tight">
+                      On Leave
+                    </span>
+                  )}
+                  <p className={`text-[7px] font-semibold truncate leading-tight px-0.5 ${isRevocPending ? "text-violet-700" : "text-emerald-700"}`}>
                     {dayLeave.leave_type}
                   </p>
                 </div>
@@ -1763,6 +1831,11 @@ export default function EmployeeTimekeepingPage() {
           schedule={mySchedule}
           locationDisplayMode={locationDisplayMode}
           leaveRequest={calDayModal.leaveRequest ?? null}
+          onLeaveChanged={() => {
+            getMyLeaveRequests()
+              .then(data => setMyLeaves(data.filter(r => r.status === 'approved' || r.status === 'revocation_requested')))
+              .catch(() => {});
+          }}
         />
       )}
 
@@ -1888,6 +1961,18 @@ export default function EmployeeTimekeepingPage() {
                   <span className="font-semibold">{calcDuration(status.time_in.timestamp, now)}</span>
                 </div>
               )}
+              {status?.ot_session && (
+                <>
+                  <div className="flex justify-between py-2 border-b border-slate-100">
+                    <span className="text-muted-foreground">OT Rendered</span>
+                    <span className="font-semibold text-amber-700">{fmtMins(status.ot_session.capped_ot_minutes)}</span>
+                  </div>
+                  <div className="flex justify-between py-2 border-b border-slate-100">
+                    <span className="text-muted-foreground">Approved OT</span>
+                    <span className="font-semibold text-green-700">{status.ot_session.approved_hours}h ({status.ot_session.approved_start.substring(0, 5)}–{status.ot_session.approved_end.substring(0, 5)})</span>
+                  </div>
+                </>
+              )}
               <div className="flex justify-between py-2 border-b border-slate-100">
                 <span className="text-muted-foreground">Location</span>
                 <span className="font-medium text-xs">
@@ -1978,21 +2063,37 @@ export default function EmployeeTimekeepingPage() {
                       <p className="text-xs text-white/55 mt-0.5">Not scheduled to work today</p>
                     </div>
                   </div>
-                  {/* Allow clock-in on rest days as overtime */}
+                  {/* Allow clock-in on rest days as overtime — requires approved OT request */}
                   {!status?.time_in && !hasReportedAbsence && (
-                    <Button
-                      onClick={() => { setActionError(null); setModal("rest-day-ot"); }}
-                      disabled={!location || actionLoading}
-                      className="bg-violet-500/30 border border-violet-300/40 text-white hover:bg-violet-500/50 font-bold gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      <LogIn className="h-4 w-4" /> Clock In (Rest Day OT)
-                    </Button>
+                    <div className="flex flex-col gap-1">
+                      <Button
+                        onClick={() => { setActionError(null); setModal("rest-day-ot"); }}
+                        disabled={!location || actionLoading || !todayRestDayOtApproved}
+                        className="bg-violet-500/30 border border-violet-300/40 text-white hover:bg-violet-500/50 font-bold gap-2 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <LogIn className="h-4 w-4" /> Clock In (Rest Day OT)
+                      </Button>
+                      {!todayRestDayOtApproved && (
+                        <p className="text-[11px] text-amber-300/80 text-center">
+                          Requires an approved Rest Day OT request for today
+                        </p>
+                      )}
+                    </div>
                   )}
                   {status?.time_in && !status?.time_out && (
                     <div className="flex gap-2">
-                      <div className="flex-1 flex items-center gap-2 rounded-xl bg-violet-500/20 border border-violet-400/30 px-4 py-2.5 text-sm font-semibold text-violet-100">
-                        <div className="h-2 w-2 rounded-full bg-violet-300 animate-pulse shrink-0" />
-                        Rest Day OT in progress
+                      <div className="flex-1 flex flex-col gap-0.5 rounded-xl bg-violet-500/20 border border-violet-400/30 px-4 py-2.5 text-sm font-semibold text-violet-100">
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full bg-violet-300 animate-pulse shrink-0" />
+                          Rest Day OT in progress
+                        </div>
+                        {status.ot_session && (
+                          <div className="text-xs font-normal text-violet-300 flex flex-wrap gap-x-2 mt-0.5">
+                            <span>{fmtMins(status.ot_session.capped_ot_minutes)} rendered</span>
+                            <span>·</span>
+                            <span>Approved {status.ot_session.approved_start.substring(0, 5)}–{status.ot_session.approved_end.substring(0, 5)} ({status.ot_session.approved_hours}h)</span>
+                          </div>
+                        )}
                       </div>
                       <Button
                         onClick={() => { setActionError(null); setModal("time-out"); }}
@@ -2081,6 +2182,24 @@ export default function EmployeeTimekeepingPage() {
           <div className="text-right">
             <p className="text-3xl font-black text-blue-900 tabular-nums leading-none">{shiftElapsed}</p>
             <p className="text-[10px] font-bold uppercase tracking-wider text-blue-700 mt-1">Elapsed</p>
+          </div>
+        </div>
+      )}
+
+      {!statusLoading && !isRestDay && isShiftInProgress && status?.ot_session && status.ot_session.actual_ot_minutes > 0 && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-3 w-3 rounded-full bg-amber-500 animate-pulse shrink-0" />
+            <div>
+              <p className="text-base font-semibold text-amber-900">OT In Progress</p>
+              <p className="text-xs text-amber-700">
+                Approved {status.ot_session.approved_start.substring(0, 5)}–{status.ot_session.approved_end.substring(0, 5)} · Cap: {fmtMins(status.ot_session.capped_ot_minutes)} / {status.ot_session.approved_hours}h
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-2xl font-black text-amber-900 tabular-nums leading-none">{fmtMins(status.ot_session.actual_ot_minutes)}</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-amber-700 mt-1">OT</p>
           </div>
         </div>
       )}

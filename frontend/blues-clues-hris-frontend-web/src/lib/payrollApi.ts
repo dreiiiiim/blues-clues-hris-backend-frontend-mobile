@@ -569,7 +569,13 @@ export async function getLeaveRequestsForApproval(status?: string): Promise<Leav
   const res = await authFetch(`${API_BASE_URL}/leave/requests${query}`);
   const data = await res.json().catch(() => []);
   if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to load leave requests");
-  return data as LeaveRequestForApproval[];
+  const rows = Array.isArray(data) ? data : [];
+  return rows.map((row: any) => ({
+    ...row,
+    status: String(row.status ?? "Pending").toLowerCase() === "revocationrequested"
+      ? "revocation_requested"
+      : (row.status ?? "Pending"),
+  })) as LeaveRequestForApproval[];
 }
 
 export async function reviewLeaveRequestApi(

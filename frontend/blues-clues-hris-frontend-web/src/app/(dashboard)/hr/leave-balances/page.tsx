@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { BookOpen, Building2, Loader2, Pencil, RotateCcw, Save, Search, Users } from "lucide-react";
+import { BookOpen, Building2, CalendarRange, Loader2, Pencil, RotateCcw, Save, Search, Users } from "lucide-react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -61,6 +61,10 @@ export default function HRLeaveBalancesPage() {
   const [departmentFilter, setDepartmentFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<"all" | "default" | "bulk" | "individual">("all");
   const [statsView, setStatsView] = useState<"category" | "employee">("employee");
+  const [statsHealthFilter, setStatsHealthFilter] = useState<null | "maxed" | "nearMax" | "healthy">(null);
+  const [rolloverFromYear, setRolloverFromYear] = useState(() => new Date().getFullYear() - 1);
+  const [rolloverToYear, setRolloverToYear] = useState(() => new Date().getFullYear());
+  const [rollingOver, setRollingOver] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -112,6 +116,30 @@ export default function HRLeaveBalancesPage() {
     LEAVE_CATEGORIES.forEach(c => { if (!(c.value in d)) d[c.value] = 0; });
     setDefaultDraft(d);
     setEditingDefaults(true);
+  };
+
+  const handleRollover = async () => {
+    if (rolloverToYear <= rolloverFromYear) {
+      toast.error("To year must be after From year.");
+      return;
+    }
+    setRollingOver(true);
+    try {
+      const res = await authFetch(`${API_BASE_URL}/leave-balances/rollover`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ from_year: rolloverFromYear, to_year: rolloverToYear }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { message?: string })?.message || "Rollover failed");
+      const summary = (data as { employees_processed?: number; summary?: unknown[] });
+      toast.success(`Rollover complete — ${summary.employees_processed ?? 0} employees processed, ${summary.summary?.length ?? 0} carryovers applied.`);
+      void load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Rollover failed");
+    } finally {
+      setRollingOver(false);
+    }
   };
 
   const saveDefaults = async () => {
@@ -218,6 +246,17 @@ export default function HRLeaveBalancesPage() {
   }, [filtered]);
 
   const balanceStats = statsView === "employee" ? balanceStatsByEmployee : balanceStatsByCategory;
+
+  const displayedEmployees = useMemo(() => {
+    if (!statsHealthFilter) return filtered;
+    if (statsHealthFilter === "maxed") return filtered.filter(emp => emp.categories.some(c => c.remaining_days <= 0));
+    if (statsHealthFilter === "nearMax") return filtered.filter(emp =>
+      !emp.categories.some(c => c.remaining_days <= 0) &&
+      emp.categories.some(c => c.remaining_days > 0 && c.remaining_days <= 2),
+    );
+    if (statsHealthFilter === "healthy") return filtered.filter(emp => emp.categories.every(c => c.remaining_days > 2));
+    return filtered;
+  }, [filtered, statsHealthFilter]);
   const selectedDepartmentName = useMemo(
     () => departments.find((dep) => dep.department_id === selectedDepartmentId)?.department_name ?? "Department",
     [departments, selectedDepartmentId],
@@ -387,24 +426,36 @@ export default function HRLeaveBalancesPage() {
                 Total: {balanceStats.total}
               </span>
             </div>
-            <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2">
-              <p className="text-[11px] font-semibold text-red-700">No Remaining</p>
+            <button
+              type="button"
+              onClick={() => setStatsHealthFilter(prev => prev === "maxed" ? null : "maxed")}
+              className={`rounded-lg border px-3 py-2 text-left transition-all cursor-pointer ${statsHealthFilter === "maxed" ? "border-red-400 bg-red-100 ring-2 ring-red-300" : "border-red-200 bg-red-50 hover:border-red-300"}`}
+            >
+              <p className="text-[11px] font-semibold text-red-700">No Remaining {statsHealthFilter === "maxed" && "· filtered"}</p>
               <p className="text-xl font-bold text-red-800">{balanceStats.maxed}</p>
-            </div>
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2">
-              <p className="text-[11px] font-semibold text-amber-700">Near Limit (≤2 days)</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatsHealthFilter(prev => prev === "nearMax" ? null : "nearMax")}
+              className={`rounded-lg border px-3 py-2 text-left transition-all cursor-pointer ${statsHealthFilter === "nearMax" ? "border-amber-400 bg-amber-100 ring-2 ring-amber-300" : "border-amber-200 bg-amber-50 hover:border-amber-300"}`}
+            >
+              <p className="text-[11px] font-semibold text-amber-700">Near Limit (≤2 days) {statsHealthFilter === "nearMax" && "· filtered"}</p>
               <p className="text-xl font-bold text-amber-800">{balanceStats.nearMax}</p>
-            </div>
-            <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2">
-              <p className="text-[11px] font-semibold text-emerald-700">Healthy</p>
+            </button>
+            <button
+              type="button"
+              onClick={() => setStatsHealthFilter(prev => prev === "healthy" ? null : "healthy")}
+              className={`rounded-lg border px-3 py-2 text-left transition-all cursor-pointer ${statsHealthFilter === "healthy" ? "border-emerald-400 bg-emerald-100 ring-2 ring-emerald-300" : "border-emerald-200 bg-emerald-50 hover:border-emerald-300"}`}
+            >
+              <p className="text-[11px] font-semibold text-emerald-700">Healthy {statsHealthFilter === "healthy" && "· filtered"}</p>
               <p className="text-xl font-bold text-emerald-800">{balanceStats.healthy}</p>
-            </div>
+            </button>
           </div>
           <div className="flex flex-wrap items-center gap-2 mb-3">
             <Badge className={SOURCE_BADGE.default}>company default</Badge>
             <Badge className={SOURCE_BADGE.bulk}>department default</Badge>
             <Badge className={SOURCE_BADGE.individual}>employee override</Badge>
-            <span className="text-xs text-muted-foreground ml-auto">{filtered.length} employee(s)</span>
+            <span className="text-xs text-muted-foreground ml-auto">{displayedEmployees.length} employee(s){statsHealthFilter && ` · filtered`}</span>
           </div>
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <select
@@ -428,11 +479,11 @@ export default function HRLeaveBalancesPage() {
               <option value="individual">Employee override</option>
             </select>
           </div>
-          {filtered.length === 0 ? (
+          {displayedEmployees.length === 0 ? (
             <p className="text-sm text-muted-foreground">No employees found.</p>
           ) : (
             <div className="space-y-3">
-              {filtered.map((emp) => {
+              {displayedEmployees.map((emp) => {
                 const isEditing = editingEmployee === emp.user_id;
                 return (
                   <div key={emp.user_id} className="rounded-xl border border-slate-200/80 p-4 space-y-3 bg-white transition-all duration-200 hover:-translate-y-[1px] hover:shadow-[0_12px_24px_-18px_rgba(15,23,42,0.45)]">
@@ -480,7 +531,7 @@ export default function HRLeaveBalancesPage() {
                                 onBlur={e => setEmpDraft(p => ({ ...p, [cat.leave_category]: normalizeWholeDay(e.target.value) }))}
                                 className="w-full border rounded px-1.5 py-0.5 text-xs bg-background" />
                             ) : (
-                              <p className="font-bold text-primary">{Math.round(cat.remaining_days)} <span className="text-muted-foreground font-normal">days / {Math.round(cat.entitled_days)} days</span></p>
+                              <p className="font-bold text-primary">{Math.round(cat.used_days)}<span className="text-muted-foreground font-normal"> / {Math.round(cat.entitled_days)} used</span></p>
                             )}
                           </div>
                         );
@@ -491,6 +542,58 @@ export default function HRLeaveBalancesPage() {
               })}
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* ── Yearly Rollover ─────────────────────────────────────────────────── */}
+      <Card className="bg-card rounded-xl border border-slate-200/80 shadow-sm">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base font-bold flex items-center gap-2">
+            <CalendarRange className="h-4 w-4 text-primary" /> Yearly Leave Balance Rollover
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Carry unused Vacation, Sick, and Personal leave days from one year into the next.
+            Maternity and Paternity leave are excluded (statutory, non-accumulating).
+          </p>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">From Year</label>
+              <input
+                type="number"
+                min={2020}
+                max={new Date().getFullYear()}
+                value={rolloverFromYear}
+                onChange={e => setRolloverFromYear(Number(e.target.value))}
+                className="w-24 border border-border rounded-lg px-2.5 py-1.5 text-sm bg-background focus:outline-none focus:border-primary"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">To Year</label>
+              <input
+                type="number"
+                min={2021}
+                max={new Date().getFullYear() + 1}
+                value={rolloverToYear}
+                onChange={e => setRolloverToYear(Number(e.target.value))}
+                className="w-24 border border-border rounded-lg px-2.5 py-1.5 text-sm bg-background focus:outline-none focus:border-primary"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={rollingOver}
+              onClick={() => void handleRollover()}
+              className="gap-2"
+            >
+              {rollingOver ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CalendarRange className="h-3.5 w-3.5" />}
+              {rollingOver ? "Processing…" : `Roll Over ${rolloverFromYear} → ${rolloverToYear}`}
+            </Button>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Note: Maternity (105 days paid + up to 30 days unpaid extension) and Paternity (7 days paid + up to 30 days unpaid) balances are fixed by law and excluded from carryover.
+          </p>
         </CardContent>
       </Card>
 
