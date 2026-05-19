@@ -38,7 +38,7 @@ export function corsOptions(allowedOriginsRaw?: string): CorsOptions {
   return {
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Correlation-ID', 'X-Webhook-Secret'],
     exposedHeaders: ['X-Correlation-ID', 'X-Request-Id'],
     maxAge: 86400,
     origin(origin, callback) {

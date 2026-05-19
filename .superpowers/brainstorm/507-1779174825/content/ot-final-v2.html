@@ -1,0 +1,98 @@
+<h2>Updated Design — OT Today Banner</h2>
+<p class="subtitle">Clock-in stays in Timekeeping. Banner on Overtime page points there clearly.</p>
+
+<div class="mockup">
+  <div class="mockup-header">Employee → Overtime Requests · Upcoming tab</div>
+  <div class="mockup-body" style="background:#f8fafc;padding:16px;font-family:system-ui,sans-serif;">
+
+    <!-- Two dropdowns -->
+    <div style="display:flex;gap:8px;margin-bottom:10px;">
+      <div style="flex:1;border:1px solid #e2e8f0;border-radius:10px;padding:7px 12px;font-size:12px;color:#64748b;display:flex;align-items:center;justify-content:space-between;background:white;">
+        <span>All Types</span><span style="color:#94a3b8;">▾</span>
+      </div>
+      <div style="flex:1;border:1px solid #e2e8f0;border-radius:10px;padding:7px 12px;font-size:12px;color:#64748b;display:flex;align-items:center;justify-content:space-between;background:white;">
+        <span>All Status</span><span style="color:#94a3b8;">▾</span>
+      </div>
+    </div>
+
+    <!-- Underline tabs -->
+    <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:14px;">
+      <div style="padding:8px 18px;border-bottom:2px solid #0f172a;margin-bottom:-2px;font-size:13px;font-weight:800;color:#0f172a;">Upcoming</div>
+      <div style="padding:8px 18px;font-size:13px;font-weight:600;color:#94a3b8;">Past</div>
+    </div>
+
+    <!-- TODAY OT NOTICE — info only, links to timekeeping -->
+    <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:12px;padding:14px 16px;color:white;margin-bottom:14px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+        <div style="font-size:9px;opacity:0.5;letter-spacing:2px;text-transform:uppercase;">Today · Rest Day OT · Approved</div>
+        <div style="background:#fbbf24;color:#0f172a;font-size:9px;font-weight:800;padding:2px 8px;border-radius:20px;">TODAY</div>
+      </div>
+      <div style="font-size:15px;font-weight:800;margin-bottom:2px;">8:00 AM → 12:00 PM · 4h</div>
+      <div style="font-size:11px;opacity:0.6;margin-bottom:12px;">Go to Timekeeping to clock in and out for this OT.</div>
+      <a style="display:flex;align-items:center;justify-content:center;gap:6px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);color:white;border-radius:9px;padding:9px;font-size:12px;font-weight:700;text-decoration:none;">
+        Open Timekeeping →
+      </a>
+    </div>
+
+    <!-- Request list -->
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+      <div style="font-size:12px;font-weight:800;color:#0f172a;">My Requests</div>
+      <div style="font-size:11px;color:#94a3b8;">3 upcoming</div>
+    </div>
+
+    <!-- Today's card -->
+    <div style="background:white;border:1.5px solid #fbbf24;border-radius:12px;overflow:hidden;margin-bottom:8px;">
+      <div style="display:flex;align-items:stretch;">
+        <div style="width:52px;background:#fefce8;border-right:1px solid #fef9c3;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 0;">
+          <div style="font-size:8px;color:#a16207;font-weight:700;text-transform:uppercase;">MAY</div>
+          <div style="font-size:22px;font-weight:900;color:#1e293b;line-height:1;">20</div>
+          <div style="font-size:8px;color:#a16207;">Wed</div>
+        </div>
+        <div style="flex:1;padding:10px 12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="background:#ede9fe;color:#7c3aed;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">🌙 Rest Day OT</span>
+            <span style="background:#dcfce7;color:#16a34a;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Approved</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">8:00 AM → 12:00 PM · 4h</div>
+          <div style="font-size:10px;color:#a16207;font-weight:600;margin-top:3px;">⏰ Clock in via Timekeeping today</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Future card -->
+    <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;margin-bottom:8px;">
+      <div style="display:flex;align-items:stretch;">
+        <div style="width:52px;background:#f8fafc;border-right:1px solid #f1f5f9;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:12px 0;">
+          <div style="font-size:8px;color:#94a3b8;font-weight:700;text-transform:uppercase;">MAY</div>
+          <div style="font-size:22px;font-weight:900;color:#1e293b;line-height:1;">22</div>
+          <div style="font-size:8px;color:#94a3b8;">Thu</div>
+        </div>
+        <div style="flex:1;padding:10px 12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+            <span style="background:#fef9c3;color:#a16207;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Pending</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">5:00 PM → 7:00 PM · 2h</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<div style="margin-top:20px;" class="options">
+  <div class="option" data-choice="approve" onclick="toggleSelect(this)">
+    <div class="letter">✓</div>
+    <div class="content">
+      <h3>Looks good — build it</h3>
+      <p>Approve this design. Proceed to plan.</p>
+    </div>
+  </div>
+  <div class="option" data-choice="change" onclick="toggleSelect(this)">
+    <div class="letter">✎</div>
+    <div class="content">
+      <h3>Need changes</h3>
+      <p>Tell me what to adjust in the terminal.</p>
+    </div>
+  </div>
+</div>

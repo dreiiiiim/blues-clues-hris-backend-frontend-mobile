@@ -171,18 +171,29 @@ export class SubscriptionService {
     const successUrl = `${appUrl}/payment/success?registration_id=${dto.registration_id}`;
     const cancelUrl = `${appUrl}/payment/cancel?registration_id=${dto.registration_id}`;
 
-    const session = await this.apiCenterSdkService.getClient().paymentCreateCheckoutSession({
-      referenceId: dto.registration_id,
-      successUrl,
-      cancelUrl,
-      lineItems: [
-        {
-          name: planName,
-          quantity: 1,
-          amount: { value: amountCentavos, currency: 'PHP' },
-        },
-      ],
-    });
+    const session = await this.apiCenterSdkService
+      .getClient()
+      .paymentCreateCheckoutSession({
+        referenceId: dto.registration_id,
+        idempotencyKey: dto.registration_id,
+        successUrl,
+        cancelUrl,
+        lineItems: [
+          {
+            name: planName,
+            quantity: 1,
+            amount: { value: amountCentavos, currency: 'PHP' },
+          },
+        ],
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error(
+          `paymentCreateCheckoutSession failed: ${message}`,
+          err instanceof Error ? err.stack : undefined,
+        );
+        throw new InternalServerErrorException(`Payment gateway error: ${message}`);
+      });
 
     const { error: updateErr } = await supabase
       .from('company_registrations')

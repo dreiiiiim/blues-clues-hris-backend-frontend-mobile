@@ -32,21 +32,21 @@ Each project has own `package.json` + `node_modules`. No workspace tooling — i
 
 ### Backend — `tribeX-hris-auth-api/`
 
-| Layer         | Tech                                        | Version |
-| ------------- | ------------------------------------------- | ------- |
-| Framework     | NestJS                                      | 11.x    |
-| Language      | TypeScript                                  | 5.7     |
-| Runtime       | Node.js                                     | 20+     |
-| Auth          | `@nestjs/jwt` + `passport-jwt` + `bcryptjs` | —       |
-| DB Client     | `@supabase/supabase-js`                     | 2.97    |
-| Email         | **Brevo** REST API via `fetch` → `POST https://api.brevo.com/v3/smtp/email` | v3 |
-| File Upload   | `multer` (`@types/multer`) — resume uploads | —       |
-| API Docs      | `@nestjs/swagger` + `swagger-ui-express`    | 11.x    |
-| Validation    | `class-validator` + `class-transformer`     | —       |
-| Rate Limiting | `@nestjs/throttler`                         | 6.5     |
-| Cron          | `@nestjs/schedule`                          | 6.1     |
-| File Parsing  | `pdf-parse`, `mammoth` (resume parsing)     | —       |
-| Testing       | Jest + Supertest                            | 30.x    |
+| Layer         | Tech                                                                        | Version |
+| ------------- | --------------------------------------------------------------------------- | ------- |
+| Framework     | NestJS                                                                      | 11.x    |
+| Language      | TypeScript                                                                  | 5.7     |
+| Runtime       | Node.js                                                                     | 20+     |
+| Auth          | `@nestjs/jwt` + `passport-jwt` + `bcryptjs`                                 | —       |
+| DB Client     | `@supabase/supabase-js`                                                     | 2.97    |
+| Email         | **Brevo** REST API via `fetch` → `POST https://api.brevo.com/v3/smtp/email` | v3      |
+| File Upload   | `multer` (`@types/multer`) — resume uploads                                 | —       |
+| API Docs      | `@nestjs/swagger` + `swagger-ui-express`                                    | 11.x    |
+| Validation    | `class-validator` + `class-transformer`                                     | —       |
+| Rate Limiting | `@nestjs/throttler`                                                         | 6.5     |
+| Cron          | `@nestjs/schedule`                                                          | 6.1     |
+| File Parsing  | `pdf-parse`, `mammoth` (resume parsing)                                     | —       |
+| Testing       | Jest + Supertest                                                            | 30.x    |
 
 **Modules:** `auth`, `users`, `applicants`, `jobs`, `onboarding`, `timekeeping`, `notifications`, `mail`, `audit`, `supabase`.
 
@@ -80,15 +80,16 @@ Each project has own `package.json` + `node_modules`. No workspace tooling — i
 
 ## Infrastructure
 
-| Service      | Used For                                    | Notes                                                 |
-| ------------ | ------------------------------------------- | ----------------------------------------------------- |
-| **Supabase** | Postgres DB, auth tables, file storage, RLS | Project ref `xvofqboilmzlhrnkyyif`                    |
-| **Railway**  | Backend deploy (NestJS)                     | Prod URL below                                        |
-| **Vercel**   | Frontend deploy (Next.js) — recommended     | —                                                     |
+| Service      | Used For                                    | Notes                                                                                                                   |
+| ------------ | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **Supabase** | Postgres DB, auth tables, file storage, RLS | Project ref `xvofqboilmzlhrnkyyif`                                                                                      |
+| **Railway**  | Backend deploy (NestJS)                     | Prod URL below                                                                                                          |
+| **Vercel**   | Frontend deploy (Next.js) — recommended     | —                                                                                                                       |
 | **Brevo**    | Transactional email                         | Sends via `POST https://api.brevo.com/v3/smtp/email`. Auth header `api-key: <BREVO_API_KEY>`. Verified sender required. |
-| **Expo Go**  | Mobile dev + OTA preview                    | Same Wi-Fi for localhost                              |
+| **Expo Go**  | Mobile dev + OTA preview                    | Same Wi-Fi for localhost                                                                                                |
 
 **Why no AWS:**
+
 - Supabase = managed Postgres + Storage + Auth (replaces RDS + S3 + Cognito)
 - Railway = container deploy with logs/env (replaces ECS / Elastic Beanstalk)
 - Brevo = transactional email (replaces SES)
@@ -98,6 +99,7 @@ Each project has own `package.json` + `node_modules`. No workspace tooling — i
 Adding AWS = more DevOps work + more bills + more surface area. Stick with current stack unless we hit a real wall (e.g., scale limits or a feature only AWS provides).
 
 **Prod URLs:**
+
 - Backend: `https://blues-clues-hris-backend-frontend-mobile-production.up.railway.app`
 - Swagger (local): `http://localhost:5000/api/docs`
 
@@ -153,6 +155,7 @@ APP_URL=http://localhost:3000
 ```
 
 Backend notes:
+
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only. Never put it in frontend/mobile env files.
 - `JWT_SECRET` must be at least 32 characters.
 - `BREVO_SENDER_EMAIL` must be verified in Brevo or email sends will fail.
@@ -175,6 +178,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
 Frontend notes:
+
 - Only variables starting with `NEXT_PUBLIC_` are exposed to the browser.
 - Restart `npm run dev` after changing `.env.local`.
 
@@ -200,6 +204,7 @@ EXPO_PUBLIC_API_BASE_URL=https://blues-clues-hris-backend-frontend-mobile-produc
 ```
 
 Mobile notes:
+
 - Do not use `localhost` on a physical phone. Use your PC's Wi-Fi IPv4 address.
 - Restart Expo with `npx expo start -c` after changing `.env`.
 - Your phone and development machine must be on the same Wi-Fi network for local backend testing.
@@ -310,19 +315,19 @@ npx expo start -c
 
 ### Backend — `tribeX-hris-auth-api/.env`
 
-| Variable                    | Description                                                     | Required |
-| --------------------------- | --------------------------------------------------------------- | -------- |
-| `PORT`                      | API server port (default: `5000`)                               | No       |
-| `SUPABASE_URL`              | Supabase project URL                                            | Yes      |
-| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (admin access — server only)          | Yes      |
-| `SUPABASE_ANON_KEY`         | Supabase anon/public key                                        | Yes      |
-| `JWT_SECRET`                | Secret used to sign JWT access tokens                           | Yes      |
-| `BREVO_API_KEY`             | Brevo API key (`api-key` header on `POST /v3/smtp/email`)       | Yes      |
-| `BREVO_BASE_URL`            | Brevo API base URL — default `https://api.brevo.com`            | No       |
-| `BREVO_SENDER_EMAIL`        | Verified sender email registered in Brevo                       | Yes      |
-| `BREVO_SENDER_NAME`         | Display name on outgoing emails (default: `Blues Clues HRIS`)   | No       |
-| `BREVO_TIMEOUT_MS`          | Fetch timeout for Brevo API call (default: `15000`)             | No       |
-| `APP_URL`                   | Frontend URL (used in email links — verification, reset, etc.)  | Yes      |
+| Variable                    | Description                                                    | Required |
+| --------------------------- | -------------------------------------------------------------- | -------- |
+| `PORT`                      | API server port (default: `5000`)                              | No       |
+| `SUPABASE_URL`              | Supabase project URL                                           | Yes      |
+| `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (admin access — server only)         | Yes      |
+| `SUPABASE_ANON_KEY`         | Supabase anon/public key                                       | Yes      |
+| `JWT_SECRET`                | Secret used to sign JWT access tokens                          | Yes      |
+| `BREVO_API_KEY`             | Brevo API key (`api-key` header on `POST /v3/smtp/email`)      | Yes      |
+| `BREVO_BASE_URL`            | Brevo API base URL — default `https://api.brevo.com`           | No       |
+| `BREVO_SENDER_EMAIL`        | Verified sender email registered in Brevo                      | Yes      |
+| `BREVO_SENDER_NAME`         | Display name on outgoing emails (default: `Blues Clues HRIS`)  | No       |
+| `BREVO_TIMEOUT_MS`          | Fetch timeout for Brevo API call (default: `15000`)            | No       |
+| `APP_URL`                   | Frontend URL (used in email links — verification, reset, etc.) | Yes      |
 
 > **Never commit `.env` files or real secret values.** They are in `.gitignore`. Use placeholders in committed docs and get real values from the private team setup document.
 > Brevo sender email **must be verified** in your Brevo dashboard or sends will 401/403.
@@ -529,12 +534,12 @@ A task is considered done only when:
 
 ## Where to Find Things
 
-| Need                    | Location                                            |
-| ----------------------- | --------------------------------------------------- |
-| API reference           | `http://localhost:5000/api/docs` (Swagger)          |
-| Project plan / spec     | GDocs link at top                                   |
+| Need                    | Location                                               |
+| ----------------------- | ------------------------------------------------------ |
+| API reference           | `http://localhost:5000/api/docs` (Swagger)             |
+| Project plan / spec     | GDocs link at top                                      |
 | Deeper dev rules        | [`RULES_AND_GUIDELINES.md`](./RULES_AND_GUIDELINES.md) |
-| SQL migrations          | `tribeX-hris-auth-api/sql/`                         |
-| Email templates         | `tribeX-hris-auth-api/src/mail/`                    |
-| Shared types (frontend) | `frontend/.../src/types/`                           |
-| API clients (frontend)  | `frontend/.../src/lib/*Api.ts`                      |
+| SQL migrations          | `tribeX-hris-auth-api/sql/`                            |
+| Email templates         | `tribeX-hris-auth-api/src/mail/`                       |
+| Shared types (frontend) | `frontend/.../src/types/`                              |
+| API clients (frontend)  | `frontend/.../src/lib/*Api.ts`                         |

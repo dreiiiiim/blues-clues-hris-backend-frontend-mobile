@@ -1,0 +1,147 @@
+<h2>OT Clock-In — Today's Approved Card</h2>
+<p class="subtitle">How should employees clock in/out for today's approved OT? Pick the card state design you prefer.</p>
+
+<div class="cards">
+
+  <!-- Option A: Clock-in button ON the OT card itself -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:14px;border-radius:8px;">
+      <p style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Today · May 20 · APPROVED</p>
+
+      <!-- State 1: Not clocked in yet -->
+      <div style="background:white;border:1.5px solid #fbbf24;border-radius:12px;overflow:hidden;margin-bottom:8px;">
+        <div style="display:flex;gap:0;align-items:stretch;">
+          <div style="width:52px;background:#fefce8;border-right:1px solid #fef9c3;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0;">
+            <div style="font-size:8px;color:#a16207;text-transform:uppercase;font-weight:700;">MAY</div>
+            <div style="font-size:22px;font-weight:900;color:#1e293b;line-height:1;">20</div>
+            <div style="font-size:8px;color:#a16207;">Wed</div>
+          </div>
+          <div style="flex:1;padding:10px 12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+              <span style="background:#fef9c3;color:#a16207;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Today</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:8px;">5:00 PM → 7:00 PM · 2h</div>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <div style="flex:1;background:#0f172a;color:white;border-radius:8px;padding:7px;text-align:center;font-size:11px;font-weight:700;">Clock In for OT</div>
+              <div style="color:#64748b;font-size:10px;">Not started</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- State 2: Clocked in -->
+      <div style="background:white;border:1.5px solid #34d399;border-radius:12px;overflow:hidden;margin-bottom:8px;">
+        <div style="display:flex;gap:0;align-items:stretch;">
+          <div style="width:52px;background:#f0fdf4;border-right:1px solid #dcfce7;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0;">
+            <div style="font-size:8px;color:#16a34a;text-transform:uppercase;font-weight:700;">MAY</div>
+            <div style="font-size:22px;font-weight:900;color:#1e293b;line-height:1;">20</div>
+            <div style="font-size:8px;color:#16a34a;">Wed</div>
+          </div>
+          <div style="flex:1;padding:10px 12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+              <span style="background:#dcfce7;color:#16a34a;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">● In Progress</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:2px;">5:00 PM → 7:00 PM · 2h</div>
+            <div style="font-size:10px;color:#16a34a;font-weight:600;margin-bottom:8px;">Clocked in at 5:02 PM</div>
+            <div style="background:#dc2626;color:white;border-radius:8px;padding:7px;text-align:center;font-size:11px;font-weight:700;">Clock Out</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- State 3: Done -->
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:12px;overflow:hidden;opacity:0.75;">
+        <div style="display:flex;gap:0;align-items:stretch;">
+          <div style="width:52px;background:#f8fafc;border-right:1px solid #f1f5f9;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0;">
+            <div style="font-size:8px;color:#94a3b8;text-transform:uppercase;font-weight:700;">MAY</div>
+            <div style="font-size:22px;font-weight:900;color:#1e293b;line-height:1;">20</div>
+            <div style="font-size:8px;color:#94a3b8;">Wed</div>
+          </div>
+          <div style="flex:1;padding:10px 12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+              <span style="background:#f1f5f9;color:#64748b;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">✓ Completed</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:2px;">5:02 PM → 7:05 PM · 2.05h</div>
+            <div style="font-size:10px;color:#64748b;">OT attendance recorded</div>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:10px;color:#94a3b8;margin-top:6px;">↑ Three states of the same card today</p>
+    </div>
+    <div class="card-body">
+      <h3>A — Clock-in button on the OT card</h3>
+      <p>Today's approved OT card shows Clock In → Clock Out directly. Employees never need to leave this page for OT attendance.</p>
+    </div>
+  </div>
+
+  <!-- Option B: Separate OT clock-in widget at top of Upcoming tab -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:14px;border-radius:8px;">
+      <p style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Upcoming tab — when today has approved OT</p>
+
+      <!-- Banner widget -->
+      <div style="background:linear-gradient(135deg,#0f172a,#1e3a5f);border-radius:12px;padding:14px;color:white;margin-bottom:10px;">
+        <div style="font-size:10px;opacity:0.6;text-transform:uppercase;letter-spacing:2px;margin-bottom:4px;">Today's OT · Normal OT · 5:00–7:00 PM</div>
+        <div style="font-size:15px;font-weight:800;margin-bottom:10px;">Ready to clock in?</div>
+        <div style="display:flex;gap:8px;">
+          <div style="flex:1;background:white;color:#0f172a;border-radius:8px;padding:8px;text-align:center;font-size:12px;font-weight:800;">Clock In for OT</div>
+        </div>
+      </div>
+
+      <!-- Regular card below -->
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:10px;display:flex;gap:10px;align-items:center;">
+        <div style="text-align:center;min-width:36px;background:#f8fafc;border-right:1px solid #f1f5f9;padding:0 8px 0 0;margin-right:4px;">
+          <div style="font-size:8px;color:#94a3b8;text-transform:uppercase;">MAY</div>
+          <div style="font-size:20px;font-weight:900;color:#1e293b;">22</div>
+          <div style="font-size:8px;color:#94a3b8;">Thu</div>
+        </div>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+            <span style="background:#dcfce7;color:#16a34a;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Approved</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">5:00 PM → 7:00 PM · 2h</div>
+        </div>
+      </div>
+      <p style="font-size:10px;color:#94a3b8;margin-top:6px;">Banner only appears when today has approved OT</p>
+    </div>
+    <div class="card-body">
+      <h3>B — Dedicated clock-in banner at top</h3>
+      <p>A prominent banner appears above the list when today has approved OT. Tapping it triggers clock-in. Disappears once clocked in.</p>
+    </div>
+  </div>
+
+  <!-- Option C: Link to timekeeping, no separate button -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:14px;border-radius:8px;">
+      <p style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Today's OT card — info only + shortcut</p>
+      <div style="background:white;border:1.5px solid #fbbf24;border-radius:12px;overflow:hidden;margin-bottom:8px;">
+        <div style="display:flex;gap:0;align-items:stretch;">
+          <div style="width:52px;background:#fefce8;border-right:1px solid #fef9c3;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:10px 0;">
+            <div style="font-size:8px;color:#a16207;text-transform:uppercase;font-weight:700;">MAY</div>
+            <div style="font-size:22px;font-weight:900;color:#1e293b;line-height:1;">20</div>
+            <div style="font-size:8px;color:#a16207;">Wed</div>
+          </div>
+          <div style="flex:1;padding:10px 12px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+              <span style="background:#fef9c3;color:#a16207;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Today</span>
+            </div>
+            <div style="font-size:12px;font-weight:600;color:#1e293b;margin-bottom:6px;">5:00 PM → 7:00 PM · 2h</div>
+            <div style="border:1px solid #e2e8f0;border-radius:8px;padding:7px 10px;font-size:11px;color:#64748b;display:flex;align-items:center;justify-content:space-between;">
+              <span>Go to Timekeeping to clock in →</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="font-size:10px;color:#94a3b8;">No clock-in here — just a nav link</p>
+    </div>
+    <div class="card-body">
+      <h3>C — Timekeeping shortcut only</h3>
+      <p>Card highlights "today" but clock-in stays on the Timekeeping page. Just a link. Less code, but requires navigating away.</p>
+    </div>
+  </div>
+
+</div>

@@ -1,0 +1,141 @@
+<h2>Overtime Page — Layout Options</h2>
+<p class="subtitle">Tabs + filter placement. Which feels right?</p>
+
+<div class="cards">
+
+  <!-- Option A -->
+  <div class="card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:16px;border-radius:8px;">
+      <div style="background:#0f172a;border-radius:10px;padding:14px 16px;color:white;margin-bottom:10px;">
+        <div style="font-size:10px;opacity:0.5;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">MAY 2026</div>
+        <div style="font-size:22px;font-weight:900;">3.02h <span style="font-size:13px;font-weight:400;opacity:0.7;">approved</span></div>
+      </div>
+      <!-- Tab bar + filter on same row -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+        <div style="display:flex;gap:0;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden;">
+          <div style="padding:6px 14px;background:#0f172a;color:white;font-size:12px;font-weight:700;">Upcoming</div>
+          <div style="padding:6px 14px;background:white;color:#64748b;font-size:12px;font-weight:600;">Past</div>
+        </div>
+        <div style="border:1px solid #e2e8f0;border-radius:8px;padding:5px 10px;font-size:11px;color:#64748b;display:flex;align-items:center;gap:4px;">
+          All Types ▾
+        </div>
+      </div>
+      <!-- Cards -->
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;gap:10px;align-items:center;margin-bottom:6px;">
+        <div style="text-align:center;min-width:36px;background:#f8fafc;border-right:1px solid #f1f5f9;padding:0 8px 0 0;margin-right:4px;">
+          <div style="font-size:8px;color:#94a3b8;text-transform:uppercase;">MAY</div>
+          <div style="font-size:20px;font-weight:900;color:#1e293b;">22</div>
+          <div style="font-size:8px;color:#94a3b8;">Thu</div>
+        </div>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+            <span style="background:#dcfce7;color:#16a34a;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Approved</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">5:00 PM → 7:00 PM · 2h</div>
+        </div>
+      </div>
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;gap:10px;align-items:center;">
+        <div style="text-align:center;min-width:36px;background:#f8fafc;border-right:1px solid #f1f5f9;padding:0 8px 0 0;margin-right:4px;">
+          <div style="font-size:8px;color:#94a3b8;text-transform:uppercase;">MAY</div>
+          <div style="font-size:20px;font-weight:900;color:#1e293b;">25</div>
+          <div style="font-size:8px;color:#94a3b8;">Sun</div>
+        </div>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="background:#ede9fe;color:#7c3aed;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">🌙 Rest Day</span>
+            <span style="background:#fef9c3;color:#a16207;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Pending</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">8:00 AM → 12:00 PM · 4h</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>A — Tab bar + filter inline</h3>
+      <p>Tabs left, dropdown right on same row. Compact. Both controls visible at once.</p>
+    </div>
+  </div>
+
+  <!-- Option B -->
+  <div class="card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:16px;border-radius:8px;">
+      <div style="background:#0f172a;border-radius:10px;padding:14px 16px;color:white;margin-bottom:10px;">
+        <div style="font-size:10px;opacity:0.5;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">MAY 2026</div>
+        <div style="font-size:22px;font-weight:900;">3.02h <span style="font-size:13px;font-weight:400;opacity:0.7;">approved</span></div>
+      </div>
+      <!-- Filter bar full width, then tabs below -->
+      <div style="display:flex;gap:6px;margin-bottom:8px;">
+        <div style="flex:1;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;font-size:11px;color:#64748b;display:flex;align-items:center;justify-content:space-between;">
+          <span>All Types</span><span>▾</span>
+        </div>
+        <div style="flex:1;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;font-size:11px;color:#64748b;display:flex;align-items:center;justify-content:space-between;">
+          <span>All Status</span><span>▾</span>
+        </div>
+      </div>
+      <div style="display:flex;border-bottom:2px solid #e2e8f0;margin-bottom:8px;">
+        <div style="padding:7px 16px;border-bottom:2px solid #0f172a;margin-bottom:-2px;font-size:12px;font-weight:700;color:#0f172a;">Upcoming</div>
+        <div style="padding:7px 16px;font-size:12px;font-weight:600;color:#94a3b8;">Past</div>
+      </div>
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;gap:10px;align-items:center;margin-bottom:6px;">
+        <div style="text-align:center;min-width:36px;background:#f8fafc;border-right:1px solid #f1f5f9;padding:0 8px 0 0;margin-right:4px;">
+          <div style="font-size:8px;color:#94a3b8;text-transform:uppercase;">MAY</div>
+          <div style="font-size:20px;font-weight:900;color:#1e293b;">22</div>
+          <div style="font-size:8px;color:#94a3b8;">Thu</div>
+        </div>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+            <span style="background:#dcfce7;color:#16a34a;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Approved</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">5:00 PM → 7:00 PM · 2h</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>B — Two dropdowns + underline tabs</h3>
+      <p>Separate Type + Status dropdowns above. Tabs as underline nav. More filter control.</p>
+    </div>
+  </div>
+
+  <!-- Option C -->
+  <div class="card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="card-image" style="background:#f8fafc;padding:16px;border-radius:8px;">
+      <div style="background:#0f172a;border-radius:10px;padding:14px 16px;color:white;margin-bottom:10px;">
+        <div style="font-size:10px;opacity:0.5;letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">MAY 2026</div>
+        <div style="font-size:22px;font-weight:900;">3.02h <span style="font-size:13px;font-weight:400;opacity:0.7;">approved</span></div>
+      </div>
+      <!-- Tabs pill style, then filter row -->
+      <div style="background:#f1f5f9;border-radius:10px;padding:3px;display:inline-flex;margin-bottom:8px;width:100%;">
+        <div style="flex:1;background:white;border-radius:8px;padding:6px;text-align:center;font-size:12px;font-weight:700;color:#0f172a;box-shadow:0 1px 3px rgba(0,0,0,0.08);">Upcoming</div>
+        <div style="flex:1;padding:6px;text-align:center;font-size:12px;font-weight:600;color:#94a3b8;">Past</div>
+      </div>
+      <!-- Filter chips row -->
+      <div style="display:flex;gap:5px;margin-bottom:8px;flex-wrap:wrap;">
+        <div style="border:1px solid #0f172a;background:#0f172a;color:white;border-radius:20px;padding:3px 10px;font-size:10px;font-weight:700;">All</div>
+        <div style="border:1px solid #e2e8f0;border-radius:20px;padding:3px 10px;font-size:10px;font-weight:600;color:#64748b;">Normal OT</div>
+        <div style="border:1px solid #e2e8f0;border-radius:20px;padding:3px 10px;font-size:10px;font-weight:600;color:#64748b;">Rest Day</div>
+        <div style="border:1px solid #e2e8f0;border-radius:20px;padding:3px 10px;font-size:10px;font-weight:600;color:#64748b;">Holiday</div>
+        <div style="border:1px solid #e2e8f0;border-radius:8px;padding:3px 8px;font-size:10px;font-weight:600;color:#64748b;display:flex;align-items:center;gap:3px;">Status ▾</div>
+      </div>
+      <div style="background:white;border:1px solid #e2e8f0;border-radius:10px;padding:12px;display:flex;gap:10px;align-items:center;">
+        <div style="text-align:center;min-width:36px;background:#f8fafc;border-right:1px solid #f1f5f9;padding:0 8px 0 0;margin-right:4px;">
+          <div style="font-size:8px;color:#94a3b8;text-transform:uppercase;">MAY</div>
+          <div style="font-size:20px;font-weight:900;color:#1e293b;">22</div>
+          <div style="font-size:8px;color:#94a3b8;">Thu</div>
+        </div>
+        <div style="flex:1;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+            <span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">⏱ Normal OT</span>
+            <span style="background:#dcfce7;color:#16a34a;font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;">Approved</span>
+          </div>
+          <div style="font-size:12px;font-weight:600;color:#1e293b;">5:00 PM → 7:00 PM · 2h</div>
+        </div>
+      </div>
+    </div>
+    <div class="card-body">
+      <h3>C — Segmented tabs + filter chips</h3>
+      <p>Pill-style tab switcher. Type filters as chips (tap to toggle). Status as separate dropdown.</p>
+    </div>
+  </div>
+
+</div>
