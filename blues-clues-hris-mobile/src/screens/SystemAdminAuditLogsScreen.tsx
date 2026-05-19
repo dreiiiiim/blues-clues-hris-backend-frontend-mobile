@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+﻿import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -136,15 +136,6 @@ export function SystemAdminAuditLogsScreen() {
         )}
 
         <View style={styles.main}>
-          {isMobile && (
-            <MobileRoleMenu
-              role={session.role}
-              userName={session.name}
-              email={session.email}
-              activeScreen="AuditLogs"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView
             style={styles.scroll}
@@ -276,7 +267,9 @@ export function SystemAdminAuditLogsScreen() {
               </>
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="system_admin" activeScreen="AuditLogs" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -284,7 +277,7 @@ export function SystemAdminAuditLogsScreen() {
 
 function AuditLogCard({ log }: { readonly log: AuditLog }) {
   const s = getActionStyle(log.action);
-  const shortId = log.log_id ? log.log_id.slice(0, 8).toUpperCase() : "—";
+  const shortId = log.log_id ? log.log_id.slice(0, 8).toUpperCase() : "â€”";
   return (
     <View style={styles.logCard}>
       <View style={styles.logTop}>
@@ -298,13 +291,13 @@ function AuditLogCard({ log }: { readonly log: AuditLog }) {
         {!!log.performed_by && (
           <View style={styles.metaRow}>
             <Feather name="user" size={12} color="#94A3B8" />
-            <Text style={styles.metaText}>By: {log.performed_by.slice(0, 8)}…</Text>
+            <Text style={styles.metaText}>By: {log.performed_by.slice(0, 8)}â€¦</Text>
           </View>
         )}
         {!!log.target_user_id && (
           <View style={styles.metaRow}>
             <Feather name="target" size={12} color="#94A3B8" />
-            <Text style={styles.metaText}>Target: {log.target_user_id.slice(0, 8)}…</Text>
+            <Text style={styles.metaText}>Target: {log.target_user_id.slice(0, 8)}â€¦</Text>
           </View>
         )}
         <View style={styles.metaRow}>
@@ -492,3 +485,5 @@ const styles = StyleSheet.create({
   },
   loadMoreText: { color: "#1E3A8A", fontSize: 14, fontWeight: "700" },
 });
+
+

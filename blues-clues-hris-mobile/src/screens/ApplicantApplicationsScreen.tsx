@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+﻿import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -15,7 +15,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -312,11 +312,7 @@ export function ApplicantApplicationsScreen() {
           <Sidebar role="applicant" userName={session.name} email={session.email} activeScreen="Applications" navigation={navigation} />
         )}
         <View style={styles.main}>
-          {isMobile && (
-            <MobileRoleMenu role="applicant" userName={session.name} email={session.email} activeScreen="Applications" navigation={navigation} />
-          )}
-
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]} showsVerticalScrollIndicator={false}>
             {/* Hero */}
             <GradientHero style={styles.hero}>
               <View style={styles.heroCircle1} />
@@ -541,7 +537,9 @@ export function ApplicantApplicationsScreen() {
               </>
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="applicant" activeScreen="Applications" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Detail Modal */}
@@ -581,7 +579,7 @@ export function ApplicantApplicationsScreen() {
                         )}
                         {mergedJobDetail.employment_type && (
                           <>
-                            {mergedJobDetail.location && <Text style={styles.modalMetaDot}>·</Text>}
+                            {mergedJobDetail.location && <Text style={styles.modalMetaDot}>Â·</Text>}
                             <Text style={styles.modalMetaText}>{mergedJobDetail.employment_type}</Text>
                           </>
                         )}
@@ -930,3 +928,4 @@ const styles = StyleSheet.create({
   timelineTitle: { color: "#0F172A", fontSize: 13, fontWeight: "700" },
   timelineDate: { color: "#64748B", fontSize: 12, marginTop: 2 },
 });
+

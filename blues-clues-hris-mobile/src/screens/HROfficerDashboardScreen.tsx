@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -11,7 +11,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { Header } from "../components/Header";
 import { GradientHero } from "../components/GradientHero";
 import { MetricCard } from "../components/MetricCard";
@@ -98,11 +98,9 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
         )}
 
         <View className="flex-1">
-          {isMobile ? (
-            <MobileRoleMenu role="hr" userName={session.name} email={session.email} activeScreen="Dashboard" navigation={navigation} />
-          ) : (
+          {
             <Header role="hr" userName={session.name} />
-          )}
+          }
 
           <ScrollView className="flex-1 px-4 py-4" showsVerticalScrollIndicator={false}>
             <GradientHero style={{ borderRadius: 16, padding: 0, marginBottom: 16 }}>
@@ -196,7 +194,7 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
               </View>
 
               <View style={{ flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: "#CBD5E1", borderRadius: 14, backgroundColor: "#F8FAFC", paddingHorizontal: 12, marginBottom: 14, height: 44 }}>
-                <Text style={{ color: "#94A3B8", marginRight: 8, fontSize: 16 }}>⌕</Text>
+                <Text style={{ color: "#94A3B8", marginRight: 8, fontSize: 16 }}>âŒ•</Text>
                 <TextInput
                   value={search}
                   onChangeText={setSearch}
@@ -247,8 +245,12 @@ export const HROfficerDashboardScreen = ({ route, navigation }: any) => {
               </Text>
             </View>
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="hr" activeScreen="Dashboard" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
 };
+
+

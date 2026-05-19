@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { TimekeepingTable, TimekeepingLog } from "../components/TimekeepingTable";
 import { authFetch } from "../services/auth";
@@ -175,10 +175,10 @@ export function ManagerDashboardScreen() {
   const absent = logs.filter((l) => l.status === "Absent").length;
 
   const summaryCards = [
-    { id: "1", label: "Total Employees", value: loading ? "—" : String(logs.length), helper: "Active accounts" },
-    { id: "2", label: "Present Today", value: loading ? "—" : String(present), helper: "On time" },
-    { id: "3", label: "Late / Issues", value: loading ? "—" : String(late), helper: "Needs attention" },
-    { id: "4", label: "Absent", value: loading ? "—" : String(absent), helper: "Not clocked in" },
+    { id: "1", label: "Total Employees", value: loading ? "â€”" : String(logs.length), helper: "Active accounts" },
+    { id: "2", label: "Present Today", value: loading ? "â€”" : String(present), helper: "On time" },
+    { id: "3", label: "Late / Issues", value: loading ? "â€”" : String(late), helper: "Needs attention" },
+    { id: "4", label: "Absent", value: loading ? "â€”" : String(absent), helper: "Not clocked in" },
   ];
 
   return (
@@ -195,15 +195,6 @@ export function ManagerDashboardScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="manager"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Dashboard"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView
             style={styles.container}
@@ -252,7 +243,7 @@ export function ManagerDashboardScreen() {
                 style={styles.quickCard}
                 onPress={() => navigation.replace("ManagerTeam", { session })}
               >
-                <Text style={styles.quickTitle}>Team Directory →</Text>
+                <Text style={styles.quickTitle}>Team Directory â†’</Text>
                 <Text style={styles.quickSub}>View all team members and their status.</Text>
               </Pressable>
             </View>
@@ -272,7 +263,9 @@ export function ManagerDashboardScreen() {
               />
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="manager" activeScreen="Dashboard" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -420,3 +413,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
+
+

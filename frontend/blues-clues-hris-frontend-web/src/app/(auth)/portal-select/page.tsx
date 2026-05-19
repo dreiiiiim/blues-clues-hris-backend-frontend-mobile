@@ -2,9 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Briefcase, Building2, LayoutDashboard, Loader2, ShieldCheck, Users } from "lucide-react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import {
+  Briefcase,
+  Building2,
+  LayoutDashboard,
+  Loader2,
+  ShieldCheck,
+  Users,
+} from "lucide-react";
 import { getAccessToken, getUserInfo, parseJwt, saveUserInfo } from "@/lib/authStorage";
 import { portalToPath, roleToPath } from "@/lib/roleMap";
 import { switchRoleApi } from "@/lib/authApi";
@@ -15,146 +20,153 @@ type SwitchOption = {
   portal_key: string;
 };
 
-type PortalCard = {
+type PortalMeta = {
   portal_key: string;
-  title: string;
-  description: string;
+  label: string;
   icon: React.ElementType;
-  toneClass: string;
 };
 
-const PORTAL_CARDS: PortalCard[] = [
-  {
-    portal_key: "employee",
-    title: "Employee Portal",
-    description: "Timekeeping, leave, documents, and personal payroll access.",
-    icon: Users,
-    toneClass: "border-primary/20 bg-primary/5",
-  },
-  {
-    portal_key: "hr",
-    title: "HR Portal",
-    description: "Recruitment, onboarding, approvals, and employee administration.",
-    icon: ShieldCheck,
-    toneClass: "border-slate-200 bg-slate-50",
-  },
-  {
-    portal_key: "manager",
-    title: "Manager Portal",
-    description: "Team oversight, approvals, performance, and coordination tools.",
-    icon: Briefcase,
-    toneClass: "border-slate-200 bg-slate-50",
-  },
-  {
-    portal_key: "admin",
-    title: "Admin Portal",
-    description: "User administration and system-level configuration.",
-    icon: Building2,
-    toneClass: "border-slate-200 bg-slate-50",
-  },
-  {
-    portal_key: "system-admin",
-    title: "System Admin",
-    description: "Platform-wide controls, audit logs, modules, and security settings.",
-    icon: LayoutDashboard,
-    toneClass: "border-slate-200 bg-slate-50",
-  },
+const PORTAL_META: PortalMeta[] = [
+  { portal_key: "employee",     label: "Employee",     icon: Users },
+  { portal_key: "hr",           label: "HR Officer",   icon: ShieldCheck },
+  { portal_key: "manager",      label: "Manager",      icon: Briefcase },
+  { portal_key: "admin",        label: "Admin",        icon: Building2 },
+  { portal_key: "system-admin", label: "System Admin", icon: LayoutDashboard },
 ];
 
-function PortalOptionCard({
-  portalKey,
-  option,
-  activePortal,
-  busyRoleId,
+const PRIMARY   = "#2563EB";
+const PRIMARY_LT = "#EFF6FF";
+const PRIMARY_BD = "#BFDBFE";
+const BG_APP    = "#EEF2F8";
+
+function PortalCard({
+  meta,
+  isActive,
+  isBusy,
+  anyBusy,
   onSelect,
 }: {
-  readonly portalKey: string;
-  readonly option: SwitchOption | undefined;
-  readonly activePortal: string;
-  readonly busyRoleId: string | null;
-  readonly onSelect: (portalKey: string) => void;
+  readonly meta: PortalMeta;
+  readonly isActive: boolean;
+  readonly isBusy: boolean;
+  readonly anyBusy: boolean;
+  readonly onSelect: (key: string) => void;
 }) {
-  const config = PORTAL_CARDS.find((card) => card.portal_key === portalKey) ?? PORTAL_CARDS[0];
-  const Icon = config.icon;
-  const isActive = activePortal === portalKey;
-  const isBusy = busyRoleId === option?.role_id;
+  const Icon = meta.icon;
 
   return (
-    <button
-      type="button"
-      disabled={!option || !!busyRoleId}
-      onClick={() => onSelect(portalKey)}
-      className={[
-        "group w-full rounded-2xl border p-4 text-left transition-all duration-200",
-        "hover:-translate-y-px hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
-        isActive ? "border-primary/30 bg-primary/5 shadow-sm" : config.toneClass,
-        option ? "" : "opacity-60",
-      ].join(" ")}
-    >
-      <div className="flex items-start gap-4">
-        <div
-          className={[
-            "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border",
-            isActive ? "border-primary/20 bg-background text-primary" : "border-border bg-background text-muted-foreground",
-          ].join(" ")}
+    <div className="flex flex-col items-center gap-3">
+      <button
+        type="button"
+        disabled={anyBusy}
+        onClick={() => onSelect(meta.portal_key)}
+        style={{
+          width: "100%",
+          aspectRatio: "1 / 1",
+          borderRadius: 20,
+          border: isActive ? `2px solid ${PRIMARY}` : "2px solid #D1D5DB",
+          backgroundColor: isActive ? PRIMARY_LT : "#FFFFFF",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 16,
+          cursor: anyBusy ? "not-allowed" : "pointer",
+          transition: "border-color 0.15s, background-color 0.15s, box-shadow 0.15s",
+          boxShadow: isActive
+            ? `0 0 0 4px ${PRIMARY_BD}, 0 4px 16px -4px ${PRIMARY}33`
+            : "0 2px 8px -2px rgba(0,0,0,0.08)",
+          padding: 24,
+        }}
+      >
+        {isBusy ? (
+          <Loader2 size={52} color={PRIMARY} className="animate-spin" />
+        ) : (
+          <Icon
+            size={52}
+            color={isActive ? PRIMARY : "#9CA3AF"}
+            strokeWidth={1.5}
+          />
+        )}
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 800,
+            letterSpacing: "0.18em",
+            textTransform: "uppercase",
+            color: isActive ? PRIMARY : "#6B7280",
+          }}
         >
-          <Icon className="h-5 w-5" />
-        </div>
+          {meta.label}
+        </span>
+      </button>
 
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="font-semibold tracking-tight text-foreground">{config.title}</span>
-            {isActive ? <Badge variant="outline" className="rounded-full border-primary/20 bg-primary/10 text-primary">Current</Badge> : null}
-          </div>
-          <p className="mt-1 text-sm leading-6 text-muted-foreground">{config.description}</p>
-          <p className="mt-2 text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">
-            {option?.role_name ?? "Role not configured"}
-          </p>
-        </div>
-
-        <div className="pt-1 text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-          {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "Open"}
-        </div>
-      </div>
-    </button>
+      {/* Radio dot */}
+      <div
+        style={{
+          width: 16,
+          height: 16,
+          borderRadius: 8,
+          border: isActive ? `4px solid ${PRIMARY}` : "2px solid #D1D5DB",
+          backgroundColor: isActive ? "#FFFFFF" : "transparent",
+          transition: "border 0.15s",
+        }}
+      />
+    </div>
   );
 }
 
 export default function PortalSelectPage() {
   const router = useRouter();
   const [busyRoleId, setBusyRoleId] = useState<string | null>(null);
-  const [error, setError] = useState<string>("");
+  const [error, setError] = useState("");
+  // Keep initials in state so it's only set on the client (avoids hydration mismatch)
+  const [initials, setInitials] = useState("—");
+  const [firstName, setFirstName] = useState("");
 
   const portalData = useMemo(() => {
+    if (typeof window === "undefined") {
+      return { payload: null, user: null, availablePortals: [], switchOptions: [], activePortal: "" };
+    }
     const token = getAccessToken();
     const payload = token ? parseJwt(token) : null;
     const user = getUserInfo();
-
-    const availablePortals = Array.isArray(payload?.available_portals)
-      ? (payload.available_portals as string[])
-      : [];
-
-    const switchOptions = Array.isArray(payload?.role_switch_options)
-      ? (payload.role_switch_options as SwitchOption[])
-      : [];
-
     return {
       payload,
       user,
-      availablePortals,
-      switchOptions,
+      availablePortals: Array.isArray(payload?.available_portals)
+        ? (payload.available_portals as string[])
+        : [],
+      switchOptions: Array.isArray(payload?.role_switch_options)
+        ? (payload.role_switch_options as SwitchOption[])
+        : [],
       activePortal: String(payload?.active_portal ?? user?.active_portal ?? "").trim(),
     };
   }, []);
+
+  // Populate client-only fields after mount to avoid hydration mismatch
+  useEffect(() => {
+    const name = portalData.user?.name ?? portalData.user?.email ?? "";
+    setFirstName(name.split(" ")[0] || name.split("@")[0] || "there");
+    setInitials(
+      (name || "U")
+        .split(" ")
+        .filter(Boolean)
+        .map((w: string) => w.charAt(0))
+        .join("")
+        .toUpperCase()
+        .slice(0, 2),
+    );
+  }, [portalData.user]);
 
   useEffect(() => {
     if (!portalData.payload) {
       router.replace("/login");
       return;
     }
-
     if (portalData.availablePortals.length <= 1) {
-      const fallbackPath = portalToPath(portalData.activePortal) || roleToPath(portalData.payload.role_name);
+      const fallbackPath =
+        portalToPath(portalData.activePortal) || roleToPath(portalData.payload.role_name);
       router.replace(fallbackPath);
     }
   }, [portalData, router]);
@@ -162,11 +174,8 @@ export default function PortalSelectPage() {
   const handleChoosePortal = async (portalKey: string) => {
     try {
       setError("");
-      const targetOption = portalData.switchOptions.find((option) => option.portal_key === portalKey);
-
-      if (!targetOption) {
-        throw new Error("No role is mapped to the selected portal.");
-      }
+      const targetOption = portalData.switchOptions.find((o) => o.portal_key === portalKey);
+      if (!targetOption) throw new Error("No role is mapped to the selected portal.");
 
       setBusyRoleId(targetOption.role_id);
       const switched = await switchRoleApi({ role_id: targetOption.role_id });
@@ -183,83 +192,118 @@ export default function PortalSelectPage() {
         role,
         role_name: String(payload.role_name ?? ""),
         active_portal: payload.active_portal,
-        available_portals: Array.isArray(payload.available_portals) ? payload.available_portals : [],
-        role_switch_options: Array.isArray(payload.role_switch_options) ? payload.role_switch_options : [],
+        available_portals: Array.isArray(payload.available_portals)
+          ? payload.available_portals
+          : [],
+        role_switch_options: Array.isArray(payload.role_switch_options)
+          ? payload.role_switch_options
+          : [],
         user_id: payload.sub_userid,
       });
 
       router.replace(portalToPath(payload.active_portal) || rolePath);
-    } catch (err: any) {
-      setError(err?.message || "Unable to switch portal. Please try again.");
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Unable to switch portal. Please try again.");
     } finally {
       setBusyRoleId(null);
     }
   };
 
+  const visiblePortals = PORTAL_META.filter((m) =>
+    portalData.availablePortals.includes(m.portal_key),
+  );
+
   return (
-    <div className="min-h-screen bg-background px-4 py-8 md:px-8">
-      <div className="mx-auto flex min-h-[calc(100vh-4rem)] w-full max-w-6xl items-center">
-        <div className="grid w-full gap-6 lg:grid-cols-[1.35fr_0.65fr]">
-          <Card className="overflow-hidden border-border shadow-sm">
-            <div className="h-2 bg-gradient-to-r from-primary via-cyan-500 to-emerald-500" />
-            <CardHeader className="border-b border-border/70 pb-5">
-              <div className="flex items-center gap-3 text-sm font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                <span className="h-2 w-2 rounded-full bg-primary" />
-                <span>Multi-portal account</span>
-              </div>
-              <CardTitle className="mt-2 text-3xl font-bold tracking-tight text-foreground">
-                Choose where to continue
-              </CardTitle>
-              <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                This account has more than one role. Select the portal you want to open now. If you only need payroll,
-                use the Employee Portal.
-              </p>
-            </CardHeader>
-
-            <CardContent className="space-y-4 py-6">
-              {portalData.availablePortals.map((portalKey) => (
-                <PortalOptionCard
-                  key={portalKey}
-                  portalKey={portalKey}
-                  option={portalData.switchOptions.find((row) => row.portal_key === portalKey)}
-                  activePortal={portalData.activePortal}
-                  busyRoleId={busyRoleId}
-                  onSelect={handleChoosePortal}
-                />
-              ))}
-
-              {error ? (
-                <div className="rounded-xl border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive">
-                  {error}
-                </div>
-              ) : null}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border shadow-sm bg-muted/20">
-            <CardHeader className="border-b border-border/70 pb-5">
-              <CardTitle className="text-xl font-bold tracking-tight text-foreground">What changes here</CardTitle>
-              <p className="text-sm leading-6 text-muted-foreground">
-                Portal access is role-based, but payroll and employee self-service live in the Employee Portal.
-              </p>
-            </CardHeader>
-            <CardContent className="space-y-4 py-6 text-sm leading-6 text-muted-foreground">
-              <div className="rounded-xl border border-border bg-background p-4">
-                <p className="font-semibold text-foreground">Employee Portal</p>
-                <p className="mt-1">Use this for payslips, leave, attendance, documents, and your personal profile.</p>
-              </div>
-              <div className="rounded-xl border border-border bg-background p-4">
-                <p className="font-semibold text-foreground">HR / Manager Portal</p>
-                <p className="mt-1">Used for approvals, team management, and admin work. It does not expose My Payslips.</p>
-              </div>
-              <div className="rounded-xl border border-border bg-background p-4">
-                <p className="font-semibold text-foreground">Portal switching</p>
-                <p className="mt-1">You can switch any time after login without signing in again.</p>
-              </div>
-            </CardContent>
-          </Card>
+    <div
+      style={{
+        minHeight: "100vh",
+        backgroundColor: BG_APP,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "32px 24px",
+      }}
+    >
+      {/* Brand + greeting */}
+      <div style={{ marginBottom: 36, textAlign: "center" }}>
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 16,
+            backgroundColor: PRIMARY,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 14px",
+            color: "#fff",
+            fontSize: 20,
+            fontWeight: 800,
+            letterSpacing: 1,
+          }}
+          suppressHydrationWarning
+        >
+          {initials}
         </div>
+        <p style={{ fontSize: 12, color: "#9CA3AF", fontWeight: 600, marginBottom: 4 }}>
+          Blue's Clues HRIS
+        </p>
+        <h1
+          style={{ fontSize: 26, fontWeight: 800, color: "#111827", margin: 0 }}
+          suppressHydrationWarning
+        >
+          {firstName ? `Welcome, ${firstName}` : "Welcome"}
+        </h1>
+        <p style={{ fontSize: 13, color: "#6B7280", marginTop: 6 }}>
+          {visiblePortals.length === 1 ? "Entering your portal…" : "Choose a portal to continue"}
+        </p>
       </div>
+
+      {/* Cards */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: `repeat(${Math.min(visiblePortals.length, 2)}, minmax(140px, 200px))`,
+          gap: 20,
+          width: "100%",
+          maxWidth: 460,
+          justifyContent: "center",
+        }}
+      >
+        {visiblePortals.map((meta) => {
+          const option = portalData.switchOptions.find((o) => o.portal_key === meta.portal_key);
+          return (
+            <PortalCard
+              key={meta.portal_key}
+              meta={meta}
+              isActive={portalData.activePortal === meta.portal_key}
+              isBusy={busyRoleId === option?.role_id}
+              anyBusy={!!busyRoleId}
+              onSelect={handleChoosePortal}
+            />
+          );
+        })}
+      </div>
+
+      {error ? (
+        <div
+          style={{
+            marginTop: 20,
+            padding: "10px 16px",
+            borderRadius: 12,
+            backgroundColor: "#FEF2F2",
+            border: "1px solid #FECACA",
+            color: "#DC2626",
+            fontSize: 13,
+            maxWidth: 460,
+            width: "100%",
+            textAlign: "center",
+          }}
+        >
+          {error}
+        </div>
+      ) : null}
     </div>
   );
 }

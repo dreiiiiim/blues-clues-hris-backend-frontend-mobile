@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -15,7 +15,7 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -52,7 +52,7 @@ const STAGES = ["Applied", "Screening", "Interview", "Final", "Offer"];
 function formatPostedDate(j: any): string {
   if (j.posted_at) return new Date(j.posted_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   if (j.created_at) return new Date(j.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  return "—";
+  return "â€”";
 }
 
 function stageIndex(stage: string): number {
@@ -129,8 +129,8 @@ export function ApplicantDashboardScreen() {
             job_posting_id:
               j.job_posting_id ?? j.job_id ?? j.id ?? String(Math.random()),
             title: j.title ?? j.job_title ?? "Untitled",
-            department: j.department ?? j.department_name ?? "—",
-            location: j.location ?? "—",
+            department: j.department ?? j.department_name ?? "â€”",
+            location: j.location ?? "â€”",
             posted: formatPostedDate(j),
             type: j.employment_type ?? j.type ?? "Full-time",
             description: j.description ?? "",
@@ -285,15 +285,6 @@ export function ApplicantDashboardScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="applicant"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Dashboard"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView
             style={styles.container}
@@ -318,7 +309,7 @@ export function ApplicantDashboardScreen() {
               style={styles.appsQuickLink}
               onPress={() => navigation.replace("ApplicantApplications", { session })}
             >
-              <Text style={styles.appsQuickLinkText}>View All My Applications →</Text>
+              <Text style={styles.appsQuickLinkText}>View All My Applications â†’</Text>
             </Pressable>
 
             <View style={styles.searchWrap}>
@@ -432,7 +423,7 @@ export function ApplicantDashboardScreen() {
                       <View style={styles.jobTextWrap}>
                         <Text style={styles.jobTitle}>{job.title}</Text>
                         <Text style={styles.jobMeta}>
-                          {job.department} • {job.location}
+                          {job.department} â€¢ {job.location}
                         </Text>
                         <Text style={styles.jobPosted}>{job.posted}</Text>
                       </View>
@@ -454,7 +445,9 @@ export function ApplicantDashboardScreen() {
                 ))}
             </View>
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="applicant" activeScreen="Dashboard" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Job Detail + Apply Modal */}
@@ -474,7 +467,7 @@ export function ApplicantDashboardScreen() {
                 </Text>
                 {selectedJob && (
                   <Text style={styles.modalMeta}>
-                    {selectedJob.location} • {selectedJob.type}
+                    {selectedJob.location} â€¢ {selectedJob.type}
                   </Text>
                 )}
               </View>
@@ -527,13 +520,13 @@ export function ApplicantDashboardScreen() {
                   {/* Meta cards */}
                   <View style={styles.metaGrid}>
                     {[
-                      { label: "Location", value: selectedJob.location || "—" },
-                      { label: "Type", value: selectedJob.type || "—" },
+                      { label: "Location", value: selectedJob.location || "â€”" },
+                      { label: "Type", value: selectedJob.type || "â€”" },
                       {
                         label: "Salary",
-                        value: selectedJob.salary_range || "—",
+                        value: selectedJob.salary_range || "â€”",
                       },
-                      { label: "Posted", value: selectedJob.posted || "—" },
+                      { label: "Posted", value: selectedJob.posted || "â€”" },
                     ].map((m) => (
                       <View key={m.label} style={styles.metaCard}>
                         <Text style={styles.metaLabel}>{m.label}</Text>
@@ -562,7 +555,7 @@ export function ApplicantDashboardScreen() {
                     onPress={() => setApplyTab("apply")}
                   >
                     <Text style={styles.applyButtonText}>
-                      Apply for this Position →
+                      Apply for this Position â†’
                     </Text>
                   </Pressable>
                 </View>
@@ -1193,3 +1186,5 @@ const styles = StyleSheet.create({
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
 });
+
+

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,7 +14,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -36,7 +36,7 @@ function getInitials(first?: string | null, last?: string | null): string {
 }
 
 function formatDate(iso?: string): string {
-  if (!iso) return "—";
+  if (!iso) return "â€”";
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
@@ -116,15 +116,6 @@ export function ManagerTeamScreen() {
           />
         )}
         <View style={styles.main}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="manager"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Team"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {/* Hero */}
@@ -193,7 +184,9 @@ export function ManagerTeamScreen() {
               ))
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="manager" activeScreen="Team" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Detail Modal */}
@@ -213,7 +206,7 @@ export function ManagerTeamScreen() {
                   </Pressable>
                 </View>
                 <Text style={styles.detailName}>
-                  {[selected.first_name, selected.last_name].filter(Boolean).join(" ") || "—"}
+                  {[selected.first_name, selected.last_name].filter(Boolean).join(" ") || "â€”"}
                 </Text>
                 <Text style={styles.detailEmail}>{selected.email}</Text>
 
@@ -229,8 +222,8 @@ export function ManagerTeamScreen() {
                 })()}
 
                 <View style={styles.detailGrid}>
-                  <DetailItem icon="credit-card" label="Employee ID" value={selected.employee_id ?? "—"} />
-                  <DetailItem icon="briefcase" label="Department" value={selected.department ?? "—"} />
+                  <DetailItem icon="credit-card" label="Employee ID" value={selected.employee_id ?? "â€”"} />
+                  <DetailItem icon="briefcase" label="Department" value={selected.department ?? "â€”"} />
                   <DetailItem icon="calendar" label="Start Date" value={formatDate(selected.start_date)} />
                 </View>
               </>
@@ -255,7 +248,7 @@ function MemberCard({ member, onPress }: { readonly member: TeamMember; readonly
   const initials = getInitials(member.first_name, member.last_name);
   const color = avatarColor(member.user_id);
   const s = getStatusStyle(member.account_status);
-  const name = [member.first_name, member.last_name].filter(Boolean).join(" ") || "—";
+  const name = [member.first_name, member.last_name].filter(Boolean).join(" ") || "â€”";
 
   return (
     <Pressable style={styles.card} onPress={onPress}>
@@ -272,7 +265,7 @@ function MemberCard({ member, onPress }: { readonly member: TeamMember; readonly
         </View>
         <View style={[styles.statusPill, { backgroundColor: s.bg, borderColor: s.border }]}>
           <Text style={[styles.statusText, { color: s.text }]}>
-            {member.account_status ?? "—"}
+            {member.account_status ?? "â€”"}
           </Text>
         </View>
       </View>
@@ -380,3 +373,5 @@ const styles = StyleSheet.create({
   detailLabel: { color: "#94A3B8", fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   detailValue: { color: "#0F172A", fontSize: 14, fontWeight: "700", marginTop: 2 },
 });
+
+

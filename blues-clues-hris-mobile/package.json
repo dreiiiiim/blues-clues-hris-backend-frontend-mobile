@@ -16,6 +16,7 @@
     "@types/react": "~19.1.10",
     "@types/react-native": "^0.72.8",
     "expo": "~54.0.0",
+    "expo-document-picker": "~14.0.8",
     "expo-linear-gradient": "^55.0.9",
     "expo-status-bar": "~3.0.9",
     "nativewind": "^4.2.2",

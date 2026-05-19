@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -23,16 +23,16 @@ function parseTs(ts: string): Date {
 }
 
 function formatTime(ts: string | null): string {
-  if (!ts) return "—";
+  if (!ts) return "â€”";
   return parseTs(ts).toLocaleTimeString("en-US", {
     hour: "2-digit", minute: "2-digit", timeZone: "Asia/Manila",
   });
 }
 
 function formatHours(timeIn: string | null, timeOut: string | null): string {
-  if (!timeIn || !timeOut) return "—";
+  if (!timeIn || !timeOut) return "â€”";
   const diff = (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3_600_000;
-  if (diff <= 0) return "—";
+  if (diff <= 0) return "â€”";
   const h = Math.floor(diff);
   const m = Math.round((diff - h) * 60);
   return m > 0 ? `${h}h ${m}m` : `${h}h`;
@@ -165,10 +165,7 @@ export function ManagerTimekeepingScreen() {
           <Sidebar role="manager" userName={session.name} email={session.email} activeScreen="Timekeeping" navigation={navigation} />
         )}
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu role="manager" userName={session.name} email={session.email} activeScreen="Timekeeping" navigation={navigation} />
-          )}
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]} showsVerticalScrollIndicator={false}>
             <GradientHero style={styles.heroCard}>
               <Text style={styles.eyebrow}>Manager Portal</Text>
               <Text style={styles.heroTitle}>Timekeeping</Text>
@@ -200,7 +197,7 @@ export function ManagerTimekeepingScreen() {
                 { label: "Absent",  value: absent,  bg: "#E5E7EB", border: "#D1D5DB", text: "#374151" },
               ].map((s) => (
                 <View key={s.label} style={[styles.statCard, { backgroundColor: s.bg, borderColor: s.border }]}>
-                  <Text style={[styles.statValue, { color: s.text }]}>{loading ? "—" : s.value}</Text>
+                  <Text style={[styles.statValue, { color: s.text }]}>{loading ? "â€”" : s.value}</Text>
                   <Text style={[styles.statLabel, { color: s.text }]}>{s.label}</Text>
                 </View>
               ))}
@@ -251,7 +248,9 @@ export function ManagerTimekeepingScreen() {
                 );
               })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="manager" activeScreen="Timekeeping" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -308,3 +307,4 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 11, color: "#64748B", fontWeight: "700", marginBottom: 4 },
   infoValue: { fontSize: 13, color: "#0F172A", fontWeight: "800" },
 });
+

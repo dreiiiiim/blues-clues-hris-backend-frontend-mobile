@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { Header } from "../components/Header";
 import { GradientHero } from "../components/GradientHero";
 import { UserSession, authFetch } from "../services/auth";
@@ -103,7 +103,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
         ),
       }));
     } catch {
-      // silently fail — item stays as-is
+      // silently fail â€” item stays as-is
     } finally {
       setTogglingItemId(null);
     }
@@ -156,19 +156,12 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
           <Sidebar role={session.role as any} activeScreen="SystemAdminOnboarding" navigation={navigation} session={session} />
         )}
         <View style={styles.content}>
-          <Header
-            title="Onboarding Templates"
-            subtitle="Manage onboarding templates and assignments"
-            rightElement={
-              <MobileRoleMenu
-                role={session.role as any}
-                userName={session.name}
-                email={session.email}
-                activeScreen="SystemAdminOnboarding"
-                navigation={navigation}
-              />
-            }
-          />
+          {!isMobile && (
+            <Header
+              title="Onboarding Templates"
+              subtitle="Manage onboarding templates and assignments"
+            />
+          )}
 
           <GradientHero
             title="Template Management"
@@ -221,7 +214,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
                   >
                     <Text style={styles.templateName}>{template.name}</Text>
                     <Text style={styles.templateMeta}>
-                      {template.position_name ?? template.position_id} • {template.department_name ?? template.department_id}
+                      {template.position_name ?? template.position_id} â€¢ {template.department_name ?? template.department_id}
                     </Text>
                     <Text style={styles.templateMeta}>Deadline: {template.default_deadline_days} days</Text>
 
@@ -235,7 +228,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
                       ))}
                     </View>
 
-                    <Text style={styles.expandHint}>{isExpanded ? "▲ Collapse" : "▼ Manage items"}</Text>
+                    <Text style={styles.expandHint}>{isExpanded ? "â–² Collapse" : "â–¼ Manage items"}</Text>
                   </TouchableOpacity>
 
                   {/* Expanded section */}
@@ -294,7 +287,9 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
               );
             })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="system_admin" activeScreen="Onboarding" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Add Item Modal */}
@@ -333,7 +328,7 @@ export const SystemAdminOnboardingScreen = ({ route, navigation }: any) => {
               activeOpacity={0.7}
             >
               <View style={[styles.checkbox, newRequired && styles.checkboxChecked]}>
-                {newRequired && <Text style={styles.checkmark}>✓</Text>}
+                {newRequired && <Text style={styles.checkmark}>âœ“</Text>}
               </View>
               <Text style={styles.fieldLabel}>Required</Text>
             </TouchableOpacity>
@@ -417,3 +412,5 @@ const styles = StyleSheet.create({
   saveBtnDisabled: { backgroundColor: "#94A3B8" },
   saveBtnText: { color: "#FFFFFF", fontWeight: "700" },
 });
+
+

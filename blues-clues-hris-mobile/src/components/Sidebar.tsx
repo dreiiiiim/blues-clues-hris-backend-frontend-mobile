@@ -76,16 +76,19 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
       Approvals: "HROfficerApprovals",
       Offboarding: "HROfficerOffboarding",
       Performance: "HROfficerPerformance",
+      Payroll: "HROfficerPayroll",
       Payslips: "HROfficerPayslips",
     },
     employee: {
       Dashboard: "EmployeeDashboard",
       Profile: "EmployeeProfile",
       Leave: "EmployeeLeave",
+      Overtime: "EmployeeOvertime",
       Timekeeping: "EmployeeTimekeeping",
       Performance: "EmployeePerformance",
       Payslips: "EmployeePayslips",
       Documents: "EmployeeDocuments",
+      Onboarding: "EmployeeOnboarding",
       Offboarding: "EmployeeOffboarding",
     },
     applicant: {
@@ -143,8 +146,14 @@ export const Sidebar = ({ role, userName, email = "", activeScreen, navigation }
         return <Feather name="users" size={17} color={color} />;
       case "AuditLogs":
         return <Ionicons name="shield-checkmark-outline" size={17} color={color} />;
+      case "Onboarding":
+        return <Ionicons name="clipboard-outline" size={17} color={color} />;
       case "Offboarding":
         return <Ionicons name="log-out-outline" size={17} color={color} />;
+      case "Overtime":
+        return <Ionicons name="timer-outline" size={17} color={color} />;
+      case "Payroll":
+        return <Ionicons name="cash-outline" size={17} color={color} />;
       case "Approvals":
         return (
           <Ionicons name="checkmark-done-outline" size={17} color={color} />

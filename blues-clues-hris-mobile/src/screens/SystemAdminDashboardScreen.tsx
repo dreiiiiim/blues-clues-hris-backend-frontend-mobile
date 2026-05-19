@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import {
   View,
   Text,
@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -60,7 +60,7 @@ export function SystemAdminDashboardScreen() {
           setAuditLogs(Array.isArray(auditData) ? auditData : (auditData?.logs ?? []));
         }
       } catch {
-        // leave null — fall back to dashes
+        // leave null â€” fall back to dashes
       } finally {
         if (!cancelled) setLoadingStats(false);
       }
@@ -69,10 +69,10 @@ export function SystemAdminDashboardScreen() {
   }, []);
 
   const summaryCards = [
-    { id: "1", label: "Total Users",         value: stats ? String(stats.total)    : "—", helper: "Across all departments"      },
-    { id: "2", label: "Active Accounts",     value: stats ? String(stats.active)   : "—", helper: "Currently active staff"       },
-    { id: "3", label: "Pending Activations", value: stats ? String(stats.pending)  : "—", helper: "Awaiting invite acceptance"   },
-    { id: "4", label: "Inactive Accounts",   value: stats ? String(stats.inactive) : "—", helper: "Deactivated or not onboarded" },
+    { id: "1", label: "Total Users",         value: stats ? String(stats.total)    : "â€”", helper: "Across all departments"      },
+    { id: "2", label: "Active Accounts",     value: stats ? String(stats.active)   : "â€”", helper: "Currently active staff"       },
+    { id: "3", label: "Pending Activations", value: stats ? String(stats.pending)  : "â€”", helper: "Awaiting invite acceptance"   },
+    { id: "4", label: "Inactive Accounts",   value: stats ? String(stats.inactive) : "â€”", helper: "Deactivated or not onboarded" },
   ];
 
   return (
@@ -89,19 +89,9 @@ export function SystemAdminDashboardScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="system_admin"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Dashboard"
-              navigation={navigation}
-            />
-          )}
-
           <ScrollView
             style={styles.container}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]}
             showsVerticalScrollIndicator={false}
           >
             <GradientHero style={styles.heroCard}>
@@ -132,7 +122,7 @@ export function SystemAdminDashboardScreen() {
                 <Pressable
                   onPress={() => navigation.navigate("SystemAdminAuditLogs", { session })}
                 >
-                  <Text style={styles.sectionLink}>View All →</Text>
+                  <Text style={styles.sectionLink}>View All â†’</Text>
                 </Pressable>
               </View>
 
@@ -153,7 +143,7 @@ export function SystemAdminDashboardScreen() {
                     <View style={styles.activityTextWrap}>
                       <Text style={styles.activityTitle}>{log.action}</Text>
                       <Text style={styles.activitySubtitle}>
-                        {[log.entity, log.performed_by_name].filter(Boolean).join(" · ")}
+                        {[log.entity, log.performed_by_name].filter(Boolean).join(" Â· ")}
                       </Text>
                     </View>
                     <Text style={styles.activityTime}>{timeAgo(log.timestamp)}</Text>
@@ -170,7 +160,7 @@ export function SystemAdminDashboardScreen() {
                   style={({ pressed }) => [styles.quickActionCard, pressed && { opacity: 0.75 }]}
                   onPress={() => navigation.navigate("SystemAdminUsers", { session })}
                 >
-                  <Text style={styles.quickActionTitle}>Users →</Text>
+                  <Text style={styles.quickActionTitle}>Users â†’</Text>
                   <Text style={styles.quickActionText}>
                     Create accounts, assign roles, and review pending users.
                   </Text>
@@ -180,7 +170,7 @@ export function SystemAdminDashboardScreen() {
                   style={({ pressed }) => [styles.quickActionCard, pressed && { opacity: 0.75 }]}
                   onPress={() => navigation.navigate("SystemAdminAuditLogs", { session })}
                 >
-                  <Text style={styles.quickActionTitle}>Audit Logs →</Text>
+                  <Text style={styles.quickActionTitle}>Audit Logs â†’</Text>
                   <Text style={styles.quickActionText}>
                     Review all system events and user activity history.
                   </Text>
@@ -190,7 +180,7 @@ export function SystemAdminDashboardScreen() {
                   style={({ pressed }) => [styles.quickActionCard, pressed && { opacity: 0.75 }]}
                   onPress={() => navigation.navigate("SystemAdminBilling", { session })}
                 >
-                  <Text style={styles.quickActionTitle}>Billing →</Text>
+                  <Text style={styles.quickActionTitle}>Billing â†’</Text>
                   <Text style={styles.quickActionText}>
                     Review plan details, seat usage, and subscription status.
                   </Text>
@@ -198,7 +188,9 @@ export function SystemAdminDashboardScreen() {
               </View>
             </View>
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="system_admin" activeScreen="Dashboard" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );

@@ -10,8 +10,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
-import { Header } from "../components/Header";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { UserSession, authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -117,26 +116,12 @@ export const EmployeeOnboardingScreen = ({ route, navigation }: any) => {
           <Sidebar role={session.role as any} activeScreen="EmployeeOnboarding" navigation={navigation} session={session} />
         )}
         <View style={styles.content}>
-          <Header
-            title="My Onboarding"
-            subtitle="Track your onboarding progress"
-            rightElement={
-              <MobileRoleMenu
-                role={session.role as any}
-                userName={session.name}
-                email={session.email}
-                activeScreen="EmployeeOnboarding"
-                navigation={navigation}
-              />
-            }
-          />
-
           <GradientHero
             title={onboarding ? `Welcome, ${onboarding.employee_name ?? session.name}` : "My Onboarding"}
-            subtitle={onboarding ? `${onboarding.assigned_position} • ${onboarding.assigned_department}` : "Loading..."}
+            subtitle={onboarding ? `${onboarding.assigned_position} • ${onboarding.assigned_department}` : "Track your onboarding progress"}
           />
 
-          <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]}>
             {loading && (
               <View style={styles.centered}>
                 <ActivityIndicator size="large" color="#1E40AF" />
@@ -268,6 +253,15 @@ export const EmployeeOnboardingScreen = ({ route, navigation }: any) => {
               </>
             )}
           </ScrollView>
+
+          {isMobile && (
+            <BottomTabBar
+              role="employee"
+              activeScreen="Onboarding"
+              navigation={navigation}
+              session={session}
+            />
+          )}
         </View>
       </View>
     </SafeAreaView>

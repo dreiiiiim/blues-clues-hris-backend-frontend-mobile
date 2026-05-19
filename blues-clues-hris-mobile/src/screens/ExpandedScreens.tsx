@@ -12,7 +12,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch, type UserSession, type UserRole } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -218,17 +218,11 @@ function createBackendScreen(config: ScreenConfig) {
           )}
 
           <View style={styles.mainContent}>
-            {isMobile ? (
-              <MobileRoleMenu
-                role={config.role}
-                userName={session.name}
-                email={session.email}
-                activeScreen={config.activeScreen}
-                navigation={navigation}
-              />
-            ) : null}
-
-            <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]}
+              showsVerticalScrollIndicator={false}
+            >
               <GradientHero style={styles.heroCard}>
                 <Text style={styles.heroEyebrow}>{content.eyebrow ?? config.activeScreen}</Text>
                 <Text style={styles.heroTitle}>{content.title}</Text>
@@ -272,6 +266,15 @@ function createBackendScreen(config: ScreenConfig) {
                 </>
               )}
             </ScrollView>
+
+            {isMobile && (
+              <BottomTabBar
+                role={config.role}
+                activeScreen={config.activeScreen}
+                navigation={navigation}
+                session={session}
+              />
+            )}
           </View>
         </View>
       </SafeAreaView>
@@ -439,46 +442,7 @@ export const EmployeeProfileScreen = createBackendScreen({
   },
 });
 
-export const EmployeeLeaveScreen = createBackendScreen({
-  role: "employee",
-  activeScreen: "Leave",
-  load: async ({ session }) => {
-    const [balances, requests] = await Promise.all([
-      fetchJson("/leave/balances").catch(() => []),
-      fetchJson("/leave/requests/me").catch(() => []),
-    ]);
-
-    const balanceRows = toArray(balances).map((item: any) => ({
-      title: item.leave_type ?? item.type ?? "Leave balance",
-      subtitle: `${textValue(item.used_days ?? 0)} used of ${textValue(item.allocated_days ?? item.total_days ?? 0)} allocated`,
-      meta: textValue(item.year ?? new Date().getFullYear()),
-      tone: Number(item.used_days ?? 0) > 0 ? "warning" : "success",
-    }));
-
-    const requestRows = toArray(requests).map((item: any) => ({
-      title: `${formatDate(item.start_date)} → ${formatDate(item.end_date)}`,
-      subtitle: item.reason ?? item.leave_type ?? "Leave request",
-      meta: textValue(item.status ?? "Pending"),
-      tone: approvalTone(item.status),
-    }));
-
-    return {
-      eyebrow: "Time Off",
-      title: "Leave",
-      subtitle: `Leave balances and requests for ${nameOf(session)}.`,
-      stats: [
-        { label: "Balance Types", value: statValueFromNumber(balanceRows.length), helper: "Tracked leave buckets" },
-        { label: "Requests", value: statValueFromNumber(requestRows.length), helper: "Submitted requests" },
-        { label: "Pending", value: statValueFromNumber(requestRows.filter((r) => r.meta?.toLowerCase() === "pending").length), helper: "Awaiting review" },
-        { label: "Approved", value: statValueFromNumber(requestRows.filter((r) => r.meta?.toLowerCase() === "approved").length), helper: "Already cleared" },
-      ],
-      sections: [
-        { title: "Leave Balances", subtitle: "Current leave allocation from the backend.", items: balanceRows },
-        { title: "Leave Requests", subtitle: "Your request history.", items: requestRows },
-      ],
-    };
-  },
-});
+// EmployeeLeaveScreen moved to src/screens/EmployeeLeaveScreen.tsx (interactive with file form)
 
 export const EmployeePayslipsScreen = createBackendScreen({
   role: "employee",
@@ -589,7 +553,8 @@ export const EmployeePerformanceScreen = createBackendScreen({
   },
 });
 
-export const EmployeeOffboardingScreen = createBackendScreen({
+// EmployeeOffboardingScreen moved to src/screens/EmployeeOffboardingScreen.tsx (with resignation form)
+export const _EmployeeOffboardingScreen_MOVED = createBackendScreen({
   role: "employee",
   activeScreen: "Offboarding",
   load: async ({ session }) => {
@@ -690,46 +655,7 @@ export const ManagerOffboardingScreen = createBackendScreen({
   },
 });
 
-export const ManagerApprovalsScreen = createBackendScreen({
-  role: "manager",
-  activeScreen: "Approvals",
-  load: async ({ session }) => {
-    const [leaveRequests, documents] = await Promise.all([
-      fetchJson("/leave/requests?status=Pending").catch(() => []),
-      fetchJson("/users/documents/pending").catch(() => []),
-    ]);
-
-    const leaveItems = toArray(leaveRequests).map((item: any) => ({
-      title: `${formatDate(item.start_date)} → ${formatDate(item.end_date)}`,
-      subtitle: item.reason ?? item.leave_type ?? "Leave request",
-      meta: textValue(item.status ?? "Pending"),
-      tone: "warning",
-    }));
-
-    const documentItems = toArray(documents).map((item: any) => ({
-      title: item.document_type ?? item.file_name ?? "Document",
-      subtitle: `${textValue(item.employee_name ?? item.user_id)} · ${formatDate(item.uploaded_at ?? item.created_at)}`,
-      meta: textValue(item.status ?? "Pending"),
-      tone: "warning",
-    }));
-
-    return {
-      eyebrow: "Approvals",
-      title: "Manager Approvals",
-      subtitle: `Pending items for ${nameOf(session)}.`,
-      stats: [
-        { label: "Leave", value: statValueFromNumber(leaveItems.length), helper: "Pending leave requests" },
-        { label: "Documents", value: statValueFromNumber(documentItems.length), helper: "Pending documents" },
-        { label: "Total", value: statValueFromNumber(leaveItems.length + documentItems.length), helper: "Combined queue" },
-        { label: "Actionable", value: "Yes", helper: "Tap into the review flow on web" },
-      ],
-      sections: [
-        { title: "Leave Requests", subtitle: "Awaiting review.", items: leaveItems },
-        { title: "Employee Documents", subtitle: "Uploaded files needing review.", items: documentItems },
-      ],
-    };
-  },
-});
+// ManagerApprovalsScreen moved to src/screens/ManagerApprovalsScreen.tsx (interactive with approve/reject tabs)
 
 export const ManagerPayslipsScreen = createBackendScreen({
   role: "manager",
@@ -775,33 +701,7 @@ export const HROffboardingScreen = createBackendScreen({
   },
 });
 
-export const HROfficerApprovalsScreen = createBackendScreen({
-  role: "hr",
-  activeScreen: "Approvals",
-  load: async ({ session }) => {
-    const [leaveRequests, documents, goals] = await Promise.all([
-      fetchJson("/leave/requests?status=Pending").catch(() => []),
-      fetchJson("/users/documents/pending").catch(() => []),
-      fetchJson("/performance/goals/all").catch(() => []),
-    ]);
-
-    return {
-      eyebrow: "HR Approvals",
-      title: "Approval Queue",
-      subtitle: `HR queue for ${nameOf(session)}.`,
-      stats: [
-        { label: "Leave", value: statValueFromNumber(toArray(leaveRequests).length), helper: "Pending requests" },
-        { label: "Documents", value: statValueFromNumber(toArray(documents).length), helper: "Pending documents" },
-        { label: "Goals", value: statValueFromNumber(toArray(goals).length), helper: "Performance items" },
-        { label: "Total", value: statValueFromNumber(toArray(leaveRequests).length + toArray(documents).length + toArray(goals).length), helper: "Combined queue" },
-      ],
-      sections: [
-        { title: "Leave Requests", subtitle: "Pending approval.", items: toArray(leaveRequests).map((item: any) => ({ title: `${formatDate(item.start_date)} → ${formatDate(item.end_date)}`, subtitle: item.reason ?? item.leave_type ?? "Leave request", meta: textValue(item.status ?? "Pending"), tone: "warning" })) },
-        { title: "Documents", subtitle: "Awaiting review.", items: toArray(documents).map((item: any) => ({ title: item.document_type ?? item.file_name ?? "Document", subtitle: textValue(item.employee_name ?? item.user_id), meta: textValue(item.status ?? "Pending"), tone: "warning" })) },
-      ],
-    };
-  },
-});
+// HROfficerApprovalsScreen moved to src/screens/HROfficerApprovalsScreen.tsx (interactive with approve/reject tabs)
 
 export const HROfficerPerformanceScreen = createBackendScreen({
   role: "hr",
@@ -1001,6 +901,65 @@ export const SystemAdminPerformanceSettingsScreen = createBackendScreen({
       ],
       sections: [
         { title: "Performance Settings", subtitle: "Full backend configuration.", items: settings ? buildKeyValueItems(settings, [["Cycle Enabled", "module_enabled"], ["Self Proposed Goals", "self_proposed_goals_enabled"], ["Auto Compute Bonuses", "auto_compute_bonuses"], ["KPI Suggestions", "kpi_suggestions_enabled"], ["PIP Max Attempts", "pip_max_attempts"], ["PIP Duration Days", "pip_default_duration_days"], ["Failure Action", "pip_failure_action"], ["Rating 1", "rating_label_1"], ["Rating 5", "rating_label_5"]]) : [] },
+      ],
+    };
+  },
+});
+
+// EmployeeOvertimeScreen moved to src/screens/EmployeeOvertimeScreen.tsx (interactive with OT filing form)
+
+export const HROfficerPayrollScreen = createBackendScreen({
+  role: "hr",
+  activeScreen: "Payroll",
+  load: async ({ session }) => {
+    const [periods, baselines, catalog] = await Promise.all([
+      fetchJson("/cnb/payroll/periods").catch(() => []),
+      fetchJson("/cnb/salary-baselines").catch(() => []),
+      fetchJson("/cnb/benefits-catalog").catch(() => []),
+    ]);
+
+    const periodRows = toArray(periods).map((item: any) => ({
+      title: `${formatDate(item.cutoff_start_date)} → ${formatDate(item.cutoff_end_date)}`,
+      subtitle: `Payout: ${formatDate(item.payout_date)} · ${textValue(item.status ?? "Draft")}`,
+      meta: textValue(item.status ?? "Draft"),
+      tone: String(item.status ?? "").toLowerCase().includes("processed") || String(item.status ?? "").toLowerCase().includes("released") ? "success" : "warning" as SectionItem["tone"],
+    }));
+
+    const baselineRows = toArray(baselines).map((item: any) => ({
+      title: `${textValue(item.first_name ?? "")} ${textValue(item.last_name ?? "")}`.trim() || textValue(item.user_id),
+      subtitle: `${formatMoney(item.basic_salary)} · ${textValue(item.pay_frequency ?? "monthly")} · Effective ${formatDate(item.effective_date)}`,
+      meta: textValue(item.pay_frequency ?? "monthly"),
+      tone: "default" as SectionItem["tone"],
+    }));
+
+    const draft = toArray(periods).filter((p: any) => String(p.status ?? "").toLowerCase().includes("draft")).length;
+    const processed = toArray(periods).filter((p: any) => String(p.status ?? "").toLowerCase().includes("processed") || String(p.status ?? "").toLowerCase().includes("released")).length;
+
+    return {
+      eyebrow: "Compensation & Benefits",
+      title: "Payroll Management",
+      subtitle: `Run payroll, manage salary baselines, and review benefit catalog for ${nameOf(session)}.`,
+      stats: [
+        { label: "Payroll Periods", value: statValueFromNumber(toArray(periods).length), helper: "Total runs" },
+        { label: "Processed", value: statValueFromNumber(processed), helper: "Completed periods" },
+        { label: "Draft", value: statValueFromNumber(draft), helper: "Pending periods" },
+        { label: "Benefits", value: statValueFromNumber(toArray(catalog).length), helper: "Catalog items" },
+      ],
+      actions: [
+        { label: "Payslips", route: "HROfficerPayslips", icon: "receipt-outline" },
+        { label: "Timekeeping", route: "HROfficerTimekeeping", icon: "time-outline" },
+      ],
+      sections: [
+        {
+          title: "Payroll Periods",
+          subtitle: "Recent payroll cutoff runs.",
+          items: periodRows.length > 0 ? periodRows : [{ title: "No payroll periods yet.", subtitle: "Run payroll from the web portal.", meta: "Info", tone: "default" }],
+        },
+        {
+          title: "Salary Baselines",
+          subtitle: "Current employee salary records.",
+          items: baselineRows.length > 0 ? baselineRows : [{ title: "No salary baselines set.", subtitle: "Set baselines from the web portal.", meta: "Info", tone: "default" }],
+        },
       ],
     };
   },

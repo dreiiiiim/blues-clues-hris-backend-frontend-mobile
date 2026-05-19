@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -13,13 +13,13 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { Header } from "../components/Header";
 import { GradientHero } from "../components/GradientHero";
 import { UserSession, authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
 
-// ── Types ──────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 type SessionSummary = {
   session_id: string;
@@ -84,7 +84,7 @@ type SessionDetail = {
 
 type DetailTab = "profile" | "documents" | "forms" | "tasks" | "equipment";
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// â”€â”€ Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function statusColor(status: string) {
   if (status === "approved" || status === "confirmed") return "#15803D";
@@ -120,7 +120,7 @@ function daysLabel(deadlineDate: string, status: string): { text: string; color:
   return { text: `${days}d left`, color: "#64748B" };
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────
+// â”€â”€ Main Component â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
   const session: UserSession = route.params.session;
@@ -265,13 +265,13 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
     }
   };
 
-  // ── Stats ──────────────────────────────────────────────────────────────
+  // â”€â”€ Stats â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const forReviewCount = sessions.filter(s => s.status === "for-review").length;
   const inProgressCount = sessions.filter(s => s.status === "in-progress").length;
   const approvedCount = sessions.filter(s => s.status === "approved").length;
   const overdueCount = sessions.filter(s => s.status === "overdue").length;
 
-  // ── Detail Tab Content ─────────────────────────────────────────────────
+  // â”€â”€ Detail Tab Content â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const detailTabs: Array<{ key: DetailTab; label: string }> = [
     { key: "profile", label: "Profile" },
     { key: "documents", label: "Docs" },
@@ -366,7 +366,7 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
               ].map(({ label, value }) => (
                 <View key={label} style={detailStyles.profileField}>
                   <Text style={detailStyles.profileLabel}>{label}</Text>
-                  <Text style={detailStyles.profileValue}>{value || "—"}</Text>
+                  <Text style={detailStyles.profileValue}>{value || "â€”"}</Text>
                 </View>
               ))}
             </View>
@@ -414,7 +414,7 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
               {item.description ? <Text style={detailStyles.itemDesc}>{item.description}</Text> : null}
               {isEquipment && item.delivery_method && (
                 <Text style={detailStyles.deliveryText}>
-                  {item.delivery_method === "office" ? "Office Pickup" : `Delivery${item.delivery_address ? ` — ${item.delivery_address}` : ""}`}
+                  {item.delivery_method === "office" ? "Office Pickup" : `Delivery${item.delivery_address ? ` â€” ${item.delivery_address}` : ""}`}
                 </Text>
               )}
               {renderItemActions(item, isEquipment)}
@@ -426,7 +426,7 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
     );
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────
+  // â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   return (
     <SafeAreaView style={styles.container}>
@@ -435,19 +435,12 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
           <Sidebar role={session.role as any} activeScreen="HROfficerOnboarding" navigation={navigation} session={session} />
         )}
         <View style={styles.content}>
-          <Header
-            title="Onboarding Management"
-            subtitle="Review employee onboarding progress"
-            rightElement={
-              <MobileRoleMenu
-                role={session.role as any}
-                userName={session.name}
-                email={session.email}
-                activeScreen="HROfficerOnboarding"
-                navigation={navigation}
-              />
-            }
-          />
+          {!isMobile && (
+            <Header
+              title="Onboarding Management"
+              subtitle="Review employee onboarding progress"
+            />
+          )}
 
           <GradientHero
             title="Onboarding Dashboard"
@@ -504,7 +497,7 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
                   <View style={styles.sessionHeader}>
                     <View style={styles.sessionInfo}>
                       <Text style={styles.empName}>{s.employee_name ?? "Unknown Employee"}</Text>
-                      <Text style={styles.empRole}>{s.assigned_position} • {s.assigned_department}</Text>
+                      <Text style={styles.empRole}>{s.assigned_position} â€¢ {s.assigned_department}</Text>
                     </View>
                     <View style={[styles.statusPill, { backgroundColor: statusColor(s.status) + "20", borderColor: statusColor(s.status) }]}>
                       <Text style={[styles.statusPillText, { color: statusColor(s.status) }]}>
@@ -528,12 +521,14 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
                     {dl.text ? <Text style={[styles.daysLabel, { color: dl.color }]}>{dl.text}</Text> : null}
                   </View>
 
-                  <Text style={styles.tapHint}>Tap to manage →</Text>
+                  <Text style={styles.tapHint}>Tap to manage â†’</Text>
                 </TouchableOpacity>
               );
             })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="hr" activeScreen="Onboarding" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Detail Modal */}
@@ -549,12 +544,12 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
               <Text style={detailStyles.modalTitle}>{selectedDetail?.employee_name ?? "Loading..."}</Text>
               {selectedDetail && (
                 <Text style={detailStyles.modalSubtitle}>
-                  {selectedDetail.assigned_position} • {selectedDetail.assigned_department}
+                  {selectedDetail.assigned_position} â€¢ {selectedDetail.assigned_department}
                 </Text>
               )}
             </View>
             <TouchableOpacity onPress={() => setSelectedDetail(null)} style={detailStyles.closeBtn}>
-              <Text style={detailStyles.closeBtnText}>✕</Text>
+              <Text style={detailStyles.closeBtnText}>âœ•</Text>
             </TouchableOpacity>
           </View>
 
@@ -643,7 +638,7 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
                   disabled={approvingSession}
                 >
                   <Text style={detailStyles.approveSessionBtnText}>
-                    {approvingSession ? "Approving..." : "✓ Approve Onboarding"}
+                    {approvingSession ? "Approving..." : "âœ“ Approve Onboarding"}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -673,7 +668,7 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
   );
 };
 
-// ── Summary List Styles ────────────────────────────────────────────────────
+// â”€â”€ Summary List Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
@@ -709,7 +704,7 @@ const styles = StyleSheet.create({
   tapHint: { fontSize: 11, color: "#CBD5E1", textAlign: "right", marginTop: 8 },
 });
 
-// ── Detail Modal Styles ────────────────────────────────────────────────────
+// â”€â”€ Detail Modal Styles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const detailStyles = StyleSheet.create({
   modalContainer: { flex: 1, backgroundColor: "#F8FAFC" },
@@ -788,3 +783,5 @@ const detailStyles = StyleSheet.create({
   remarkSendBtnDisabled: { backgroundColor: "#94A3B8" },
   remarkSendBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
 });
+
+

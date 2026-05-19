@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -14,7 +14,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -67,17 +67,17 @@ export function SystemAdminUsersScreen() {
       if (Array.isArray(data)) {
         setAllUsers(
           data.map((u: any) => ({
-            id: u.user_id ?? u.id ?? String(Math.random()),
+            id: u.user_id ?? u.id ?? u.email ?? "",
             firstName: u.first_name ?? "",
             lastName: u.last_name ?? "",
-            employeeId: u.employee_id ?? u.username ?? "—",
-            username: u.username ?? "—",
+            employeeId: u.employee_id ?? u.username ?? "â€”",
+            username: u.username ?? "â€”",
             email: u.email ?? "",
-            role: u.role_name ?? u.role ?? "—",
-            department: u.department_name ?? u.department ?? "—",
+            role: u.role_name ?? u.role ?? "â€”",
+            department: u.department_name ?? u.department ?? "â€”",
             startDate: u.created_at
               ? new Date(u.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-              : "—",
+              : "â€”",
             status: mapStatus(u.status ?? u.account_status ?? "inactive"),
           })),
         );
@@ -214,11 +214,7 @@ export function SystemAdminUsersScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu role="system_admin" userName={session.name} email={session.email} activeScreen="Users" navigation={navigation} />
-          )}
-
-          <ScrollView style={styles.container} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.container} contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]} showsVerticalScrollIndicator={false}>
             {/* Hero */}
             <GradientHero style={styles.heroCard}>
               <Text style={[styles.eyebrow, { color: "rgba(255,255,255,0.75)" }]}>System Admin</Text>
@@ -236,7 +232,7 @@ export function SystemAdminUsersScreen() {
                   style={{ backgroundColor: "#EFF6FF", borderWidth: 1, borderColor: "#BFDBFE", borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8 }}
                   onPress={() => { setLoading(true); fetchUsers(); }}
                 >
-                  <Text style={{ color: "#1D4ED8", fontSize: 12, fontWeight: "700" }}>↻ Refresh</Text>
+                  <Text style={{ color: "#1D4ED8", fontSize: 12, fontWeight: "700" }}>â†» Refresh</Text>
                 </Pressable>
               </View>
 
@@ -279,7 +275,7 @@ export function SystemAdminUsersScreen() {
                         </View>
                         <View style={styles.userInfo}>
                           <Text style={styles.userName}>{user.firstName} {user.lastName}</Text>
-                          <Text style={styles.userMeta}>{user.role} · {user.department}</Text>
+                          <Text style={styles.userMeta}>{user.role} Â· {user.department}</Text>
                           <Text style={[styles.userMeta, { color: "#94A3B8" }]}>{user.email}</Text>
                         </View>
                         <View style={{ alignItems: "flex-end" }}>
@@ -329,7 +325,9 @@ export function SystemAdminUsersScreen() {
               )}
             </View>
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="system_admin" activeScreen="Users" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -378,3 +376,4 @@ const styles = StyleSheet.create({
   },
   smallButtonText: { color: "#1D4ED8", fontSize: 12, fontWeight: "700" },
 });
+

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -24,7 +24,7 @@ function parseTs(ts: string): Date {
 }
 
 function formatTime(ts: string | null): string {
-  if (!ts) return "—";
+  if (!ts) return "â€”";
   return parseTs(ts).toLocaleTimeString("en-US", {
     hour: "2-digit",
     minute: "2-digit",
@@ -33,7 +33,7 @@ function formatTime(ts: string | null): string {
 }
 
 function formatHours(timeIn: string | null, timeOut: string | null): string {
-  if (!timeIn || !timeOut) return "—";
+  if (!timeIn || !timeOut) return "â€”";
   const diff =
     (parseTs(timeOut).getTime() - parseTs(timeIn).getTime()) / 3_600_000;
   const h = Math.floor(diff);
@@ -45,7 +45,7 @@ function deriveStatus(
   timeIn: string | null
 ): "present" | "late" | "absent" {
   if (!timeIn) return "absent";
-  // Use direct UTC+8 offset arithmetic — avoids Intl API inconsistencies on Android
+  // Use direct UTC+8 offset arithmetic â€” avoids Intl API inconsistencies on Android
   const utcMs = parseTs(timeIn).getTime();
   const manilaMs = utcMs + 8 * 60 * 60 * 1000;
   const hour = Math.floor((manilaMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
@@ -208,15 +208,6 @@ export function HROfficerTimekeepingScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="hr"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Timekeeping"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView
             style={styles.scroll}
@@ -281,7 +272,7 @@ export function HROfficerTimekeepingScreen() {
                   ]}
                 >
                   <Text style={[styles.statValue, { color: s.text }]}>
-                    {loading ? "—" : s.value}
+                    {loading ? "â€”" : s.value}
                   </Text>
                   <Text style={[styles.statLabel, { color: s.text }]}>
                     {s.label}
@@ -357,7 +348,9 @@ export function HROfficerTimekeepingScreen() {
                 );
               })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="hr" activeScreen="Timekeeping" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -572,3 +565,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 });
+
+

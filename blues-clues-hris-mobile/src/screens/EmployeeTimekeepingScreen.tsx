@@ -17,7 +17,7 @@ import {
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch, clearSession } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -535,19 +535,9 @@ export function EmployeeTimekeepingScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="employee"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Timekeeping"
-              navigation={navigation}
-            />
-          )}
-
           <ScrollView
             style={styles.scroll}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]}
             showsVerticalScrollIndicator={false}
           >
             {/* ── Hero Clock ──────────────────────────────────────────────── */}
@@ -811,6 +801,15 @@ export function EmployeeTimekeepingScreen() {
                 );
               })}
           </ScrollView>
+
+          {isMobile && (
+            <BottomTabBar
+              role="employee"
+              activeScreen="Timekeeping"
+              navigation={navigation}
+              session={session}
+            />
+          )}
         </View>
       </View>
     </SafeAreaView>

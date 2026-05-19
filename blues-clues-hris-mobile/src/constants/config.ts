@@ -10,6 +10,7 @@ export const MENU_CONFIG: Record<UserRole, { name: string; label: string }[]> = 
     { name: "Approvals", label: "Approvals" },
     { name: "Offboarding", label: "Offboarding" },
     { name: "Performance", label: "Performance" },
+    { name: "Payroll", label: "Payroll" },
     { name: "Payslips", label: "Payslips" },
   ],
   manager: [
@@ -25,10 +26,12 @@ export const MENU_CONFIG: Record<UserRole, { name: string; label: string }[]> = 
     { name: "Dashboard", label: "Dashboard" },
     { name: "Profile", label: "Profile" },
     { name: "Leave", label: "Leave" },
+    { name: "Overtime", label: "Overtime" },
     { name: "Timekeeping", label: "Timekeeping" },
     { name: "Performance", label: "Performance" },
     { name: "Payslips", label: "Payslips" },
     { name: "Documents", label: "Documents" },
+    { name: "Onboarding", label: "Onboarding" },
     { name: "Offboarding", label: "Offboarding" },
   ],
   applicant: [

@@ -104,7 +104,9 @@ CREATE TABLE public.attendance_time_logs (
   edited_by uuid,
   edited_at timestamp with time zone,
   edit_reason text,
-  CONSTRAINT attendance_time_logs_pkey PRIMARY KEY (log_id)
+  ot_request_id uuid,
+  CONSTRAINT attendance_time_logs_pkey PRIMARY KEY (log_id),
+  CONSTRAINT attendance_time_logs_ot_request_id_fkey FOREIGN KEY (ot_request_id) REFERENCES public.overtime_requests(ot_id)
 );
 CREATE TABLE public.candidate_skill_score_sfia (
   candidate_skill_score_sfia_id uuid NOT NULL DEFAULT gen_random_uuid(),

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -56,11 +56,11 @@ function mapJobItem(j: any): JobItem {
   return {
     job_posting_id: j.job_posting_id ?? j.job_id ?? j.id ?? String(Math.random()),
     title: j.title ?? j.job_title ?? "Untitled",
-    department: j.department ?? j.department_name ?? "—",
-    location: j.location ?? "—",
+    department: j.department ?? j.department_name ?? "â€”",
+    location: j.location ?? "â€”",
     posted: j.posted_at
       ? new Date(j.posted_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-      : "—",
+      : "â€”",
     type: j.employment_type ?? j.type ?? "Full-time",
     description: j.description ?? "",
     salary_range: j.salary_range ?? "",
@@ -76,7 +76,7 @@ function validateAnswers(questions: Question[], answers: Record<string, string>)
   return null;
 }
 
-// Department avatar — picks a color from title initial
+// Department avatar â€” picks a color from title initial
 const AVATAR_COLORS = ["#1E3A8A", "#0F766E", "#6D28D9", "#B45309", "#991B1B"];
 function avatarColor(str: string) {
   let h = 0;
@@ -226,11 +226,7 @@ export function ApplicantJobsScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu role="applicant" userName={session.name} email={session.email} activeScreen="Jobs" navigation={navigation} />
-          )}
-
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]} showsVerticalScrollIndicator={false}>
             {/* Hero */}
             <GradientHero style={styles.heroCard}>
               {/* Decorative circles */}
@@ -251,7 +247,7 @@ export function ApplicantJobsScreen() {
               </Text>
               <View style={styles.heroStats}>
                 <View style={styles.heroStat}>
-                  <Text style={styles.heroStatValue}>{loading ? "—" : jobs.length}</Text>
+                  <Text style={styles.heroStatValue}>{loading ? "â€”" : jobs.length}</Text>
                   <Text style={styles.heroStatLabel}>Open Roles</Text>
                 </View>
                 {allTypes.length > 0 && (
@@ -345,7 +341,7 @@ export function ApplicantJobsScreen() {
                         <View style={styles.jobMetaRow}>
                           <Ionicons name="business-outline" size={12} color="#9CA3AF" />
                           <Text style={styles.jobMeta}>{job.department}</Text>
-                          <Text style={styles.jobMetaDot}>·</Text>
+                          <Text style={styles.jobMetaDot}>Â·</Text>
                           <Ionicons name="location-outline" size={12} color="#9CA3AF" />
                           <Text style={styles.jobMeta}>{job.location}</Text>
                         </View>
@@ -382,7 +378,9 @@ export function ApplicantJobsScreen() {
                 );
               })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="applicant" activeScreen="Jobs" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Job Detail + Apply Modal */}
@@ -412,10 +410,10 @@ export function ApplicantJobsScreen() {
                   </Text>
                   <View style={styles.modalHeaderMeta}>
                     <Ionicons name="location-outline" size={13} color="rgba(255,255,255,0.75)" />
-                    <Text style={styles.modalHeaderMetaText}>{selectedJob?.location ?? "—"}</Text>
+                    <Text style={styles.modalHeaderMetaText}>{selectedJob?.location ?? "â€”"}</Text>
                     {selectedJob?.type && (
                       <>
-                        <Text style={styles.modalHeaderMetaDot}>·</Text>
+                        <Text style={styles.modalHeaderMetaDot}>Â·</Text>
                         <Text style={styles.modalHeaderMetaText}>{selectedJob.type}</Text>
                       </>
                     )}
@@ -455,15 +453,15 @@ export function ApplicantJobsScreen() {
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              {/* ── Details tab ── */}
+              {/* â”€â”€ Details tab â”€â”€ */}
               {activeTab === "details" && selectedJob && (
                 <View style={{ gap: 14 }}>
                   <View style={styles.metaGrid}>
                     {[
-                      { icon: "location-outline" as const, label: "Location", value: selectedJob.location || "—" },
-                      { icon: "briefcase-outline" as const, label: "Type", value: selectedJob.type || "—" },
+                      { icon: "location-outline" as const, label: "Location", value: selectedJob.location || "â€”" },
+                      { icon: "briefcase-outline" as const, label: "Type", value: selectedJob.type || "â€”" },
                       { icon: "cash-outline" as const, label: "Salary", value: selectedJob.salary_range || "Not specified" },
-                      { icon: "calendar-outline" as const, label: "Posted", value: selectedJob.posted || "—" },
+                      { icon: "calendar-outline" as const, label: "Posted", value: selectedJob.posted || "â€”" },
                     ].map((m) => (
                       <View key={m.label} style={styles.metaCard}>
                         <Ionicons name={m.icon} size={16} color="#1E3A8A" style={{ marginBottom: 6 }} />
@@ -489,7 +487,7 @@ export function ApplicantJobsScreen() {
                 </View>
               )}
 
-              {/* ── Apply tab ── */}
+              {/* â”€â”€ Apply tab â”€â”€ */}
               {activeTab === "apply" && selectedJob && (
                 <View style={{ gap: 16 }}>
                   <View style={styles.formHeader}>
@@ -823,3 +821,4 @@ const styles = StyleSheet.create({
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
 });
+

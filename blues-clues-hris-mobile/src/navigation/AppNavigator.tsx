@@ -7,20 +7,18 @@ import { SignUpScreen } from "../screens/SignUpScreen";
 import { ForgotPasswordScreen } from "../screens/ForgotPasswordScreen";
 import { EmployeeDashboardScreen } from "../screens/EmployeeDashboardScreen";
 import { EmployeeOnboardingScreen } from "../screens/EmployeeOnboardingScreen";
+import { EmployeeOffboardingScreen } from "../screens/EmployeeOffboardingScreen";
 import {
   ApplicantOnboardingScreen,
   ApplicantProfileScreen,
   EmployeeDocumentsScreen,
-  EmployeeLeaveScreen,
-  EmployeeOffboardingScreen,
   EmployeePayslipsScreen,
   EmployeePerformanceScreen,
   EmployeeProfileScreen,
   HROffboardingScreen,
-  HROfficerApprovalsScreen,
+  HROfficerPayrollScreen,
   HROfficerPerformanceScreen,
   HROfficerPayslipsScreen,
-  ManagerApprovalsScreen,
   ManagerOffboardingScreen,
   ManagerPayslipsScreen,
   ManagerPerformanceScreen,
@@ -32,6 +30,10 @@ import {
   SystemAdminSubscriptionsScreen,
   SystemAdminTimekeepingScreen,
 } from "../screens/ExpandedScreens";
+import { EmployeeLeaveScreen } from "../screens/EmployeeLeaveScreen";
+import { EmployeeOvertimeScreen } from "../screens/EmployeeOvertimeScreen";
+import { HROfficerApprovalsScreen } from "../screens/HROfficerApprovalsScreen";
+import { ManagerApprovalsScreen } from "../screens/ManagerApprovalsScreen";
 import { HROfficerDashboardScreen } from "../screens/HROfficerDashboardScreen";
 import { HROfficerOnboardingScreen } from "../screens/HROfficerOnboardingScreen";
 import { HROfficerRecruitmentScreen } from "../screens/HROfficerRecruitmentScreen";
@@ -49,6 +51,7 @@ import { SystemAdminOnboardingScreen } from "../screens/SystemAdminOnboardingScr
 import { SystemAdminUsersScreen } from "../screens/SystemAdminUsersScreen";
 import { SystemAdminAuditLogsScreen } from "../screens/SystemAdminAuditLogsScreen";
 import { EmployeeTimekeepingScreen } from "../screens/EmployeeTimekeepingScreen";
+import { PortalSelectScreen } from "../screens/PortalSelectScreen";
 
 type SessionParam = { session: { name: string; role: string; email: string } };
 
@@ -56,6 +59,7 @@ export type RootStackParamList = {
   Login: undefined;
   SignUp: undefined;
   ForgotPassword: undefined;
+  PortalSelect: any;
 
   // Employee
   EmployeeDashboard: SessionParam;
@@ -63,6 +67,7 @@ export type RootStackParamList = {
   EmployeeTimekeeping: SessionParam;
   EmployeeProfile: SessionParam;
   EmployeeLeave: SessionParam;
+  EmployeeOvertime: SessionParam;
   EmployeePayslips: SessionParam;
   EmployeeDocuments: SessionParam;
   EmployeePerformance: SessionParam;
@@ -87,6 +92,7 @@ export type RootStackParamList = {
   HROfficerOffboarding: SessionParam;
   HROfficerApprovals: SessionParam;
   HROfficerPerformance: SessionParam;
+  HROfficerPayroll: SessionParam;
   HROfficerPayslips: SessionParam;
 
   // Applicant
@@ -126,6 +132,7 @@ export function AppNavigator() {
         <Stack.Screen name="Login" component={LoginScreen} />
         <Stack.Screen name="SignUp" component={SignUpScreen} />
         <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+        <Stack.Screen name="PortalSelect" component={PortalSelectScreen} />
 
         {/* Employee */}
         <Stack.Screen name="EmployeeDashboard" component={EmployeeDashboardScreen} />
@@ -133,6 +140,7 @@ export function AppNavigator() {
         <Stack.Screen name="EmployeeTimekeeping" component={EmployeeTimekeepingScreen} />
         <Stack.Screen name="EmployeeProfile" component={EmployeeProfileScreen} />
         <Stack.Screen name="EmployeeLeave" component={EmployeeLeaveScreen} />
+        <Stack.Screen name="EmployeeOvertime" component={EmployeeOvertimeScreen} />
         <Stack.Screen name="EmployeePayslips" component={EmployeePayslipsScreen} />
         <Stack.Screen name="EmployeeDocuments" component={EmployeeDocumentsScreen} />
         <Stack.Screen name="EmployeePerformance" component={EmployeePerformanceScreen} />
@@ -157,6 +165,7 @@ export function AppNavigator() {
         <Stack.Screen name="HROfficerOffboarding" component={HROffboardingScreen} />
         <Stack.Screen name="HROfficerApprovals" component={HROfficerApprovalsScreen} />
         <Stack.Screen name="HROfficerPerformance" component={HROfficerPerformanceScreen} />
+        <Stack.Screen name="HROfficerPayroll" component={HROfficerPayrollScreen} />
         <Stack.Screen name="HROfficerPayslips" component={HROfficerPayslipsScreen} />
 
         {/* Applicant */}

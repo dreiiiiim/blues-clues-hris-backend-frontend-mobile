@@ -10,6 +10,23 @@ export interface UserSession {
   userId: string;
 }
 
+export type RoleSwitchOption = {
+  role_id: string;
+  role_name: string;
+  portal_key: string;
+};
+
+export type LoginResponse = {
+  ok: true;
+  user: UserSession;
+  role_switch_options?: RoleSwitchOption[];
+  available_portals?: string[];
+  requires_portal_selection?: boolean;
+} | {
+  ok: false;
+  error: string;
+};
+
 const ACCESS_KEY = "access_token";
 const REFRESH_KEY = "refresh_token";
 const IS_APPLICANT_KEY = "is_applicant"; // "true" | "false"
@@ -158,7 +175,17 @@ export async function login(identifier: string, password: string, rememberMe: bo
       memoryStore.isApplicant = false;
     }
 
-    return { ok: true as const, user: { role, name, email: payload.email ?? "", userId } as UserSession };
+    const role_switch_options = Array.isArray(data.role_switch_options) ? data.role_switch_options : undefined;
+    const available_portals = Array.isArray(data.available_portals) ? data.available_portals : undefined;
+    const requiresPortalSelection = (available_portals?.length ?? 0) > 1 || data.requires_portal_selection === true;
+
+    return { 
+      ok: true as const, 
+      user: { role, name, email: payload.email ?? "", userId } as UserSession,
+      role_switch_options,
+      available_portals,
+      requires_portal_selection: requiresPortalSelection,
+    };
   } catch {
     return { ok: false as const, error: "Network error. Check your connection." };
   }

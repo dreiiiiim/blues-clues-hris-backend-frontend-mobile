@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -15,7 +15,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { UserSession, authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -160,11 +160,7 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
         )}
 
         <View style={styles.main}>
-          {isMobile ? (
-            <MobileRoleMenu role="hr" userName={session.name} email={session.email} activeScreen="Recruitment" navigation={navigation} />
-          ) : null}
-
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]} showsVerticalScrollIndicator={false}>
             {/* Hero */}
             <GradientHero style={styles.heroCard}>
               <View style={styles.heroCircle1} />
@@ -268,7 +264,7 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                           )}
                           {job.employment_type && (
                             <>
-                              {job.location && <Text style={styles.metaDot}>·</Text>}
+                              {job.location && <Text style={styles.metaDot}>Â·</Text>}
                               <Feather name="briefcase" size={12} color="#94A3B8" />
                               <Text style={styles.jobMeta}>{job.employment_type}</Text>
                             </>
@@ -307,7 +303,9 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                 );
               })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="hr" activeScreen="Jobs" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Job Detail Modal */}
@@ -327,7 +325,7 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
 
                 <View style={styles.modalHeaderRow}>
                   <View style={{ flex: 1, paddingRight: 10 }}>
-                    <Text style={styles.modalEyebrow}>HR · Job Posting</Text>
+                    <Text style={styles.modalEyebrow}>HR Â· Job Posting</Text>
                     <Text style={styles.modalTitle} numberOfLines={2}>{selectedJob.title}</Text>
                     <View style={styles.modalMetaRow}>
                       {selectedJob.location && (
@@ -338,7 +336,7 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                       )}
                       {selectedJob.employment_type && (
                         <>
-                          {selectedJob.location && <Text style={styles.modalMetaDot}>·</Text>}
+                          {selectedJob.location && <Text style={styles.modalMetaDot}>Â·</Text>}
                           <Text style={styles.modalMetaText}>{selectedJob.employment_type}</Text>
                         </>
                       )}
@@ -385,8 +383,8 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                 <View style={{ gap: 14 }}>
                   <View style={styles.metaGrid}>
                     {[
-                      { label: "Location", value: selectedJob.location ?? "—",               icon: "map-pin"  as const },
-                      { label: "Type",     value: selectedJob.employment_type ?? "—",         icon: "briefcase" as const },
+                      { label: "Location", value: selectedJob.location ?? "â€”",               icon: "map-pin"  as const },
+                      { label: "Type",     value: selectedJob.employment_type ?? "â€”",         icon: "briefcase" as const },
                       { label: "Salary",   value: selectedJob.salary_range ?? "Not specified", icon: "dollar-sign" as const },
                       { label: "Posted",   value: formatDate(selectedJob.posted_at),          icon: "calendar" as const },
                       { label: "Closes",   value: selectedJob.closes_at ? formatDate(selectedJob.closes_at) : "No deadline", icon: "clock" as const },
@@ -434,7 +432,7 @@ export const HROfficerRecruitmentScreen = ({ route, navigation }: any) => {
                         <View style={{ flex: 1 }}>
                           <Text style={styles.applicantName}>{fullName}</Text>
                           <Text style={styles.applicantEmail}>{app.applicant_profile?.email ?? "No email"}</Text>
-                          <Text style={styles.applicantCode}>{app.applicant_profile?.applicant_code ?? "—"}</Text>
+                          <Text style={styles.applicantCode}>{app.applicant_profile?.applicant_code ?? "â€”"}</Text>
                         </View>
                         <View style={{ alignItems: "flex-end", gap: 5 }}>
                           <View style={[styles.statusPill, { backgroundColor: s.bg, borderColor: s.border }]}>
@@ -829,3 +827,4 @@ const styles = StyleSheet.create({
   rejectionConfirmButtonDisabled: { backgroundColor: "#FCA5A5", opacity: 0.6 },
   rejectionConfirmButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });
+

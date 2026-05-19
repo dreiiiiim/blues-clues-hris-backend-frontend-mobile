@@ -30,27 +30,43 @@ export const LoginScreen = ({ navigation }: any) => {
   async function onSubmit() {
     setError(null);
     setLoading(true);
-    const res = await login(email.trim(), password, rememberMe);
-    setLoading(false);
+    try {
+      const res = await login(email.trim(), password, rememberMe);
 
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
 
-    if (res.user.role === "applicant") {
-      setError("Applicants must sign in via the Applicant Portal.");
-      return;
-    }
+      if (res.user.role === "applicant") {
+        setError("Applicants must sign in via the Applicant Portal.");
+        return;
+      }
 
-    saveSession(res.user, rememberMe);
+      saveSession(res.user, rememberMe);
 
-    switch (res.user.role) {
-      case "employee":     navigation.replace("EmployeeDashboard",    { session: res.user }); break;
-      case "hr":           navigation.replace("HROfficerDashboard",   { session: res.user }); break;
-      case "manager":      navigation.replace("ManagerDashboard",     { session: res.user }); break;
-      case "system_admin":
-      case "admin":        navigation.replace("SystemAdminDashboard", { session: res.user }); break;
+      if (res.requires_portal_selection && res.role_switch_options && res.role_switch_options.length > 0) {
+        navigation.replace("PortalSelect", {
+          session: res.user,
+          roleSwitchOptions: res.role_switch_options,
+          availablePortals: res.available_portals,
+        });
+        return;
+      }
+
+      switch (res.user.role) {
+        case "employee":     navigation.replace("EmployeeDashboard",    { session: res.user }); break;
+        case "hr":           navigation.replace("HROfficerDashboard",   { session: res.user }); break;
+        case "manager":      navigation.replace("ManagerDashboard",     { session: res.user }); break;
+        case "system_admin":
+        case "admin":        navigation.replace("SystemAdminDashboard", { session: res.user }); break;
+        default:
+          setError(`Unrecognized role: ${res.user.role}. Contact support.`);
+      }
+    } catch {
+      setError("An unexpected error occurred. Please try again.");
+    } finally {
+      setLoading(false);
     }
   }
 

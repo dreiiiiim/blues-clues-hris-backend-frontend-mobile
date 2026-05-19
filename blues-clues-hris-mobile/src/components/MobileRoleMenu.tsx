@@ -116,16 +116,19 @@ export function MobileRoleMenu({
       Approvals: "HROfficerApprovals",
       Offboarding: "HROfficerOffboarding",
       Performance: "HROfficerPerformance",
+      Payroll: "HROfficerPayroll",
       Payslips: "HROfficerPayslips",
     },
     employee: {
       Dashboard: "EmployeeDashboard",
       Profile: "EmployeeProfile",
       Leave: "EmployeeLeave",
+      Overtime: "EmployeeOvertime",
       Timekeeping: "EmployeeTimekeeping",
       Performance: "EmployeePerformance",
       Payslips: "EmployeePayslips",
       Documents: "EmployeeDocuments",
+      Onboarding: "EmployeeOnboarding",
       Offboarding: "EmployeeOffboarding",
     },
     applicant: {
@@ -194,6 +197,10 @@ export function MobileRoleMenu({
         return <Ionicons name="clipboard-outline" size={17} color={color} />;
       case "Offboarding":
         return <Ionicons name="log-out-outline" size={17} color={color} />;
+      case "Overtime":
+        return <Ionicons name="timer-outline" size={17} color={color} />;
+      case "Payroll":
+        return <Ionicons name="cash-outline" size={17} color={color} />;
       case "Compensation":
       case "Compensation Settings":
         return <Ionicons name="wallet-outline" size={17} color={color} />;
