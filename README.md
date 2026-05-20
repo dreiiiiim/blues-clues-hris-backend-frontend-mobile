@@ -369,7 +369,7 @@ npx expo start -c
 
 Use these accounts for local development and testing. Passwords and live credentials are kept in the private team setup document, not in this public README.
 
-### Company 3
+### Company 3 PASSWORD:password123
 
 | Role                                   | Identifier                        | Password source   | Notes                         |
 | -------------------------------------- | --------------------------------- | ----------------- | ----------------------------- |
