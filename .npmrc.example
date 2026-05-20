@@ -1,0 +1,40 @@
+# ============================================================
+# .npmrc — GitHub Packages auth for @implementsprint/sdk
+# ============================================================
+# Backend (tribeX-hris-auth-api) installs `@implementsprint/sdk` from
+# GitHub Packages, not the public npm registry. That registry requires
+# auth even for read access, so every dev needs a personal access token.
+#
+# SETUP — one-time per machine:
+#
+# 1. Generate a GitHub classic PAT
+#    → https://github.com/settings/tokens/new
+#    → Scope:  read:packages   (the ONLY scope needed)
+#    → Name:   bluesclues-hris-local
+#    → Expiry: 90 days (rotate when it expires)
+#
+# 2. Export it in your shell profile (persists across terminals):
+#
+#    PowerShell (Windows) — add to $PROFILE:
+#      $env:GITHUB_TOKEN = "ghp_yourTokenHere"
+#      [System.Environment]::SetEnvironmentVariable(
+#        "GITHUB_TOKEN", "ghp_yourTokenHere", "User")
+#
+#    bash / zsh (macOS, Linux, WSL) — add to ~/.bashrc or ~/.zshrc:
+#      export GITHUB_TOKEN="ghp_yourTokenHere"
+#
+# 3. Restart your terminal so the var loads.
+#
+# 4. Verify:
+#      PowerShell:  echo $env:GITHUB_TOKEN
+#      bash/zsh:    echo $GITHUB_TOKEN
+#
+# 5. cd tribeX-hris-auth-api && npm install
+#
+# NEVER commit your real token. Do not paste it into this file or the
+# real .npmrc. Both files reference ${GITHUB_TOKEN} so npm reads it
+# from the environment at install time.
+# ============================================================
+
+@implementsprint:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}

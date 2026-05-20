@@ -5,7 +5,7 @@ Monorepo: authentication API + manager/applicant dashboard + mobile app for Blue
 GDocs Link:
 https://docs.google.com/document/d/1QbcjtozYNobPMb_ffn4uEWH5RwJ_TpOB4eTlkHVu4oE/edit?tab=t.0
 
-**Stack at a glance:** NestJS 11 · Next.js 16 · React 19 · React Native (Expo 54) · Supabase · JWT · Tailwind 4 · shadcn/ui · **Brevo** (email)
+**Stack at a glance:** NestJS 11 · Next.js 16 · React 19 · React Native (Expo 54) · Supabase · JWT · Tailwind 4 · shadcn/ui · **API Center SDK** (email + payments)
 
 > **Do we need AWS?** **No.** Supabase covers DB + storage + auth. Railway hosts backend. **Brevo** handles transactional email via REST (`POST /v3/smtp/email`). See [Infrastructure](#infrastructure) for full breakdown.
 
@@ -39,7 +39,7 @@ Each project has own `package.json` + `node_modules`. No workspace tooling — i
 | Runtime       | Node.js                                     | 20+     |
 | Auth          | `@nestjs/jwt` + `passport-jwt` + `bcryptjs` | —       |
 | DB Client     | `@supabase/supabase-js`                     | 2.97    |
-| Email         | **Brevo** REST API via `fetch` → `POST https://api.brevo.com/v3/smtp/email` | v3 |
+| Email         | **API Center SDK** `emailSend()` via `@implementsprint/sdk`           | —  |
 | File Upload   | `multer` (`@types/multer`) — resume uploads | —       |
 | API Docs      | `@nestjs/swagger` + `swagger-ui-express`    | 11.x    |
 | Validation    | `class-validator` + `class-transformer`     | —       |
@@ -85,13 +85,13 @@ Each project has own `package.json` + `node_modules`. No workspace tooling — i
 | **Supabase** | Postgres DB, auth tables, file storage, RLS | Project ref `xvofqboilmzlhrnkyyif`                    |
 | **Railway**  | Backend deploy (NestJS)                     | Prod URL below                                        |
 | **Vercel**   | Frontend deploy (Next.js) — recommended     | —                                                     |
-| **Brevo**    | Transactional email                         | Sends via `POST https://api.brevo.com/v3/smtp/email`. Auth header `api-key: <BREVO_API_KEY>`. Verified sender required. |
+| **API Center** | Transactional email + PayMongo payments   | SDK: `@implementsprint/sdk`. Env: `APICENTER_BASE_URL`, `APICENTER_TRIBE_ID`, `APICENTER_TRIBE_SECRET`. |
 | **Expo Go**  | Mobile dev + OTA preview                    | Same Wi-Fi for localhost                              |
 
 **Why no AWS:**
 - Supabase = managed Postgres + Storage + Auth (replaces RDS + S3 + Cognito)
 - Railway = container deploy with logs/env (replaces ECS / Elastic Beanstalk)
-- Brevo = transactional email (replaces SES)
+- API Center SDK = transactional email + PayMongo payments (replaces SES + custom gateway)
 
 > Note: `resend` package is still in `package.json` but **unused** — Brevo is called via plain `fetch` in `src/mail/mail.service.ts`. Safe to remove on next cleanup PR.
 
@@ -142,12 +142,10 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 SUPABASE_ANON_KEY=your-anon-key
 JWT_SECRET=replace-with-a-long-random-secret-at-least-32-characters
 
-# Brevo (transactional email) — get API key from https://app.brevo.com/settings/keys/api
-BREVO_API_KEY=your-brevo-api-key
-BREVO_BASE_URL=https://api.brevo.com
-BREVO_SENDER_EMAIL=your-verified-sender@example.com
-BREVO_SENDER_NAME=Blues Clues HRIS
-BREVO_TIMEOUT_MS=15000
+# API Center SDK (email + payments via @implementsprint/sdk)
+APICENTER_BASE_URL=https://api-center-test.itsandbox.site
+APICENTER_TRIBE_ID=your-tribe-id
+APICENTER_TRIBE_SECRET=your-tribe-secret
 
 APP_URL=http://localhost:3000
 ```
@@ -155,7 +153,7 @@ APP_URL=http://localhost:3000
 Backend notes:
 - `SUPABASE_SERVICE_ROLE_KEY` is server-only. Never put it in frontend/mobile env files.
 - `JWT_SECRET` must be at least 32 characters.
-- `BREVO_SENDER_EMAIL` must be verified in Brevo or email sends will fail.
+- `APICENTER_*` values come from the private team setup doc. Used by `@implementsprint/sdk` for email + PayMongo payments.
 - If you are only testing UI against Railway, you do not need to run the backend locally.
 
 #### Frontend — create `frontend/blues-clues-hris-frontend-web/.env.local`
@@ -203,6 +201,34 @@ Mobile notes:
 - Do not use `localhost` on a physical phone. Use your PC's Wi-Fi IPv4 address.
 - Restart Expo with `npx expo start -c` after changing `.env`.
 - Your phone and development machine must be on the same Wi-Fi network for local backend testing.
+
+---
+
+#### GitHub Packages — set `GITHUB_TOKEN` for `@implementsprint/sdk`
+
+The backend depends on `@implementsprint/sdk`, which is hosted on GitHub Packages (not the public npm registry). GitHub Packages requires authentication even for read access, so every developer needs a Personal Access Token.
+
+**This is a one-time setup per machine.**
+
+> **Security note:** The old `sprint5/.npmrc` contained a hardcoded PAT. That token has been revoked. The file now uses `${GITHUB_TOKEN}` — npm reads it from your environment at install time. Never paste a real token into `.npmrc` or commit one.
+
+**Quick setup:**
+
+*PowerShell (Windows):*
+```powershell
+[System.Environment]::SetEnvironmentVariable("GITHUB_TOKEN", "ghp_yourTokenHere", "User")
+```
+Restart your terminal after running this — it persists across sessions.
+
+*bash / zsh (macOS, Linux, WSL):*
+```bash
+echo 'export GITHUB_TOKEN="ghp_yourTokenHere"' >> ~/.zshrc   # or ~/.bashrc
+source ~/.zshrc
+```
+
+Generate a token at https://github.com/settings/tokens/new — select only the `read:packages` scope, set 90-day expiry.
+
+For the full walkthrough (verification steps, rotation, leak response), see **[`sprint5/.npmrc.example`](./.npmrc.example)**.
 
 ---
 
@@ -317,15 +343,12 @@ npx expo start -c
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (admin access — server only)          | Yes      |
 | `SUPABASE_ANON_KEY`         | Supabase anon/public key                                        | Yes      |
 | `JWT_SECRET`                | Secret used to sign JWT access tokens                           | Yes      |
-| `BREVO_API_KEY`             | Brevo API key (`api-key` header on `POST /v3/smtp/email`)       | Yes      |
-| `BREVO_BASE_URL`            | Brevo API base URL — default `https://api.brevo.com`            | No       |
-| `BREVO_SENDER_EMAIL`        | Verified sender email registered in Brevo                       | Yes      |
-| `BREVO_SENDER_NAME`         | Display name on outgoing emails (default: `Blues Clues HRIS`)   | No       |
-| `BREVO_TIMEOUT_MS`          | Fetch timeout for Brevo API call (default: `15000`)             | No       |
+| `APICENTER_BASE_URL`        | API Center base URL (email + payments)                          | Yes      |
+| `APICENTER_TRIBE_ID`        | Tribe ID for `@implementsprint/sdk` authentication              | Yes      |
+| `APICENTER_TRIBE_SECRET`    | Tribe secret for `@implementsprint/sdk` authentication          | Yes      |
 | `APP_URL`                   | Frontend URL (used in email links — verification, reset, etc.)  | Yes      |
 
 > **Never commit `.env` files or real secret values.** They are in `.gitignore`. Use placeholders in committed docs and get real values from the private team setup document.
-> Brevo sender email **must be verified** in your Brevo dashboard or sends will 401/403.
 
 ### Frontend web — `frontend/blues-clues-hris-frontend-web/.env.local`
 
@@ -521,9 +544,10 @@ A task is considered done only when:
 - **Expo cache:** always `npx expo start -c` after `.env` change. Stale cache causes silent failures.
 - **Next.js env:** restart dev server after editing `.env.local`. Only `NEXT_PUBLIC_*` vars reach the browser.
 - **Supabase RLS:** if a query returns empty in prod but works locally → RLS policy mismatch. Check policies first, not the query.
-- **Email failures silent:** Brevo HTTP errors (non-2xx, timeouts) swallowed in applicant verification flow. `mail.service.ts → sendMail()` only logs, doesn't propagate. Open issue.
+- **Email failures silent:** API Center email errors are logged but swallowed in some flows. `mail.service.ts → sendMail()` only logs, doesn't propagate. Open issue.
 - **`time_logs` table:** missing in some Supabase envs. Verify before timekeeping work.
 - **Service-role key:** server-only. Never bundle into frontend or mobile.
+- **Backend `npm install` returns 401/403 from `npm.pkg.github.com`** — `GITHUB_TOKEN` env var isn't set, expired, or lacks `read:packages` scope. See [`sprint5/.npmrc.example`](./.npmrc.example).
 
 ---
 
@@ -534,6 +558,7 @@ A task is considered done only when:
 | API reference           | `http://localhost:5000/api/docs` (Swagger)          |
 | Project plan / spec     | GDocs link at top                                   |
 | Deeper dev rules        | [`RULES_AND_GUIDELINES.md`](./RULES_AND_GUIDELINES.md) |
+| GitHub Packages setup   | [`sprint5/.npmrc.example`](./.npmrc.example)        |
 | SQL migrations          | `tribeX-hris-auth-api/sql/`                         |
 | Email templates         | `tribeX-hris-auth-api/src/mail/`                    |
 | Shared types (frontend) | `frontend/.../src/types/`                           |

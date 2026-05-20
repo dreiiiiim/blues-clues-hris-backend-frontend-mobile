@@ -28,3 +28,8 @@ temp_smurf_user_stories.txt
 Testing-feat-sprint5*
 The Smurf Village - USER STORIES.pdf
 temp_leave_man/
+sprint5\node_modules
+
+# .npmrc contains the GitHub Packages registry mapping for @implementsprint/sdk.
+# It MUST use ${GITHUB_TOKEN} (env-var reference) — never paste a literal PAT.
+# See sprint5/.npmrc.example for setup. Leaked tokens must be revoked immediately.

@@ -18,7 +18,7 @@ Last updated: 2026-04-27.
 | Runtime          | Node.js                                       | 20+     |
 | Auth             | `@nestjs/jwt` + `passport-jwt` + `bcryptjs`   | —       |
 | DB Client        | `@supabase/supabase-js`                       | 2.97    |
-| Email            | **Brevo** REST API via native `fetch` (`POST /v3/smtp/email`, header `api-key`) | v3 |
+| Email            | **API Center SDK** `emailSend()` via `@implementsprint/sdk`             | —  |
 | File Upload      | `multer` + `@types/multer` (resume uploads)   | —       |
 | API Docs         | `@nestjs/swagger` + `swagger-ui-express`      | 11.x    |
 | Validation       | `class-validator` + `class-transformer`       | —       |
@@ -62,27 +62,17 @@ Last updated: 2026-04-27.
 | **Supabase**  | Postgres DB, auth tables, file storage, RLS    | Project: `xvofqboilmzlhrnkyyif` |
 | **Railway**   | Backend deploy (NestJS)                        | Prod URL in README       |
 | **Vercel**    | Frontend deploy (Next.js) — recommended target | —                        |
-| **Brevo**     | Transactional email                            | `POST https://api.brevo.com/v3/smtp/email`. Header `api-key: <BREVO_API_KEY>`. Sender must be verified in Brevo dashboard. |
+| **API Center** | Transactional email + PayMongo payments       | SDK: `@implementsprint/sdk`. Env: `APICENTER_BASE_URL`, `APICENTER_TRIBE_ID`, `APICENTER_TRIBE_SECRET`. |
 | **Expo Go**   | Mobile dev + OTA preview                       | Same Wi-Fi for localhost |
 
 **Why no AWS:**
 Supabase = managed Postgres + Storage + Auth (replaces RDS + S3 + Cognito).
 Railway = container deploy with logs/env (replaces ECS/Elastic Beanstalk).
-Brevo = transactional email (replaces SES).
+API Center SDK = transactional email + PayMongo payments (replaces SES + custom gateway).
 Adding AWS = more DevOps, more bills, more surface area. Stick with current stack unless we hit real wall.
 
-**Brevo request shape** (per [Brevo docs](https://developers.brevo.com/reference/send-transac-email)):
-```json
-{
-  "sender":      { "name": "Blues Clues HRIS", "email": "verified@yourdomain.com" },
-  "to":          [{ "email": "user@example.com", "name": "User Name" }],
-  "subject":     "Subject line",
-  "htmlContent": "<html>...</html>"
-}
-```
-`201` → `{ "messageId": "<mid>" }`. Errors `400/401/403` → `{ code, message }`. Impl: `tribeX-hris-auth-api/src/mail/mail.service.ts`.
-
-> **Cleanup TODO:** `resend` pkg still in `package.json` deps but unused. Backend calls Brevo via plain `fetch`. Remove on next chore PR.
+**Email via API Center SDK:**
+`MailService` calls `apiCenterSdk.getClient().emailSend({ to, subject, html })`. Impl: `tribeX-hris-auth-api/src/mail/mail.service.ts`. All 17+ helpers (`sendInvite`, `sendPaymentConfirmation`, etc.) route through the same `sendMail()` wrapper.
 
 ---
 
@@ -224,7 +214,7 @@ Base path: `/api/tribeX/auth/v{major}/{resource}`
 - Private copy-paste env values belong only in the team password manager/private setup doc.
 - Service-role Supabase key = server-only. Never ship to frontend/mobile.
 - JWT secret rotation = coordinate with team; invalidates all sessions.
-- Brevo uses API key in `BREVO_API_KEY` (sent as `api-key` header). Rotate via Brevo dashboard. Sender domain must be verified.
+- GitHub PAT (`GITHUB_TOKEN`) required to install `@implementsprint/sdk` from GitHub Packages. Scope: `read:packages` only. Env var only — never committed. Rotate every 90 days.
 - Hash passwords with `bcryptjs` — never store plaintext.
 
 ---
@@ -263,7 +253,7 @@ A task is done only when:
 - **Expo cache:** always `npx expo start -c` after `.env` change.
 - **Next.js env:** restart dev server after editing `.env.local`. `NEXT_PUBLIC_*` only is exposed to browser.
 - **Supabase RLS:** if a query returns empty in prod but works locally — RLS policy mismatch.
-- **Email failures silent:** Brevo HTTP errors (non-2xx, timeouts) currently swallowed on applicant verification flow (open issue). Check `mail.service.ts` `sendMail()` — only logs, doesn't propagate.
+- **Email failures silent:** API Center `emailSend()` errors are caught and logged but not propagated in some flows (open issue). Check `mail.service.ts` `sendMail()` — only logs, doesn't rethrow.
 - **`time_logs` table:** missing in some Supabase envs — check before timekeeping work.
 
 ---
@@ -294,3 +284,21 @@ See main `README.md` section Test Accounts for identifiers. Passwords stay in th
 - Schema migrations on prod Supabase → review first.
 - Adding a new third-party service (paid tier) → discuss in chat before signup.
 - Anything affecting > 1 project (backend + frontend + mobile) → coordinate so envs stay aligned.
+
+---
+
+## 17. GitHub Packages — `@implementsprint/sdk`
+
+Backend (`tribeX-hris-auth-api`) depends on `@implementsprint/sdk`, distributed via GitHub Packages (not public npm). GitHub Packages requires authentication even for read access.
+
+**Setup — one-time per machine:**
+1. Generate a classic PAT at https://github.com/settings/tokens/new — select `read:packages` only, 90-day expiry.
+2. Export `GITHUB_TOKEN=<your_pat>` in your shell profile (PowerShell `$PROFILE` or `~/.zshrc`/`~/.bashrc`). Full instructions in [`sprint5/.npmrc.example`](./.npmrc.example).
+3. Restart terminal. `cd tribeX-hris-auth-api && npm install` should succeed.
+
+**Rules:**
+- `read:packages` is the ONLY required scope. Broader scopes are a security smell — reject them.
+- Never commit a real token. `sprint5/.npmrc` must always reference `${GITHUB_TOKEN}`, not a literal value.
+- Rotate PAT every 90 days or immediately when leaked.
+- **Leak response:** revoke at https://github.com/settings/tokens immediately → notify team → generate new token → update env → confirm `npm install` works.
+- Frontend and mobile do NOT need this token — only the backend depends on `@implementsprint/sdk`.

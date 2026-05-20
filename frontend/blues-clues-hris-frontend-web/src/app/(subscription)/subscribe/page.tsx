@@ -38,7 +38,6 @@ const MONTHLY_PRICE = 4999;
 const ANNUAL_PRICE = 3999;
 
 const API_BASE = API_BASE_URL;
-const WEBHOOK_SECRET = process.env.NEXT_PUBLIC_SUBSCRIPTION_WEBHOOK_SECRET ?? "";
 
 const PLAN_FEATURES = [
   "Unlimited employees",

@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ApiCenterSdkService } from '../api-center/api-center-sdk.service';
 
 type SendMailOptions = {
-  from?: string;
   to: string;
   subject: string;
   html: string;
@@ -191,65 +191,23 @@ function bodyText(html: string, mt = '0') {
 
 @Injectable()
 export class MailService {
-  private readonly apiKey: string;
-  private readonly baseUrl: string;
-  private readonly timeoutMs: number;
-  private readonly senderEmail: string;
-  private readonly senderName: string;
-  private readonly from: string;
   private readonly logger = new Logger(MailService.name);
 
-  constructor(private readonly config: ConfigService) {
-    this.apiKey = this.config.get<string>('BREVO_API_KEY') ?? '';
-    this.baseUrl = this.config.get<string>('BREVO_BASE_URL') ?? 'https://api.brevo.com';
-    this.senderEmail = this.config.get<string>('BREVO_SENDER_EMAIL') ?? '';
-    this.senderName = this.config.get<string>('BREVO_SENDER_NAME') ?? 'Blues Clues HRIS';
-    this.timeoutMs = Number(this.config.get<string>('BREVO_TIMEOUT_MS') ?? 15000);
-
-    this.from = `"${this.senderName}" <${this.senderEmail}>`;
-
-    if (!this.apiKey || !this.senderEmail) {
-      this.logger.warn('Brevo email is not fully configured. Set BREVO_API_KEY and BREVO_SENDER_EMAIL.');
-    }
-  }
+  constructor(
+    private readonly config: ConfigService,
+    private readonly apiCenterSdk: ApiCenterSdkService,
+  ) {}
 
   private async sendMail(options: SendMailOptions): Promise<void> {
-    if (!this.apiKey || !this.senderEmail) {
-      this.logger.debug(
-        `Email skipped (Brevo not configured): ${options.subject} → ${normalizeEmail(options.to)}`,
-      );
-      return;
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
     try {
-      const response = await fetch(`${this.baseUrl.replace(/\/$/, '')}/v3/smtp/email`, {
-        method: 'POST',
-        headers: {
-          accept: 'application/json',
-          'api-key': this.apiKey,
-          'content-type': 'application/json',
-        },
-        body: JSON.stringify({
-          sender: {
-            email: this.senderEmail,
-            name: this.senderName,
-          },
-          to: [{ email: options.to }],
-          subject: options.subject,
-          htmlContent: options.html,
-        }),
-        signal: controller.signal,
+      await this.apiCenterSdk.getClient().emailSend({
+        to: [{ email: options.to }],
+        subject: options.subject,
+        html: options.html,
       });
-
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw new Error(`Brevo send failed with HTTP ${response.status}: ${body}`);
-      }
-    } finally {
-      clearTimeout(timeout);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.error(`emailSend failed → ${normalizeEmail(options.to)}: ${msg}`);
     }
   }
 
@@ -307,7 +265,6 @@ export class MailService {
         </p>`;
 
       await this.sendMail({
-        from: this.from,
         to,
         subject: `You're invited to ${BRAND.name}`,
         html: emailWrapper(header, body),
@@ -352,7 +309,6 @@ export class MailService {
         </p>`;
 
       await this.sendMail({
-        from: this.from,
         to,
         subject: `Reset your ${BRAND.name} password`,
         html: emailWrapper(header, body),
@@ -389,7 +345,6 @@ export class MailService {
         </p>`;
 
       await this.sendMail({
-        from: this.from,
         to,
         subject: `Registration received - ${BRAND.name}`,
         html: emailWrapper(header, body),
@@ -441,7 +396,6 @@ export class MailService {
         </p>`;
 
       await this.sendMail({
-        from: this.from,
         to,
         subject: `Payment confirmed - ${BRAND.name}`,
         html: emailWrapper(header, body),
@@ -498,7 +452,6 @@ export class MailService {
         </table>`;
 
       await this.sendMail({
-        from: this.from,
         to,
         subject: `Your System Admin credentials - ${BRAND.name}`,
         html: emailWrapper(header, body),
@@ -526,7 +479,6 @@ export class MailService {
       </p>`;
 
     await this.sendMail({
-      from: this.from,
       to,
       subject: `Verify your email – ${BRAND.name}`,
       html: emailWrapper(header, body),
@@ -638,7 +590,6 @@ export class MailService {
       ${bodyText(`Log in to your applicant portal to view this schedule, accept or request a reschedule, and track your application status.`, '0')}`;
 
     await this.sendMail({
-      from: this.from,
       to: opts.to,
       subject: subjectLine,
       html: emailWrapper(header, body),
@@ -719,7 +670,6 @@ export class MailService {
       ${bodyText(`<strong>Next step:</strong> ${nextSteps}`, '0')}`;
 
     await this.sendMail({
-      from: this.from,
       to: opts.to,
       subject: `${opts.applicantName} ${actionLabel} — ${opts.jobTitle}`,
       html: emailWrapper(header, body),
@@ -767,7 +717,6 @@ export class MailService {
       </p>`;
 
     await this.sendMail({
-      from: this.from,
       to: opts.to,
       subject: `Interview Cancelled – ${opts.jobTitle}`,
       html: emailWrapper(header, body),
@@ -821,7 +770,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: opts.to,
         subject: `Onboarding Update: "${opts.itemTitle}" has been ${statusLabel}`,
         html: emailWrapper(header, body),
@@ -873,7 +821,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: opts.to,
         subject: 'Your onboarding is complete — Welcome to the team!',
         html: emailWrapper(header, body),
@@ -905,7 +852,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: opts.to,
         subject: 'Onboarding update: revisions requested by HR',
         html: emailWrapper(header, body),
@@ -954,7 +900,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: opts.to,
         subject: `Your ${fieldLabel} change request has been ${statusLabel}`,
         html: emailWrapper(header, body),
@@ -1031,7 +976,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: opts.to,
         subject: `Absence Request ${actionLabel} – ${fmtDate}`,
         html: emailWrapper(header, body),
@@ -1112,7 +1056,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: opts.to,
         subject: `Leave Request ${actionLabel} — ${opts.leaveType} (${dateRange})`,
         html: emailWrapper(header, body),
@@ -1195,7 +1138,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: opts.to,
         subject: `Overtime Request ${actionLabel} — ${typeMap[opts.overtimeType] || opts.overtimeType} (${fmt(opts.otDate)})`,
         html: emailWrapper(header, body),
@@ -1230,7 +1172,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: normalizeEmail(to),
         subject: `Renewal Reminder — ${companyName} (${daysRemaining < 0 ? 'Expired' : `${daysRemaining}d left`})`,
         html: header,
@@ -1257,7 +1198,6 @@ export class MailService {
 
     try {
       await this.sendMail({
-        from: this.from,
         to: normalizeEmail(to),
         subject: `Your Blues Clues HRIS account has been suspended — ${companyName}`,
         html: header,
