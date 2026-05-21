@@ -64,7 +64,7 @@ export function DateOfBirthPicker({
   const currentYear = new Date().getFullYear();
   const years = useMemo(() => {
     const arr: number[] = [];
-    for (let y = currentYear - 5; y >= currentYear - 100; y--) arr.push(y);
+    for (let y = currentYear - 18; y >= currentYear - 100; y--) arr.push(y);
     return arr;
   }, [currentYear]);
 

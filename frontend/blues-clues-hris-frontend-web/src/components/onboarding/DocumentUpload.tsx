@@ -27,7 +27,16 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
   const [uploadErrors, setUploadErrors] = useState<Record<string, string>>({});
   const [pendingFiles, setPendingFiles] = useState<Record<string, File>>({});
   const [uploading, setUploading] = useState<Record<string, boolean>>({});
-  const awaitingReviewCount = documents.filter((d) => d.status === "submitted" || d.status === "for-review").length;
+  const getEffectiveStatus = (doc: DocumentItem) => {
+    const hasServerUpload = !!doc.files[0] && !doc.files[0].submission_id.startsWith("preview-");
+    if (doc.status === "pending" && hasServerUpload) return "submitted";
+    return doc.status;
+  };
+
+  const awaitingReviewCount = documents.filter((d) => {
+    const status = getEffectiveStatus(d);
+    return status === "submitted" || status === "for-review";
+  }).length;
 
   const hasPending = (id: string) => !!pendingFiles[id];
 
@@ -179,10 +188,11 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
         const id = doc.onboarding_item_id;
         const isPending = hasPending(id);
         const fileUrl = realFileUrl(doc);
-        const isRejected = doc.status === "rejected";
+        const effectiveStatus = getEffectiveStatus(doc);
+        const isRejected = effectiveStatus === "rejected";
         const canReupload = !isPending && isRejected;
-        const isLocked = !isPending && !isRejected && ["submitted", "for-review", "approved"].includes(doc.status);
-        const isAwaitingReview = !isPending && (doc.status === "submitted" || doc.status === "for-review");
+        const isLocked = !isPending && !isRejected && ["submitted", "for-review", "approved"].includes(effectiveStatus);
+        const isAwaitingReview = !isPending && (effectiveStatus === "submitted" || effectiveStatus === "for-review");
 
         return (
           <div key={id} className="rounded-xl border border-slate-200 bg-white overflow-hidden">
@@ -195,8 +205,8 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
                 {doc.description && <p className="text-xs text-slate-500 mt-0.5">{doc.description}</p>}
               </div>
               <div className="flex items-center gap-2 shrink-0">
-                <StatusIcon status={doc.status} />
-                <StatusBadge status={doc.status} />
+                <StatusIcon status={effectiveStatus} />
+                <StatusBadge status={effectiveStatus} />
               </div>
             </div>
 
@@ -249,7 +259,7 @@ export function DocumentUpload({ documents, remarks, onUpdate }: Readonly<Docume
                   </>
                 )}
 
-                {!isPending && doc.status === "pending" && (
+                {!isPending && effectiveStatus === "pending" && (
                   <>
                     <Button variant="outline" size="sm" className="h-7" onClick={() => triggerFileInput(id)}>
                       <Upload className="size-3 mr-1" />Upload

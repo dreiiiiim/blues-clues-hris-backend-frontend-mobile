@@ -6,7 +6,15 @@ export interface StoredUser {
   name: string;
   email: string;
   role: string;
+  role_name?: string;
+  active_portal?: string;
+  available_portals?: string[];
+  role_switch_options?: Array<{ role_id: string; role_name: string; portal_key: string }>;
   user_id?: string;  // applicant_id for applicants, sub_userid for staff
+}
+
+function hasWindow(): boolean {
+  return globalThis.window !== undefined;
 }
 
 // Access token lives ONLY in memory — never written to sessionStorage or localStorage.
@@ -15,12 +23,12 @@ let _accessToken: string | null = null;
 
 // Restored from localStorage so it survives page reloads.
 let _rememberMe =
-  globalThis.window !== undefined && localStorage.getItem(REMEMBER_KEY) === "1";
+  hasWindow() && localStorage.getItem(REMEMBER_KEY) === "1";
 
 export function setTokens(params: { access_token: string; rememberMe: boolean }) {
   _accessToken = params.access_token;
   _rememberMe = params.rememberMe;
-  if (globalThis.window !== undefined) {
+  if (hasWindow()) {
     if (params.rememberMe) {
       localStorage.setItem(REMEMBER_KEY, "1");
     } else {
@@ -44,7 +52,7 @@ export function writeAccessToken(access_token: string) {
 export function clearAuthStorage() {
   _accessToken = null;
   _rememberMe = false;
-  if (typeof globalThis.window === "undefined") return;
+  if (!hasWindow()) return;
   localStorage.removeItem(REMEMBER_KEY);
   // Clean up any legacy tokens that may have been stored in old versions
   localStorage.removeItem("access_token");
@@ -57,7 +65,7 @@ export function clearAuthStorage() {
 }
 
 export function saveUserInfo(info: StoredUser) {
-  if (typeof globalThis.window === "undefined") return;
+  if (!hasWindow()) return;
   // Always clear both storages first so a previous user's stale data never leaks
   localStorage.removeItem(USER_KEY);
   sessionStorage.removeItem(USER_KEY);
@@ -66,7 +74,7 @@ export function saveUserInfo(info: StoredUser) {
 }
 
 export function getUserInfo(): StoredUser | null {
-  if (typeof globalThis.window === "undefined") return null;
+  if (!hasWindow()) return null;
   const data = sessionStorage.getItem(USER_KEY) || localStorage.getItem(USER_KEY);
   if (!data) return null;
   try {

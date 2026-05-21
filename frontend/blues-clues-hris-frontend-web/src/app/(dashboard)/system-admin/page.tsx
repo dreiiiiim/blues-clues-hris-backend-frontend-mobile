@@ -9,10 +9,11 @@ import { API_BASE_URL } from "@/lib/api";
 import { getSubscriptions, type Subscription } from "@/lib/adminApi";
 import {
   Users, Building2, Mail, Clock,
-  UserPlus, CreditCard, Settings, ChevronRight,
+  UserPlus, CreditCard, ChevronRight, DollarSign,
   RefreshCw, ScrollText, Briefcase, ClipboardList,
   Shield, Activity, UserCheck, MoveRight,
   CheckCircle2, AlertTriangle, TimerReset,
+  SlidersHorizontal, UserMinus, Target,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -371,6 +372,22 @@ export default function AdminDashboardPage() {
                 sub: "Create, edit, move, and deactivate accounts.",
               },
               {
+                href: "/system-admin/offboarding",
+                icon: UserMinus,
+                accent: "border-l-rose-500 group-hover:bg-rose-50/50",
+                iconBg: "bg-rose-50 text-rose-600",
+                label: "Offboarding Templates",
+                sub: "Customize exit checklists and company-specific requirements.",
+              },
+              {
+                href: "/system-admin/compensation-settings",
+                icon: DollarSign,
+                accent: "border-l-fuchsia-500 group-hover:bg-fuchsia-50/50",
+                iconBg: "bg-fuchsia-50 text-fuchsia-600",
+                label: "Compensation & Benefits",
+                sub: "Customize payroll multipliers, taxes, and deduction percentages.",
+              },
+              {
                 href: "/system-admin/subscriptions",
                 icon: CreditCard,
                 accent: "border-l-emerald-500 group-hover:bg-emerald-50/50",
@@ -396,11 +413,19 @@ export default function AdminDashboardPage() {
               },
               {
                 href: "/system-admin/settings",
-                icon: Settings,
+                icon: SlidersHorizontal,
                 accent: "border-l-amber-500 group-hover:bg-amber-50/50",
                 iconBg: "bg-amber-50 text-amber-600",
-                label: "Global Settings",
-                sub: "Configure lifecycle permissions per role.",
+                label: "Role Permissions",
+                sub: "Configure lifecycle access and module permissions per role.",
+              },
+              {
+                href: "/system-admin/performance-settings",
+                icon: Target,
+                accent: "border-l-indigo-500 group-hover:bg-indigo-50/50",
+                iconBg: "bg-indigo-50 text-indigo-600",
+                label: "Performance Settings",
+                sub: "Manage performance-related configuration and measurement rules.",
               },
             ].map(({ href, icon: Icon, accent, iconBg, label, sub }) => (
               <Link key={href} href={href} className={`flex items-start gap-4 pl-5 pr-6 py-3.5 border-l-[3px] border-l-transparent transition-all group cursor-pointer ${accent}`}>

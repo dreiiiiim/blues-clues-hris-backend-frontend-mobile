@@ -1,0 +1,102 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install All Dependencies",
+      "type": "shell",
+      "command": "npm",
+      "args": ["install"],
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "isBackground": false,
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "Frontend: Install & Dev Server",
+      "type": "shell",
+      "command": "sh",
+      "args": ["-c", "cd frontend/blues-clues-hris-frontend-web && npm install && npm run dev"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^.*$",
+          "line": 0
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*ready - started server on.*",
+          "endsPattern": "^.*ready - started server on.*"
+        }
+      },
+      "presentation": {
+        "group": "1_dev_servers",
+        "order": 1,
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Mobile: Install & Expo",
+      "type": "shell",
+      "command": "sh",
+      "args": ["-c", "cd blues-clues-hris-mobile && npm install && npx expo start"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^.*$",
+          "line": 0
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*Expo.*",
+          "endsPattern": "^.*Expo.*"
+        }
+      },
+      "presentation": {
+        "group": "1_dev_servers",
+        "order": 2,
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Backend: Install & Dev Server",
+      "type": "shell",
+      "command": "sh",
+      "args": ["-c", "cd tribeX-hris-auth-api && npm install && npm run start:dev"],
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^.*$",
+          "line": 0
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*NestFactory.*",
+          "endsPattern": "^.*NestFactory.*"
+        }
+      },
+      "presentation": {
+        "group": "1_dev_servers",
+        "order": 0,
+        "reveal": "always",
+        "panel": "new"
+      }
+    },
+    {
+      "label": "Run All (Backend + Frontend + Mobile)",
+      "dependsOn": [
+        "Backend: Install & Dev Server",
+        "Frontend: Install & Dev Server",
+        "Mobile: Install & Expo"
+      ],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    }
+  ]
+}

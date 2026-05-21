@@ -35,6 +35,10 @@ const HR_AND_ABOVE = [
   'HR Officer',
   'HR Recruiter',
   'HR Interviewer',
+  'HR Compensation and Benefits Officer',
+  'HR Offboarding Officer/Coordinator',
+  'HR Onboarding Officer',
+  'HR Performance Management Officer',
   'Manager',
 ];
 const ADMIN_ONLY = ['Admin', 'System Admin'];
@@ -154,6 +158,12 @@ export class UsersController {
       date_format?: string;
       currency?: string;
       org_structure?: any;
+      payroll_settings?: {
+        working_days_per_year?: number;
+        overtime_multiplier?: number;
+        late_deduction_per_hour?: number;
+        night_shift_diff_multiplier?: number;
+      };
     },
   ) {
     if (req.user.role_name !== 'System Admin') {

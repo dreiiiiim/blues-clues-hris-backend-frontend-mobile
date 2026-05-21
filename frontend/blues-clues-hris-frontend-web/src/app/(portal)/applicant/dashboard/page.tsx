@@ -18,8 +18,10 @@ import {
   Search, ChevronRight, Building2, X, Loader2, CheckCircle,
   DollarSign, FileText, TrendingUp, CalendarClock, Sparkles,
   ArrowUpRight, AlertTriangle, User, Phone, Mail, Calendar,
-  Globe, Heart, Home, Upload,
+  Globe, Heart, Home, Upload, Lock, ClipboardList, ListChecks, Package,
 } from "lucide-react";
+import { getMySession } from "@/lib/onboardingApi";
+import type { OnboardingSession } from "@/types/onboarding.types";
 
 // ─── Application Form Modal ───────────────────────────────────────────────────
 
@@ -469,6 +471,7 @@ export default function ApplicantDashboardPage() {
   const [applyingJob, setApplyingJob] = useState<JobPosting | null>(null);
   const [latestApp, setLatestApp] = useState<MyApplication | null>(null);
   const [profile, setProfile] = useState<ApplicantProfile | null>(null);
+  const [onboardingSession, setOnboardingSession] = useState<OnboardingSession | null>(null);
 
   useEffect(() => {
     setSession(getUserInfo());
@@ -476,8 +479,10 @@ export default function ApplicantDashboardPage() {
       getApplicantJobs().catch(() => [] as JobPosting[]),
       getMyApplications().catch(() => [] as MyApplication[]),
       getApplicantProfile().catch(() => null),
-    ]).then(([jobList, myApps, myProfile]) => {
+      getMySession().catch(() => null),
+    ]).then(([jobList, myApps, myProfile, mySession]) => {
       setProfile(myProfile);
+      setOnboardingSession(mySession);
       setJobs(jobList);
       setApplications(myApps);
       setAppliedJobIds(new Set(myApps.map((a) => a.job_posting_id)));
@@ -605,6 +610,9 @@ export default function ApplicantDashboardPage() {
 
       {/* ── Profile Completeness ── */}
       {!loading && <ProfileCompletenessBanner profile={profile} />}
+
+      {/* ── Onboarding Checklist ── */}
+      {!loading && onboardingSession && <OnboardingTrackerWidget session={onboardingSession} />}
 
       {/* ── Application Stage Tracker ── */}
       <div className="rounded-2xl border border-border shadow-sm overflow-hidden bg-card">
@@ -899,6 +907,160 @@ export default function ApplicantDashboardPage() {
           }}
         />
       )}
+    </div>
+  );
+}
+
+// ─── Onboarding Tracker Widget ───────────────────────────────────────────────
+
+function OnboardingTrackerWidget({ session }: { readonly session: OnboardingSession }) {
+  const done = {
+    profile:   session.profile_items.filter(i => i.is_required).every(i => i.status === "approved"),
+    documents: session.documents.filter(i => i.is_required).every(i => ["approved","confirmed","issued"].includes(i.status)),
+    forms:     session.hr_forms.filter(i => i.is_required).every(i => i.status === "approved"),
+    tasks:     session.tasks.filter(i => i.is_required).every(i => ["approved","confirmed"].includes(i.status)),
+    equipment: session.equipment.filter(i => i.is_required).every(i => ["approved","issued"].includes(i.status)),
+  };
+
+  const STEPS: { label: string; icon: React.ElementType; unlocked: boolean; done: boolean }[] = [
+    { label: "Profile",   icon: User,          unlocked: true,                                                              done: done.profile   },
+    { label: "Documents", icon: FileText,       unlocked: done.profile,                                                     done: done.documents },
+    { label: "HR Forms",  icon: ClipboardList,  unlocked: done.profile && done.documents,                                   done: done.forms     },
+    { label: "Tasks",     icon: ListChecks,     unlocked: done.profile && done.documents && done.forms,                     done: done.tasks     },
+    { label: "Equipment", icon: Package,        unlocked: done.profile && done.documents && done.forms && done.tasks,       done: done.equipment },
+  ];
+
+  const nextStep      = STEPS.find(s => s.unlocked && !s.done);
+  const completedCount = STEPS.filter(s => s.done).length;
+  const isOverdue     = session.status === "overdue";
+
+  if (session.status === "approved") {
+    return (
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 flex items-center gap-4">
+        <div className="h-12 w-12 rounded-2xl bg-emerald-500/15 border border-emerald-300 flex items-center justify-center shrink-0">
+          <CheckCircle className="h-6 w-6 text-emerald-600" />
+        </div>
+        <div className="flex-1">
+          <p className="font-bold text-emerald-800">Onboarding Complete!</p>
+          <p className="text-sm text-emerald-700/80 mt-0.5">HR has approved all your submissions. Welcome aboard!</p>
+        </div>
+        <Link href="/applicant/onboarding" className="shrink-0">
+          <Button size="sm" variant="outline" className="border-emerald-300 text-emerald-700 hover:bg-emerald-100 h-8">
+            View <ChevronRight className="h-3.5 w-3.5 ml-1" />
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  if (session.status === "for-review") {
+    return (
+      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5 flex items-center gap-4">
+        <div className="h-12 w-12 rounded-2xl bg-blue-500/15 border border-blue-300 flex items-center justify-center shrink-0">
+          <Clock className="h-6 w-6 text-blue-600" />
+        </div>
+        <div className="flex-1">
+          <p className="font-bold text-blue-800">Onboarding Under Review</p>
+          <p className="text-sm text-blue-700/80 mt-0.5">All steps submitted. HR is reviewing your documents — you&apos;ll be notified once approved.</p>
+        </div>
+        <Link href="/applicant/onboarding" className="shrink-0">
+          <Button size="sm" variant="outline" className="border-blue-300 text-blue-700 hover:bg-blue-100 h-8">
+            View <ChevronRight className="h-3.5 w-3.5 ml-1" />
+          </Button>
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-border shadow-sm overflow-hidden bg-card">
+      {/* Header */}
+      <div className="px-6 pt-5 pb-4 border-b border-border bg-linear-to-r from-violet-500/6 to-primary/4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-bold text-violet-600 uppercase tracking-widest mb-1">Onboarding Checklist</p>
+            <h2 className="text-xl font-bold tracking-tight text-foreground">
+              {nextStep ? `Complete your ${nextStep.label}` : "Ready to submit"}
+            </h2>
+            <p className="text-sm text-muted-foreground mt-1">
+              {session.assigned_position ? `${session.assigned_position} · ` : ""}
+              {completedCount} of {STEPS.length} steps done
+            </p>
+          </div>
+          <span className={`mt-0.5 px-3 py-1 text-[10px] font-bold uppercase tracking-tight rounded-full border shrink-0 ${
+            isOverdue
+              ? "bg-red-500/10 text-red-600 border-red-500/20"
+              : "bg-violet-500/10 text-violet-600 border-violet-500/20"
+          }`}>
+            {isOverdue ? "Overdue" : `${Math.round(session.progress_percentage)}% done`}
+          </span>
+        </div>
+        <div className="mt-3.5 h-1.5 rounded-full bg-muted overflow-hidden">
+          <div
+            className={`h-full rounded-full transition-all duration-700 ${isOverdue ? "bg-red-500" : "bg-violet-500"}`}
+            style={{ width: `${session.progress_percentage}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Step nodes */}
+      <div className="px-8 py-8">
+        <div className="relative flex items-start justify-between w-full max-w-2xl mx-auto">
+          <div className="absolute left-0 right-0 top-6 -translate-y-1/2 h-px bg-border z-0" />
+          <div
+            className="absolute left-0 top-6 -translate-y-1/2 h-px bg-violet-500 z-0 transition-all duration-700"
+            style={{ width: `${Math.min((completedCount / (STEPS.length - 1)) * 100, 100)}%` }}
+          />
+          {STEPS.map((step) => {
+            const StepIcon = step.icon;
+            const isCompleted = step.done;
+            const isCurrent   = step.unlocked && !step.done;
+            const isLocked    = !step.unlocked;
+            return (
+              <div key={step.label} className="flex flex-col items-center gap-2 relative z-10">
+                <div className={`h-12 w-12 rounded-full border-2 flex items-center justify-center transition-all shadow-sm ${
+                  isCompleted
+                    ? "bg-violet-600 border-violet-600 text-white shadow-violet-200"
+                    : isCurrent
+                    ? "bg-background border-violet-500 text-violet-600 ring-4 ring-violet-500/15"
+                    : "bg-muted/40 border-border text-muted-foreground/40"
+                }`}>
+                  {isCompleted
+                    ? <Check className="h-4 w-4" />
+                    : isLocked
+                    ? <Lock className="h-3.5 w-3.5" />
+                    : <StepIcon className="h-4 w-4" />}
+                </div>
+                <span className={`text-[10px] font-bold uppercase tracking-widest text-center leading-tight max-w-[72px] ${
+                  isCompleted || isCurrent ? "text-foreground" : "text-muted-foreground/40"
+                }`}>
+                  {step.label}
+                </span>
+                {isCurrent && (
+                  <span className="text-[9px] font-bold uppercase tracking-wider text-violet-500">Now</span>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Footer CTA */}
+      <div className="px-6 pb-5 border-t border-border flex items-center justify-between gap-4">
+        <p className="text-sm text-muted-foreground">
+          {nextStep ? (
+            <><span className="font-semibold text-foreground">Next:</span> {nextStep.label} — complete required items to unlock the next stage.</>
+          ) : (
+            "All steps complete. Submit for HR approval."
+          )}
+        </p>
+        <Link href="/applicant/onboarding" className="shrink-0">
+          <Button size="sm" className="bg-violet-600 hover:bg-violet-700 text-white h-8 gap-1.5">
+            {completedCount === STEPS.length ? "Submit" : "Continue"}
+            <ChevronRight className="h-3.5 w-3.5" />
+          </Button>
+        </Link>
+      </div>
     </div>
   );
 }

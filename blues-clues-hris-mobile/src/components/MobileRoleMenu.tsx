@@ -79,12 +79,66 @@ export function MobileRoleMenu({
   };
 
   const SCREEN_MAP: Partial<Record<UserRole, Record<string, string>>> = {
-    system_admin: { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
-    admin:        { Dashboard: "SystemAdminDashboard", Users: "SystemAdminUsers", Billing: "SystemAdminBilling", AuditLogs: "SystemAdminAuditLogs" },
-    manager:      { Dashboard: "ManagerDashboard", Timekeeping: "ManagerTimekeeping", Team: "ManagerTeam" },
-    hr:           { Dashboard: "HROfficerDashboard", Timekeeping: "HROfficerTimekeeping", Recruitment: "HROfficerRecruitment" },
-    employee:     { Dashboard: "EmployeeDashboard", Timekeeping: "EmployeeTimekeeping" },
-    applicant:    { Dashboard: "ApplicantDashboard", Jobs: "ApplicantJobs", Applications: "ApplicantApplications", Resume: "ApplicantResumeUpload" },
+    system_admin: {
+      Dashboard: "SystemAdminDashboard",
+      Timekeeping: "SystemAdminTimekeeping",
+      Users: "SystemAdminUsers",
+      Onboarding: "SystemAdminOnboarding",
+      Offboarding: "SystemAdminOffboarding",
+      Approvals: "SystemAdminApprovals",
+      "Compensation Settings": "SystemAdminCompensationSettings",
+      Subscriptions: "SystemAdminSubscriptions",
+      "Performance Settings": "SystemAdminPerformanceSettings",
+      Settings: "SystemAdminSettings",
+      AuditLogs: "SystemAdminAuditLogs",
+    },
+    admin: {
+      Dashboard: "SystemAdminDashboard",
+      Users: "SystemAdminUsers",
+      AuditLogs: "SystemAdminAuditLogs",
+      Subscriptions: "SystemAdminSubscriptions",
+    },
+    manager: {
+      Dashboard: "ManagerDashboard",
+      Timekeeping: "ManagerTimekeeping",
+      Team: "ManagerTeam",
+      Performance: "ManagerPerformance",
+      Approvals: "ManagerApprovals",
+      Payslips: "ManagerPayslips",
+      Offboarding: "ManagerOffboarding",
+    },
+    hr: {
+      Dashboard: "HROfficerDashboard",
+      Timekeeping: "HROfficerTimekeeping",
+      Jobs: "HROfficerJobs",
+      Candidates: "HROfficerCandidates",
+      Onboarding: "HROfficerOnboarding",
+      Approvals: "HROfficerApprovals",
+      Offboarding: "HROfficerOffboarding",
+      Performance: "HROfficerPerformance",
+      Payroll: "HROfficerPayroll",
+      Payslips: "HROfficerPayslips",
+    },
+    employee: {
+      Dashboard: "EmployeeDashboard",
+      Profile: "EmployeeProfile",
+      Leave: "EmployeeLeave",
+      Overtime: "EmployeeOvertime",
+      Timekeeping: "EmployeeTimekeeping",
+      Performance: "EmployeePerformance",
+      Payslips: "EmployeePayslips",
+      Documents: "EmployeeDocuments",
+      Onboarding: "EmployeeOnboarding",
+      Offboarding: "EmployeeOffboarding",
+    },
+    applicant: {
+      Dashboard: "ApplicantDashboard",
+      Jobs: "ApplicantJobs",
+      Applications: "ApplicantApplications",
+      Profile: "ApplicantProfile",
+      Onboarding: "ApplicantOnboarding",
+      Resume: "ApplicantResumeUpload",
+    },
   };
 
   const switchTo = (target: string) => {
@@ -125,6 +179,7 @@ export function MobileRoleMenu({
       case "Users":
         return <Feather name="users" size={17} color={color} />;
       case "Billing":
+      case "Subscriptions":
         return <Ionicons name="card-outline" size={17} color={color} />;
       case "Timekeeping":
         return <MaterialCommunityIcons name="clock-time-four-outline" size={18} color={color} />;
@@ -140,14 +195,26 @@ export function MobileRoleMenu({
         return <Ionicons name="shield-checkmark-outline" size={17} color={color} />;
       case "Onboarding":
         return <Ionicons name="clipboard-outline" size={17} color={color} />;
+      case "Offboarding":
+        return <Ionicons name="log-out-outline" size={17} color={color} />;
+      case "Overtime":
+        return <Ionicons name="timer-outline" size={17} color={color} />;
+      case "Payroll":
+        return <Ionicons name="cash-outline" size={17} color={color} />;
       case "Compensation":
+      case "Compensation Settings":
         return <Ionicons name="wallet-outline" size={17} color={color} />;
       case "Performance":
+      case "Performance Settings":
         return <Ionicons name="bar-chart-outline" size={17} color={color} />;
       case "Approvals":
         return <Ionicons name="checkmark-done-outline" size={17} color={color} />;
       case "Profile":
         return <Ionicons name="person-outline" size={17} color={color} />;
+      case "Leave":
+        return <Ionicons name="calendar-outline" size={17} color={color} />;
+      case "Payslips":
+        return <Ionicons name="receipt-outline" size={17} color={color} />;
       default:
         return <Feather name="circle" size={16} color={color} />;
     }

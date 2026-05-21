@@ -19,6 +19,14 @@ import { AuditModule } from './audit/audit.module';
 import { OnboardingModule } from './onboarding/onboarding.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { SubscriptionModule } from './subscription/subscription.module';
+import { LeaveModule } from './leave/leave.module';
+import { OvertimeModule } from './overtime/overtime.module';
+import { LeaveBalancesModule } from './leave-balances/leave-balances.module';
+import { PayrollModule } from './payroll/payroll.module';
+import { CnbModule } from './cnb/cnb.module';
+import { OffboardingModule } from './offboarding/offboarding.module';
+import { PerformanceModule } from './performance/performance.module';
+import { SuperAdminModule } from './super-admin/super-admin.module';
 
 const shouldValidateEnv = process.env.NODE_ENV === 'production';
 
@@ -31,7 +39,7 @@ const shouldValidateEnv = process.env.NODE_ENV === 'production';
       ...(shouldValidateEnv ? { validate: validateEnv } : {}),
     }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 10 }]),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]),
     SupabaseModule,
     ApiCenterSdkModule,
     HealthModule,
@@ -45,6 +53,14 @@ const shouldValidateEnv = process.env.NODE_ENV === 'production';
     OnboardingModule,
     NotificationsModule,
     SubscriptionModule,
+    LeaveModule,
+    OvertimeModule,
+    LeaveBalancesModule,
+    PayrollModule,
+    CnbModule,
+    OffboardingModule,
+    PerformanceModule,
+    SuperAdminModule,
   ],
   controllers: [AppController],
   providers: [AppService],

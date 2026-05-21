@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -208,15 +208,6 @@ export function HROfficerTimekeepingScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="hr"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Timekeeping"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView
             style={styles.scroll}
@@ -357,7 +348,9 @@ export function HROfficerTimekeepingScreen() {
                 );
               })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="hr" activeScreen="Timekeeping" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -572,3 +565,5 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 });
+
+

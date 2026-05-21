@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Logger, InternalServerErrorException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger, InternalServerErrorException, ForbiddenException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as crypto from 'node:crypto';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -11,6 +11,39 @@ import { CreateTemplateDto } from './dto/create-template.dto';
 import { SaveProfileDto } from './dto/save-profile.dto';
 import { AssignTemplateDto } from './dto/assign-template.dto';
 import { AddRemarkDto } from './dto/add-remark.dto';
+import { normalizeNamePart } from '../common/person.utils';
+
+function getManilaDateKey(date = new Date()): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Manila',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(date);
+}
+const MULTI_PORTAL_ELIGIBLE_ROLES = new Set([
+  'hr officer',
+  'hr recruiter',
+  'hr interviewer',
+  'hr compensation and benefits officer',
+  'hr offboarding officer/coordinator',
+  'hr onboarding officer',
+  'hr performance management officer',
+  'manager',
+  'group head',
+  'admin',
+  'system admin',
+]);
+
+function roleNameToPortal(roleName: string | null | undefined): string {
+  const normalized = String(roleName ?? '').trim().toLowerCase();
+  if (normalized === 'system admin') return 'system-admin';
+  if (normalized === 'admin') return 'admin';
+  if (normalized === 'manager' || normalized === 'group head') return 'manager';
+  if (normalized === 'active employee' || normalized === 'employee') return 'employee';
+  if (normalized === 'applicant') return 'applicant';
+  return 'hr';
+}
 
 @Injectable()
 export class OnboardingService {
@@ -113,16 +146,15 @@ export class OnboardingService {
       .from('onboarding_sessions')
       .select('*');
 
-    const { data: session, error: sessionErr } = sessionId
-      ? await sessionQuery
+    const sessionLookup = sessionId
+      ? sessionQuery
           .eq('session_id', sessionId)
           .limit(1)
-          .maybeSingle()
-      : await sessionQuery
+      : sessionQuery
           .eq('account_id', accountId)
           .order('deadline_date', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+          .limit(1);
+    const { data: session, error: sessionErr } = await sessionLookup.maybeSingle();
 
     if (sessionErr) throw new BadRequestException(sessionErr.message);
     if (!session) return null;
@@ -308,11 +340,12 @@ export class OnboardingService {
       account_id: session.account_id,
       template_id: session.template_id,
       template_name: template?.name || null,
-      employee_name: user
-        ? `${user.first_name} ${user.last_name}`
-        : applicantProfile
-        ? `${applicantProfile.first_name} ${applicantProfile.last_name}`
-        : null,
+      employee_name:
+        user
+          ? `${user.first_name} ${user.last_name}`
+          : applicantProfile
+            ? `${applicantProfile.first_name} ${applicantProfile.last_name}`
+            : null,
       employee_id: user?.employee_id || null,
       assigned_position: session.assigned_position,
       assigned_department: session.assigned_department,
@@ -503,6 +536,9 @@ export class OnboardingService {
     const firstContact = dto.emergency_contacts?.[0];
     const payload = {
       ...profileFields,
+      first_name: normalizeNamePart(dto.first_name),
+      middle_name: normalizeNamePart(dto.middle_name) ?? null,
+      last_name: normalizeNamePart(dto.last_name),
       emergency_contacts: dto.emergency_contacts ?? [],
       status: 'submitted',
       // Satisfy legacy NOT NULL columns using first emergency contact as fallback
@@ -762,13 +798,22 @@ export class OnboardingService {
       if (stagingResetError) throw new InternalServerErrorException(stagingResetError.message);
     }
 
+    const tabTagFromCategory = (() => {
+      if (tabCategory === 'profile') return 'Profile';
+      if (tabCategory === 'documents') return 'Documents';
+      if (tabCategory === 'tasks') return 'Tasks';
+      if (tabCategory === 'equipment') return 'Equipment';
+      if (tabCategory === 'hr_forms') return 'Forms';
+      return 'Documents';
+    })();
+
     // If there are remarks, save them
     if (dto.remarks) {
       const { error: remarkInsertError } = await supabase.from('onboarding_remarks').insert({
         remark_id: crypto.randomUUID(),
         session_id: item.session_id,
         author_id: authorId ?? crypto.randomUUID(),
-        tab_tag: dto.tab_tag ?? 'Documents',
+        tab_tag: dto.tab_tag ?? tabTagFromCategory,
         remark_text: dto.remarks,
         created_at: new Date().toISOString(),
       });
@@ -868,6 +913,9 @@ export class OnboardingService {
 
     if (sessionError) throw new InternalServerErrorException(sessionError.message);
     if (!sessionRow) throw new NotFoundException('Session not found.');
+    if (hrUserId && String((sessionRow as any).account_id ?? '') === hrUserId) {
+      throw new ForbiddenException('You cannot review your own onboarding session.');
+    }
     if ((sessionRow as any).status !== 'for-review') {
       throw new BadRequestException('Only sessions in "for-review" status can be approved.');
     }
@@ -897,11 +945,14 @@ export class OnboardingService {
       );
     }
 
+    const approvalDate = getManilaDateKey();
+
     // Mark session approved
-    await supabase
+    const { error: approveSessionError } = await supabase
       .from('onboarding_sessions')
       .update({ status: 'approved', completed_at: new Date().toISOString() })
       .eq('session_id', sessionId);
+    if (approveSessionError) throw new InternalServerErrorException(approveSessionError.message);
 
     // Resolve account_id
     const accountId = (sessionRow as any)?.account_id as string | undefined;
@@ -960,6 +1011,7 @@ export class OnboardingService {
                 company_id: applicant.company_id,
                 employee_id: employeeCode,
                 account_status: 'Active',
+                start_date: approvalDate,
                 ...(defaultRole ? { role_id: defaultRole.role_id } : {}),
                 ...(staging?.phone_number ? { phone_number: staging.phone_number } : {}),
                 ...(staging?.complete_address ? { complete_address: staging.complete_address } : {}),
@@ -983,6 +1035,7 @@ export class OnboardingService {
                 companyId: applicant.company_id,
                 employeeId: employeeCode,
                 departmentId: inheritedDepartmentId,
+                effectiveDate: approvalDate,
                 updatedByName: null,
               });
               this.logger.log(`[approveSession] Initial schedule assignment for ${employeeCode}: ${assignment.source}`);
@@ -1064,6 +1117,12 @@ export class OnboardingService {
 
         if (staging) {
           const profileUpdate: Record<string, any> = {};
+          const { data: profileForSync } = await supabase
+            .from('user_profile')
+            .select('start_date')
+            .eq('user_id', resolvedUserId)
+            .maybeSingle();
+          if (!profileForSync?.start_date) profileUpdate.start_date = approvalDate;
           if (staging.email_address != null)   profileUpdate.personal_email   = staging.email_address;
           if (staging.middle_name != null)      profileUpdate.middle_name      = staging.middle_name;
           if (staging.phone_number != null)     profileUpdate.phone_number     = staging.phone_number;
@@ -1144,6 +1203,79 @@ export class OnboardingService {
     }
 
     return { message: 'Onboarding approved', session_id: sessionId, status: 'approved' };
+  }
+
+  async rejectSession(sessionId: string, reason: string, hrUserId?: string) {
+    const supabase = this.supabaseService.getClient();
+    const trimmedReason = reason?.trim();
+    if (!trimmedReason) throw new BadRequestException('Rejection reason is required.');
+
+    const { data: sessionRow, error: sessionError } = await supabase
+      .from('onboarding_sessions')
+      .select('account_id, status')
+      .eq('session_id', sessionId)
+      .maybeSingle();
+
+    if (sessionError) throw new InternalServerErrorException(sessionError.message);
+    if (!sessionRow) throw new NotFoundException('Session not found.');
+    if (hrUserId && String((sessionRow as any).account_id ?? '') === hrUserId) {
+      throw new ForbiddenException('You cannot review your own onboarding session.');
+    }
+    if ((sessionRow as any).status !== 'for-review') {
+      throw new BadRequestException('Only sessions in "for-review" status can be rejected.');
+    }
+
+    const { error: sessionUpdateError } = await supabase
+      .from('onboarding_sessions')
+      .update({ status: 'in-progress', completed_at: null })
+      .eq('session_id', sessionId);
+    if (sessionUpdateError) throw new InternalServerErrorException(sessionUpdateError.message);
+
+    const { error: remarkInsertError } = await supabase
+      .from('onboarding_remarks')
+      .insert({
+        remark_id: crypto.randomUUID(),
+        session_id: sessionId,
+        author_id: hrUserId ?? crypto.randomUUID(),
+        tab_tag: 'Profile',
+        remark_text: `Final onboarding review rejected: ${trimmedReason}`,
+        created_at: new Date().toISOString(),
+      });
+    if (remarkInsertError) throw new InternalServerErrorException(remarkInsertError.message);
+
+    const ctx = await this.getSessionContext(sessionId);
+    if (ctx) {
+      this.auditService.log(
+        `ONBOARDING_SESSION_REJECTED: session ${sessionId}`,
+        hrUserId ?? ctx.accountId,
+        ctx.companyId,
+        ctx.accountId,
+      ).catch(err => this.logger.error('Failed to write audit log in rejectSession', err));
+
+      this.notificationsService.createNotification({
+        userId: ctx.accountId,
+        companyId: ctx.companyId,
+        type: 'ONBOARDING_REJECTED',
+        title: 'Onboarding Needs Revisions',
+        message: `HR requested updates before approval. Reason: ${trimmedReason}`,
+        metadata: { session_id: sessionId, reason: trimmedReason },
+      }).catch(err => this.logger.error('Failed to create notification in rejectSession', err));
+
+      if (ctx.employeeEmail) {
+        this.mailService.sendOnboardingRejectedEmail({
+          to: ctx.employeeEmail,
+          employeeName: ctx.employeeName,
+          reason: trimmedReason,
+        }).catch(err => this.logger.error('Failed to send onboarding rejected email in rejectSession', err));
+      }
+    }
+
+    return {
+      message: 'Session rejected and returned to applicant for corrections.',
+      session_id: sessionId,
+      status: 'in-progress',
+      reason: trimmedReason,
+    };
   }
 
   // =========================================================
@@ -1548,10 +1680,20 @@ export class OnboardingService {
     const supabase = this.supabaseService.getClient();
     const { data: existing } = await supabase
       .from('onboarding_submissions')
-      .select('submission_id')
+      .select('submission_id, start_date')
       .eq('application_id', params.applicationId)
       .maybeSingle();
-    if (existing) return existing;
+    const hireDate = getManilaDateKey();
+    if (existing) {
+      if (!existing.start_date) {
+        const { error: backfillError } = await supabase
+          .from('onboarding_submissions')
+          .update({ start_date: hireDate })
+          .eq('submission_id', existing.submission_id);
+        if (backfillError) throw new InternalServerErrorException(backfillError.message);
+      }
+      return existing;
+    }
 
     const { data: applicant } = await supabase
       .from('applicant_profile')
@@ -1570,6 +1712,7 @@ export class OnboardingService {
         first_name:     applicant?.first_name ?? null,
         last_name:      applicant?.last_name ?? null,
         phone:          applicant?.phone_number ?? null,
+        start_date:     hireDate,
       })
       .select('submission_id')
       .single();
@@ -1610,6 +1753,9 @@ export class OnboardingService {
     const patch: Record<string, any> = {};
     for (const key of allowed) {
       if (body[key] !== undefined) patch[key] = body[key];
+    }
+    for (const key of ['first_name', 'last_name'] as const) {
+      if (patch[key] !== undefined) patch[key] = normalizeNamePart(patch[key]);
     }
     if (Object.keys(patch).length === 0) return { message: 'Nothing to update' };
 
@@ -1705,7 +1851,7 @@ export class OnboardingService {
     return data;
   }
 
-  async approveOnboardingSubmission(submissionId: string, roleId: string, companyId: string) {
+  async approveOnboardingSubmission(submissionId: string, roleId: string, companyId: string, reviewerUserId?: string) {
     const supabase = this.supabaseService.getClient();
     const { data: submission, error: subErr } = await supabase
       .from('onboarding_submissions')
@@ -1715,22 +1861,30 @@ export class OnboardingService {
       .maybeSingle();
     if (subErr) throw new InternalServerErrorException(subErr.message);
     if (!submission) throw new NotFoundException('Submission not found.');
+    if (reviewerUserId && String((submission as any).created_user_id ?? '') === reviewerUserId) {
+      throw new ForbiddenException('You cannot review your own onboarding submission.');
+    }
     if (submission.status !== 'submitted') throw new BadRequestException('Submission must be in "submitted" state to approve.');
     if (!submission.preferred_username) throw new BadRequestException('Applicant must provide a preferred username before approval.');
 
-    const { data: role } = await supabase.from('role').select('role_id').eq('role_id', roleId).maybeSingle();
+    const { data: role } = await supabase
+      .from('role')
+      .select('role_id, role_name')
+      .eq('role_id', roleId)
+      .maybeSingle();
     if (!role) throw new BadRequestException('Selected role does not exist.');
 
     const userId = crypto.randomUUID();
     const employeeCode = `EMP-${Math.floor(1000000 + Math.random() * 9000000)}`;
+    const startDate = submission.start_date ?? getManilaDateKey();
 
     const applicantEmailData = (await supabase.from('applicant_profile').select('email').eq('applicant_id', submission.applicant_id).maybeSingle()).data;
 
     const { error: insertError } = await supabase.from('user_profile').insert({
       user_id: userId,
       email: applicantEmailData?.email ?? '',
-      first_name: submission.first_name ?? '',
-      last_name: submission.last_name ?? '',
+      first_name: normalizeNamePart(submission.first_name) ?? '',
+      last_name: normalizeNamePart(submission.last_name) ?? '',
       role_id: roleId,
       company_id: companyId,
       employee_id: employeeCode,
@@ -1743,16 +1897,62 @@ export class OnboardingService {
       ...(submission.nationality    ? { nationality:       submission.nationality }   : {}),
       ...(submission.civil_status   ? { civil_status:      submission.civil_status }  : {}),
       ...(submission.department_id  ? { department_id:     submission.department_id } : {}),
-      ...(submission.start_date     ? { start_date:        submission.start_date }    : {}),
+      start_date: startDate,
     });
     if (insertError) throw new InternalServerErrorException(insertError.message);
+    await supabase.from('user_role_assignments').upsert(
+      {
+        user_id: userId,
+        role_id: roleId,
+        is_primary: true,
+        is_active: true,
+      },
+      { onConflict: 'user_id,role_id' },
+    );
+
+    await supabase.from('role_portal_map').upsert(
+      {
+        role_id: roleId,
+        portal_key: roleNameToPortal((role as any).role_name),
+      },
+      { onConflict: 'role_id,portal_key' },
+    );
+
+    if (MULTI_PORTAL_ELIGIBLE_ROLES.has(String((role as any).role_name ?? '').trim().toLowerCase())) {
+      const { data: employeeRole } = await supabase
+        .from('role')
+        .select('role_id')
+        .eq('company_id', companyId)
+        .in('role_name', ['Active Employee', 'Employee'])
+        .order('role_name', { ascending: true })
+        .maybeSingle();
+
+      if (employeeRole?.role_id) {
+        await supabase.from('user_role_assignments').upsert(
+          {
+            user_id: userId,
+            role_id: String(employeeRole.role_id),
+            is_primary: false,
+            is_active: true,
+          },
+          { onConflict: 'user_id,role_id' },
+        );
+        await supabase.from('role_portal_map').upsert(
+          {
+            role_id: String(employeeRole.role_id),
+            portal_key: 'employee',
+          },
+          { onConflict: 'role_id,portal_key' },
+        );
+      }
+    }
 
     try {
       const assignment = await this.timekeepingService.assignInitialScheduleForEmployee({
         companyId,
         employeeId: employeeCode,
         departmentId: submission.department_id ?? null,
-        effectiveDate: submission.start_date ?? null,
+        effectiveDate: startDate,
         updatedByName: null,
       });
       this.logger.log(`[approveOnboardingSubmission] Initial schedule assignment for ${employeeCode}: ${assignment.source}`);
@@ -1891,15 +2091,18 @@ export class OnboardingService {
     return { user_id: userId, employee_id: employeeCode, email: applicant?.email ?? '', invite_expires_at: expiresAt };
   }
 
-  async rejectOnboardingSubmission(submissionId: string, hrNotes: string, companyId: string) {
+  async rejectOnboardingSubmission(submissionId: string, hrNotes: string, companyId: string, reviewerUserId?: string) {
     const supabase = this.supabaseService.getClient();
     const { data: submission } = await supabase
       .from('onboarding_submissions')
-      .select('submission_id, status')
+      .select('submission_id, status, created_user_id')
       .eq('submission_id', submissionId)
       .eq('company_id', companyId)
       .maybeSingle();
     if (!submission) throw new NotFoundException('Submission not found.');
+    if (reviewerUserId && String((submission as any).created_user_id ?? '') === reviewerUserId) {
+      throw new ForbiddenException('You cannot review your own onboarding submission.');
+    }
     if (submission.status !== 'submitted') throw new BadRequestException('Only submitted onboarding forms can be rejected.');
     const { error } = await supabase
       .from('onboarding_submissions')

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsUUID } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsUUID } from 'class-validator';
 
 export class UploadDocumentDto {
   @ApiProperty({ description: 'The UUID of the onboarding_item' })
@@ -8,5 +8,6 @@ export class UploadDocumentDto {
   onboardingItemId: string;
 
   @ApiProperty({ type: 'string', format: 'binary', description: 'PDF, JPG, or PNG (Max 5MB)' })
+  @IsOptional()
   file: any;
 }

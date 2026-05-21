@@ -13,7 +13,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { Header } from "../components/Header";
 import { GradientHero } from "../components/GradientHero";
 import { UserSession, authFetch } from "../services/auth";
@@ -414,7 +414,7 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
               {item.description ? <Text style={detailStyles.itemDesc}>{item.description}</Text> : null}
               {isEquipment && item.delivery_method && (
                 <Text style={detailStyles.deliveryText}>
-                  {item.delivery_method === "office" ? "Office Pickup" : `Delivery${item.delivery_address ? ` — ${item.delivery_address}` : ""}`}
+                  {item.delivery_method === "office" ? "Office Pickup" : `Delivery${item.delivery_address ? ` - ${item.delivery_address}` : ""}`}
                 </Text>
               )}
               {renderItemActions(item, isEquipment)}
@@ -435,19 +435,12 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
           <Sidebar role={session.role as any} activeScreen="HROfficerOnboarding" navigation={navigation} session={session} />
         )}
         <View style={styles.content}>
-          <Header
-            title="Onboarding Management"
-            subtitle="Review employee onboarding progress"
-            rightElement={
-              <MobileRoleMenu
-                role={session.role as any}
-                userName={session.name}
-                email={session.email}
-                activeScreen="HROfficerOnboarding"
-                navigation={navigation}
-              />
-            }
-          />
+          {!isMobile && (
+            <Header
+              title="Onboarding Management"
+              subtitle="Review employee onboarding progress"
+            />
+          )}
 
           <GradientHero
             title="Onboarding Dashboard"
@@ -533,7 +526,9 @@ export const HROfficerOnboardingScreen = ({ route, navigation }: any) => {
               );
             })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="hr" activeScreen="Onboarding" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Detail Modal */}
@@ -788,3 +783,5 @@ const detailStyles = StyleSheet.create({
   remarkSendBtnDisabled: { backgroundColor: "#94A3B8" },
   remarkSendBtnText: { color: "#FFFFFF", fontWeight: "700", fontSize: 13 },
 });
+
+

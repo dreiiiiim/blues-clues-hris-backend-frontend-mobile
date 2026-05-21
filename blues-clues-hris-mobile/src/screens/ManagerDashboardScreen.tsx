@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { TimekeepingTable, TimekeepingLog } from "../components/TimekeepingTable";
 import { authFetch } from "../services/auth";
@@ -195,15 +195,6 @@ export function ManagerDashboardScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="manager"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Dashboard"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView
             style={styles.container}
@@ -272,7 +263,9 @@ export function ManagerDashboardScreen() {
               />
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="manager" activeScreen="Dashboard" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -420,3 +413,5 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 });
+
+

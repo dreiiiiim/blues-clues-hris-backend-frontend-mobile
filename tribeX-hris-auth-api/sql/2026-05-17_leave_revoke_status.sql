@@ -1,0 +1,11 @@
+-- Allow 'Revoked' as a valid status for leave requests.
+-- If time_leave_requests.status has a CHECK constraint, drop and recreate it.
+-- Find the constraint name with: \d time_leave_requests (psql) or check Supabase dashboard.
+-- Example:
+--   ALTER TABLE time_leave_requests DROP CONSTRAINT time_leave_requests_status_check;
+--   ALTER TABLE time_leave_requests
+--     ADD CONSTRAINT time_leave_requests_status_check
+--     CHECK (status IN ('Pending', 'Approved', 'Rejected', 'Revoked'));
+
+-- If no constraint exists, this is a no-op — Supabase text columns accept any value.
+-- Run the above only if you see a constraint violation error on PATCH /leave/requests/:id/revoke.

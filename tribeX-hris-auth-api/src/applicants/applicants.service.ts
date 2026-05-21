@@ -15,6 +15,7 @@ import { MailService } from '../mail/mail.service';
 import { CreateApplicantDto } from './dto/create-applicant.dto';
 import { ApplicantLoginDto } from './dto/applicant-login.dto';
 import { UploadSfiaResumeDto } from './dto/upload-sfia-resume.dto';
+import { isAtLeastAge, normalizeNamePart } from '../common/person.utils';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'node:crypto';
 
@@ -35,6 +36,12 @@ export class ApplicantsService {
 
   async register(dto: CreateApplicantDto, companyId?: string) {
     const supabase = this.supabaseService.getClient();
+    const firstName = normalizeNamePart(dto.first_name);
+    const lastName = normalizeNamePart(dto.last_name);
+
+    if (!firstName || !lastName) {
+      throw new BadRequestException('First name and last name are required.');
+    }
 
     // 1. Check for duplicate email
     const { data: existing } = await supabase
@@ -69,8 +76,8 @@ export class ApplicantsService {
       .insert({
         applicant_id,
         applicant_code,
-        first_name: dto.first_name,
-        last_name: dto.last_name,
+        first_name: firstName,
+        last_name: lastName,
         email: dto.email,
         phone_number: dto.phone_number ?? null,
         password_hash,               // hashed — never store plaintext
@@ -120,8 +127,8 @@ export class ApplicantsService {
       applicant_id,
       applicant_code,
       email: dto.email,
-      first_name: dto.first_name,
-      last_name: dto.last_name,
+      first_name: firstName,
+      last_name: lastName,
       message: 'Account created. Please check your email to verify your address.',
     };
   }
@@ -477,6 +484,15 @@ export class ApplicantsService {
     const patch: Record<string,any> = {};
     for (const key of allowed) {
       if (body[key as keyof typeof body] !== undefined) patch[key] = body[key as keyof typeof body];
+    }
+    for (const key of ['first_name', 'middle_name', 'last_name'] as const) {
+      if (patch[key] !== undefined) patch[key] = normalizeNamePart(patch[key]);
+    }
+    if (patch.first_name === null || patch.last_name === null) {
+      throw new BadRequestException('First name and last name cannot be empty.');
+    }
+    if (patch.date_of_birth && !isAtLeastAge(String(patch.date_of_birth), 18)) {
+      throw new BadRequestException('Applicants must be at least 18 years old.');
     }
     if (Object.keys(patch).length === 0) return { message: 'Nothing to update' };
 

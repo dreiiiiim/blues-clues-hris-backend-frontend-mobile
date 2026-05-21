@@ -30,6 +30,10 @@ export class UpdateUserDto {
   // Extended profile fields — writable by System Admin; viewable by HR
   @IsOptional()
   @IsString()
+  account_status?: string;
+
+  @IsOptional()
+  @IsString()
   personal_email?: string;
 
   @IsOptional()

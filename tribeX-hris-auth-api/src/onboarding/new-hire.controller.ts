@@ -9,7 +9,15 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../auth/roles.decorator';
 import { RolesGuard } from '../auth/roles.guard';
 
-const HR_AND_ABOVE = ['Admin', 'System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer', 'Manager'];
+const HR_AND_ABOVE = [
+  'Admin',
+  'System Admin',
+  'HR Officer',
+  'HR Recruiter',
+  'HR Interviewer',
+  'HR Onboarding Officer',
+  'Manager',
+];
 
 @ApiTags('New Hire Onboarding')
 @ApiBearerAuth()
@@ -67,7 +75,12 @@ export class NewHireController {
     @Body('role_id') roleId: string,
     @Req() req: any,
   ) {
-    return this.onboardingService.approveOnboardingSubmission(id, roleId, req.user.company_id);
+    return this.onboardingService.approveOnboardingSubmission(
+      id,
+      roleId,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
   }
 
   @Post('submissions/:id/reject')
@@ -79,6 +92,11 @@ export class NewHireController {
     @Body('hr_notes') hrNotes: string,
     @Req() req: any,
   ) {
-    return this.onboardingService.rejectOnboardingSubmission(id, hrNotes, req.user.company_id);
+    return this.onboardingService.rejectOnboardingSubmission(
+      id,
+      hrNotes,
+      req.user.company_id,
+      req.user.sub_userid,
+    );
   }
 }

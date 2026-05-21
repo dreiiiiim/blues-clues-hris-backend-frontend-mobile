@@ -23,6 +23,51 @@ interface FormField {
   required: boolean;
 }
 
+interface StatutoryFieldFormat {
+  maxLength: number;
+  placeholder: string;
+  format: (digits: string) => string;
+}
+
+const STATUTORY_FIELD_FORMATS: Record<string, StatutoryFieldFormat> = {
+  sss: {
+    maxLength: 12,
+    placeholder: "12-3456789-0",
+    format: (digits) => {
+      const value = digits.slice(0, 10);
+      const groups = [value.slice(0, 2), value.slice(2, 9), value.slice(9, 10)];
+      return groups.filter(Boolean).join("-");
+    },
+  },
+  philhealth: {
+    maxLength: 15,
+    placeholder: "12-345678901-2",
+    format: (digits) => {
+      const value = digits.slice(0, 12);
+      const groups = [value.slice(0, 2), value.slice(2, 11), value.slice(11, 12)];
+      return groups.filter(Boolean).join("-");
+    },
+  },
+  pagibig: {
+    maxLength: 14,
+    placeholder: "1234-5678-9012",
+    format: (digits) => {
+      const value = digits.slice(0, 12);
+      const groups = [value.slice(0, 4), value.slice(4, 8), value.slice(8, 12)];
+      return groups.filter(Boolean).join("-");
+    },
+  },
+  tin: {
+    maxLength: 15,
+    placeholder: "123-456-789-000",
+    format: (digits) => {
+      const value = digits.slice(0, 12);
+      const groups = [value.slice(0, 3), value.slice(3, 6), value.slice(6, 9), value.slice(9, 12)];
+      return groups.filter(Boolean).join("-");
+    },
+  },
+};
+
 function getFormFields(form: HRFormItem): FormField[] {
   if (!form.rich_content) return [];
   try {
@@ -30,6 +75,23 @@ function getFormFields(form: HRFormItem): FormField[] {
   } catch {
     return [];
   }
+}
+
+function getStatutoryFieldFormat(label: string): StatutoryFieldFormat | null {
+  const normalized = label.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  if (normalized.includes("philhealth")) return STATUTORY_FIELD_FORMATS.philhealth;
+  if (normalized.includes("pagibig")) return STATUTORY_FIELD_FORMATS.pagibig;
+  if (/\bsss\b/i.test(label)) return STATUTORY_FIELD_FORMATS.sss;
+  if (/\btin\b/i.test(label)) return STATUTORY_FIELD_FORMATS.tin;
+
+  return null;
+}
+
+function formatStatutoryFieldValue(field: FormField, rawValue: string) {
+  const formatter = getStatutoryFieldFormat(field.label);
+  if (!formatter) return rawValue;
+  return formatter.format(rawValue.replace(/\D/g, ""));
 }
 
 export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
@@ -85,6 +147,7 @@ export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
   const renderFormField = (form: HRFormItem, field: FormField) => {
     const value = formDataState[form.onboarding_item_id]?.[field.label] || "";
     const isDisabled = form.status !== "pending" && form.status !== "rejected";
+    const statutoryFormat = getStatutoryFieldFormat(field.label);
 
     if (field.type === "select") {
       return (
@@ -131,16 +194,29 @@ export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
     }
     return (
       <Input
-        type={field.type}
+        type={statutoryFormat ? "text" : field.type}
+        inputMode={statutoryFormat ? "numeric" : undefined}
+        maxLength={statutoryFormat?.maxLength}
+        placeholder={statutoryFormat?.placeholder}
         value={value}
-        onChange={(e) => handleInputChange(form.onboarding_item_id, field.label, e.target.value)}
+        onChange={(e) => {
+          handleInputChange(
+            form.onboarding_item_id,
+            field.label,
+            formatStatutoryFieldValue(field, e.target.value),
+          );
+        }}
         disabled={isDisabled}
         required={field.required}
       />
     );
   };
 
-  const formsRemarks = remarks.filter(r => r.tab_tag === "Forms");
+  const isFormsRemark = (tag: string) => {
+    const v = (tag || "").trim().toLowerCase();
+    return v === "forms" || v === "hr forms" || v === "hr_forms";
+  };
+  const formsRemarks = remarks.filter(r => isFormsRemark(r.tab_tag));
 
   return (
     <div className="space-y-4">
@@ -153,7 +229,7 @@ export function HRForms({ forms, remarks, onUpdate }: Readonly<HRFormsProps>) {
         <div className="space-y-4">
           {forms.map((form) => {
             const fields = getFormFields(form);
-            const formRemarks = remarks.filter(r => r.tab_tag === "Forms");
+            const formRemarks = remarks.filter(r => isFormsRemark(r.tab_tag));
             return (
               <Card key={form.onboarding_item_id} className={form.is_required ? "border-l-4 border-l-red-500" : ""}>
                 <CardHeader className="pb-3">

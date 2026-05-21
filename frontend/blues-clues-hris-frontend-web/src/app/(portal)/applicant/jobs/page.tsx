@@ -587,13 +587,14 @@ export default function ApplicantJobsPage() {
   const profileComplete = !!(
     applicantProfile?.first_name?.trim() &&
     applicantProfile?.last_name?.trim() &&
-    applicantProfile?.phone_number?.trim()
+    applicantProfile?.phone_number?.trim() &&
+    applicantProfile?.date_of_birth
   );
 
   const handleApply = (job: JobPosting) => {
     if (!profileComplete) {
       toast.error("Please complete your profile before applying.", {
-        description: "Go to My Profile and fill in your name and phone number.",
+        description: "Go to My Profile and fill in your name, phone number, and date of birth.",
         action: { label: "Go to Profile", onClick: () => window.location.href = "/applicant/profile" },
       });
       return;

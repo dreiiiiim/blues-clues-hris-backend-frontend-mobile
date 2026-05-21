@@ -20,7 +20,7 @@ export type CalendarDayData = {
   timeOut?: string | null;
   hoursWorked?: number | null;
   absenceReason?: string | null;
-  summary?: { present: number; late: number; absent: number; total: number };
+  summary?: { present: number; late: number; absent: number; excused: number; notClockedIn: number; total: number };
 };
 
 export type CalendarViewMode = "month" | "week" | "day";
@@ -386,7 +386,7 @@ function DaySummaryPanel({
   onClose,
 }: {
   date: string;
-  summary: { present: number; late: number; absent: number; total: number };
+  summary: { present: number; late: number; absent: number; excused: number; notClockedIn: number; total: number };
   onDrillIn: () => void;
   onClose: () => void;
 }) {
@@ -406,7 +406,7 @@ function DaySummaryPanel({
           <X className="h-3.5 w-3.5" />
         </button>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-3">
         <div className="flex flex-col gap-0.5">
           <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">On Time</span>
           <div className="flex items-center gap-1.5">
@@ -426,6 +426,20 @@ function DaySummaryPanel({
           <div className="flex items-center gap-1.5">
             <span className="h-2.5 w-2.5 rounded-full bg-red-500 shrink-0" />
             <span className="text-2xl font-bold text-red-700">{summary.absent}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Excused</span>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-purple-500 shrink-0" />
+            <span className="text-2xl font-bold text-purple-700">{summary.excused}</span>
+          </div>
+        </div>
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Not Clocked In</span>
+          <div className="flex items-center gap-1.5">
+            <span className="h-2.5 w-2.5 rounded-full bg-orange-500 shrink-0" />
+            <span className="text-2xl font-bold text-orange-700">{summary.notClockedIn ?? 0}</span>
           </div>
         </div>
         <div className="flex flex-col gap-0.5">
@@ -472,7 +486,7 @@ export function AttendanceCalendarGrid({
   const inferredTotal = Math.max(0, ...days.map(d => d.summary?.total ?? 0));
 
   function handleCellClick(date: string, data: CalendarDayData | null) {
-    const summary = data?.summary ?? { present: 0, late: 0, absent: 0, total: inferredTotal };
+    const summary = data?.summary ?? { present: 0, late: 0, absent: 0, excused: 0, notClockedIn: 0, total: inferredTotal };
     setSummaryPanel(prev => prev?.date === date ? null : { date, summary });
   }
 

@@ -7,10 +7,26 @@ import { authFetch, logoutApi } from "@/lib/authApi";
 import { useIdleTimeout } from "@/lib/useIdleTimeout";
 import { API_BASE_URL } from "@/lib/api";
 import { roleToPath } from "@/lib/roleMap";
+import { getDefaultPathForRole, isHrPathAllowed, isHrRoleName } from "@/lib/hrRoleAccess";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Topbar } from "@/components/layout/Topbar";
 
 type UserRole = "hr" | "manager" | "employee" | "applicant" | "admin" | "system-admin";
+
+function toUserRole(roleName: string): UserRole {
+  return roleToPath(roleName).replaceAll("/", "") as UserRole;
+}
+
+function isWrongDashboard(pathname: string, userRole: UserRole): boolean {
+  return (
+    (pathname.startsWith("/hr") && userRole !== "hr") ||
+    (pathname.startsWith("/manager") && userRole !== "manager") ||
+    (pathname.startsWith("/employee") && userRole !== "employee") ||
+    (pathname.startsWith("/applicant") && userRole !== "applicant") ||
+    (pathname.startsWith("/system-admin") && userRole !== "system-admin") ||
+    (pathname.startsWith("/admin") && userRole !== "admin")
+  );
+}
 
 export default function SharedDashboardLayout({
   children,
@@ -62,20 +78,15 @@ export default function SharedDashboardLayout({
       }
 
       const rolePath = roleToPath(me.role_name); // e.g. "/system-admin"
-      const rawRole = rolePath.replaceAll("/", "");
-      const userRole = rawRole as UserRole;
+      const userRole = toUserRole(me.role_name);
 
-      // Strict Persona Guard: prevents a Manager from viewing /hr pages, etc.
-      const isAccessingWrongDashboard =
-        (pathname.startsWith("/hr") && userRole !== "hr") ||
-        (pathname.startsWith("/manager") && userRole !== "manager") ||
-        (pathname.startsWith("/employee") && userRole !== "employee") ||
-        (pathname.startsWith("/applicant") && userRole !== "applicant") ||
-        (pathname.startsWith("/system-admin") && userRole !== "system-admin") ||
-        (pathname.startsWith("/admin") && userRole !== "admin");
-
-      if (isAccessingWrongDashboard) {
+      if (isWrongDashboard(pathname, userRole)) {
         router.replace(rolePath);
+        return;
+      }
+
+      if (pathname.startsWith("/hr") && isHrRoleName(me.role_name) && !isHrPathAllowed(me.role_name, pathname)) {
+        router.replace(getDefaultPathForRole(me.role_name));
         return;
       }
 
@@ -84,7 +95,15 @@ export default function SharedDashboardLayout({
       const firstName = tokenPayload?.first_name ?? "";
       const lastName = tokenPayload?.last_name ?? "";
       const name = [firstName, lastName].filter(Boolean).join(" ") || me.username || "";
-      saveUserInfo({ name, email: me.email ?? "", role: userRole });
+      saveUserInfo({
+        name,
+        email: me.email ?? "",
+        role: userRole,
+        role_name: me.role_name,
+        active_portal: me.active_portal,
+        available_portals: Array.isArray(me.available_portals) ? me.available_portals : [],
+        role_switch_options: Array.isArray(me.role_switch_options) ? me.role_switch_options : [],
+      });
 
       setRole(userRole);
       setIsAuthorized(true);

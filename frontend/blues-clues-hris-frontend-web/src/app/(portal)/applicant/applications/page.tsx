@@ -588,12 +588,18 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
   const fetchSchedule = useCallback(async () => {
     try {
       const fresh = await getMyApplicationDetail(detail.application_id);
-      const freshSchedule = fresh.interview_schedules?.[detail.status] ?? fresh.interview_schedule ?? null;
+      // Use fresh.status (server-authoritative) to key into interview_schedules
+      const freshStatus = fresh.status ?? detail.status;
+      const freshSchedule = fresh.interview_schedules?.[freshStatus] ?? fresh.interview_schedule ?? null;
       setSchedule(freshSchedule ?? null);
+      // Sync localStatus if server says it changed
+      if (fresh.status && fresh.status !== localStatus) {
+        setLocalStatus(fresh.status);
+      }
     } catch {
       // silently ignore — stale data is still better than an error
     }
-  }, [detail.application_id, detail.status]);
+  }, [detail.application_id, detail.status, localStatus]);
 
   useEffect(() => {
     if (tab === "interview") {
@@ -929,7 +935,7 @@ function DetailModal({ detail, onClose, initialTab, onOfferAccepted }: { readonl
           {tab === "interview" && (
             <InterviewTab
               schedule={schedule}
-              status={detail.status}
+              status={localStatus}
               applicationId={detail.application_id}
               onResponded={handleResponded}
             />

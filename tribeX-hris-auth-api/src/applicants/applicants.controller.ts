@@ -40,7 +40,7 @@ function cookieOptions(maxAgeMs: number) {
     secure: isProd,
     sameSite: isProd ? 'none' : 'lax',
     maxAge: maxAgeMs,
-    path: '/api/v1',
+    path: '/api/tribeX/auth/v1',
   } as const;
 }
 

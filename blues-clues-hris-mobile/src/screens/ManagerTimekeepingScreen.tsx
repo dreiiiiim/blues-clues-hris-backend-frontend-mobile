@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+﻿import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -165,10 +165,7 @@ export function ManagerTimekeepingScreen() {
           <Sidebar role="manager" userName={session.name} email={session.email} activeScreen="Timekeeping" navigation={navigation} />
         )}
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu role="manager" userName={session.name} email={session.email} activeScreen="Timekeeping" navigation={navigation} />
-          )}
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]} showsVerticalScrollIndicator={false}>
             <GradientHero style={styles.heroCard}>
               <Text style={styles.eyebrow}>Manager Portal</Text>
               <Text style={styles.heroTitle}>Timekeeping</Text>
@@ -251,7 +248,9 @@ export function ManagerTimekeepingScreen() {
                 );
               })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="manager" activeScreen="Timekeeping" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -308,3 +307,4 @@ const styles = StyleSheet.create({
   infoLabel: { fontSize: 11, color: "#64748B", fontWeight: "700", marginBottom: 4 },
   infoValue: { fontSize: 13, color: "#0F172A", fontWeight: "800" },
 });
+

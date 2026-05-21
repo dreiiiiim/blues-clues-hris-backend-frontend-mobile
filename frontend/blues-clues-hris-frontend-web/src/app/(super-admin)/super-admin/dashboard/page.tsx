@@ -1,346 +1,225 @@
-"use client";
-
-import { useState } from "react";
+'use client';
+import Link from 'next/link';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { saApi } from '@/lib/superAdminApi';
+import { ConfirmDialog } from '@/components/super-admin/ConfirmDialog';
+import { useState } from 'react';
 import {
-  Building2, CheckCircle2, Clock, XCircle, TrendingUp, MoreHorizontal,
-  Search, Eye, ShieldCheck, Ban, Bell, LogOut, Settings,
-  CreditCard, Calendar, AlertCircle, LayoutDashboard, ChevronDown,
-  Users, RefreshCw
-} from "lucide-react";
+  Building2, CreditCard, AlertTriangle, CheckCircle2, ShieldOff,
+  Clock, TrendingUp, Zap, AlertCircle,
+} from 'lucide-react';
 
-type Status = "active" | "pending" | "suspended" | "expired";
-
-interface Company {
-  id: string; name: string; industry: string;
-  plan: "monthly" | "annual"; status: Status;
-  email: string; submitted: string; renewalDate: string;
-}
-
-const COMPANIES: Company[] = [
-  { id:"1", name:"Acme Corporation",    industry:"Technology",   plan:"annual",   status:"pending",   email:"hr@acme.com",           submitted:"Apr 18, 2026", renewalDate:"—"            },
-  { id:"2", name:"Sunrise Retail Inc.", industry:"Retail",       plan:"monthly",  status:"active",    email:"admin@sunrise.ph",      submitted:"Mar 2, 2026",  renewalDate:"May 2, 2026"  },
-  { id:"3", name:"MedCore Health",      industry:"Healthcare",   plan:"annual",   status:"active",    email:"it@medcore.com",        submitted:"Jan 15, 2026", renewalDate:"Jan 15, 2027" },
-  { id:"4", name:"BuildRight Const.",   industry:"Construction", plan:"monthly",  status:"suspended", email:"hr@buildright.ph",      submitted:"Feb 10, 2026", renewalDate:"—"            },
-  { id:"5", name:"EduFirst Academy",    industry:"Education",    plan:"annual",   status:"pending",   email:"admin@edufirst.edu.ph", submitted:"Apr 19, 2026", renewalDate:"—"            },
-  { id:"6", name:"FinServ Group",       industry:"Finance",      plan:"annual",   status:"expired",   email:"ops@finserv.ph",        submitted:"Oct 1, 2025",  renewalDate:"Mar 31, 2026" },
-];
-
-const STATUS: Record<Status, { label: string; cls: string; Icon: React.ElementType }> = {
-  active:    { label:"Active",    cls:"bg-green-100 text-green-700 border-green-200",   Icon: CheckCircle2 },
-  pending:   { label:"Pending",   cls:"bg-amber-100 text-amber-700 border-amber-200",   Icon: Clock        },
-  suspended: { label:"Suspended", cls:"bg-orange-100 text-orange-700 border-orange-200",Icon: Ban          },
-  expired:   { label:"Expired",   cls:"bg-red-100 text-red-700 border-red-200",         Icon: XCircle      },
+type Stats = {
+  total_companies: number;
+  active_subscriptions: number;
+  pending_approvals: number;
+  suspended_count: number;
+  expired_count: number;
+  monthly_revenue: number | null;
 };
 
-function StatusBadge({ status }: { status: Status }) {
-  const cfg = STATUS[status];
-  const Icon = cfg.Icon;
-  return (
-    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold border ${cfg.cls}`}>
-      <Icon className="w-3 h-3" />{cfg.label}
-    </span>
-  );
-}
+type PendingApproval = {
+  registration_id: string;
+  company_id: string | null;
+  company_name: string;
+  email: string;
+  industry: string;
+  subscription_plan: string;
+  billing_cycle: string;
+  registered_date: string;
+};
 
-function StatCard({ icon: Icon, label, value, sub, iconBg }: {
-  icon: React.ElementType; label: string; value: string | number; sub?: string; iconBg: string;
+function StatCell({ title, value, icon: Icon, color, bgColor, badge }: {
+  title: string; value: string | number; icon: React.ElementType;
+  color: string; bgColor: string; badge?: string;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex items-start gap-4">
-      <div className={`p-2.5 rounded-xl ${iconBg}`}><Icon className="w-5 h-5" /></div>
-      <div>
-        <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-gray-500">{label}</p>
-        <p className="text-2xl font-bold text-gray-900 mt-0.5">{value}</p>
-        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+    <div className="flex-1 px-5 py-4 flex items-center gap-3 min-w-0">
+      <div className={`h-8 w-8 rounded-lg flex items-center justify-center shrink-0 ${bgColor}`}>
+        <Icon className={`h-4 w-4 ${color}`} />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 truncate">{title}</p>
+        <div className="flex items-center gap-2">
+          <p className="text-xl font-bold text-slate-900 tabular-nums leading-none mt-0.5">{value}</p>
+          {badge && (
+            <span className="text-[9px] font-bold uppercase tracking-widest bg-amber-100 text-amber-700 rounded-full px-1.5 py-0.5 shrink-0 leading-none">
+              {badge}
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
 }
 
-const NAV_ITEMS = [
-  { label:"Dashboard",     icon: LayoutDashboard, active: true  },
-  { label:"Companies",     icon: Building2,       active: false },
-  { label:"Subscriptions", icon: CreditCard,      active: false },
-  { label:"Renewals",      icon: Calendar,        active: false },
-  { label:"Settings",      icon: Settings,        active: false },
-];
+export default function SuperAdminDashboardPage() {
+  const qc = useQueryClient();
+  const [confirmId, setConfirmId] = useState<{ id: string; name: string } | null>(null);
+  const [errorMsg, setErrorMsg] = useState('');
 
-export default function SuperAdminDashboard() {
-  const [search, setSearch]     = useState("");
-  const [filter, setFilter]     = useState<Status | "all">("all");
-  const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [showFilter, setShowFilter] = useState(false);
-
-  const filtered = COMPANIES.filter(c => {
-    const q = search.toLowerCase();
-    return (filter === "all" || c.status === filter) &&
-           (c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q));
+  const { data: stats } = useQuery<Stats>({
+    queryKey: ['sa-dashboard', 'stats'],
+    queryFn: () => saApi.get('/dashboard/stats').then(r => r.data),
+    refetchInterval: 60_000,
   });
 
-  const pending = COMPANIES.filter(c => c.status === "pending");
-  const active  = COMPANIES.filter(c => c.status === "active").length;
+  const { data: pending = [], isLoading } = useQuery<PendingApproval[]>({
+    queryKey: ['sa-dashboard', 'pending-approvals'],
+    queryFn: () => saApi.get('/dashboard/pending-approvals').then(r => r.data),
+    refetchInterval: 60_000,
+  });
+
+  const provision = useMutation({
+    mutationFn: (id: string) => saApi.post(`/companies/${id}/provision`),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sa-dashboard'] }); setConfirmId(null); },
+    onError: (err: unknown) => {
+      const e = err as { response?: { data?: { message?: string } } };
+      setErrorMsg(e.response?.data?.message || 'Provisioning failed');
+      setConfirmId(null);
+    },
+  });
+
+  const statCells = [
+    { title: 'Total Companies',      value: stats?.total_companies ?? '—',      icon: Building2,    color: 'text-blue-600',    bgColor: 'bg-blue-500/10' },
+    { title: 'Active Subscriptions', value: stats?.active_subscriptions ?? '—', icon: CheckCircle2, color: 'text-emerald-600', bgColor: 'bg-emerald-500/10' },
+    { title: 'Pending Approvals',    value: stats?.pending_approvals ?? '—',    icon: AlertTriangle,color: 'text-amber-600',   bgColor: 'bg-amber-500/10',
+      badge: (stats?.pending_approvals ?? 0) > 0 ? 'Action needed' : undefined },
+    { title: 'Suspended',            value: stats?.suspended_count ?? '—',      icon: ShieldOff,    color: 'text-red-600',     bgColor: 'bg-red-500/10' },
+    { title: 'Expired',              value: stats?.expired_count ?? '—',        icon: Clock,        color: 'text-slate-500',   bgColor: 'bg-slate-400/15' },
+    { title: 'Monthly Revenue',
+      value: stats?.monthly_revenue != null ? `₱${stats.monthly_revenue.toLocaleString()}` : '—',
+      icon: TrendingUp, color: 'text-blue-600', bgColor: 'bg-blue-500/10' },
+  ];
 
   return (
-    <div className="min-h-screen bg-[#eff6ff] flex">
-
-      {/* ── SIDEBAR ── */}
-      <aside className="w-64 bg-gradient-to-b from-[#0f172a] to-[#172554] flex-col min-h-screen fixed left-0 top-0 z-20 hidden md:flex">
-        <div className="px-5 py-5 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-[#2563eb] rounded-xl flex items-center justify-center">
-              <ShieldCheck className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <p className="text-white font-bold text-sm">BlueTribe</p>
-              <p className="text-white/40 text-xs">Super Admin Portal</p>
-            </div>
+    <div className="space-y-6">
+      <div className="pb-1">
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">Superadmin Control Center</p>
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Dashboard Overview</h1>
+          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600">
+            <Zap className="h-3 w-3" /> System Operational
           </div>
         </div>
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          {NAV_ITEMS.map(({ label, icon: Icon, active }) => (
-            <button key={label} className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors cursor-pointer ${
-              active ? "bg-[#2563eb] text-white" : "text-white/60 hover:bg-white/10 hover:text-white"
-            }`}>
-              <Icon className="w-4 h-4 flex-shrink-0" />{label}
-            </button>
-          ))}
-        </nav>
-        <div className="px-3 py-4 border-t border-white/10">
-          <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-white/50 hover:bg-white/10 hover:text-white transition-colors cursor-pointer">
-            <LogOut className="w-4 h-4" />Sign Out
-          </button>
+      </div>
+
+      {errorMsg && (
+        <div className="flex items-center gap-2.5 p-3.5 rounded-xl text-sm bg-red-50 border border-red-200 text-red-700">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{errorMsg}</span>
+          <button onClick={() => setErrorMsg('')} className="text-red-400 hover:text-red-600 text-xs font-bold shrink-0">Dismiss</button>
         </div>
-      </aside>
+      )}
 
-      {/* ── MAIN ── */}
-      <div className="md:ml-64 flex-1 flex flex-col min-h-screen">
+      <div className="flex divide-x divide-slate-100 bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden flex-wrap">
+        {statCells.map(cell => <StatCell key={cell.title} {...cell} />)}
+      </div>
 
-        {/* Top bar */}
-        <header className="bg-white border-b border-gray-100 px-4 md:px-8 py-4 sticky top-0 z-10 flex items-center justify-between">
+      <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-slate-200">
           <div>
-            <h1 className="text-base font-bold text-gray-900">Subscription Dashboard</h1>
-            <p className="text-xs text-gray-400">April 20, 2026</p>
-          </div>
-          <div className="flex items-center gap-3">
-            <button className="relative p-2 rounded-xl hover:bg-gray-100 transition-colors cursor-pointer">
-              <Bell className="w-5 h-5 text-gray-500" />
-              {pending.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full" />
+            <div className="flex items-center gap-3">
+              <h2 className="font-bold text-slate-900">Pending Approvals</h2>
+              {(stats?.pending_approvals ?? 0) > 0 && (
+                <span className="bg-amber-100 text-amber-700 text-xs font-bold px-2.5 py-0.5 rounded-full">{stats?.pending_approvals}</span>
               )}
-            </button>
-            <div className="flex items-center gap-2 pl-3 border-l border-gray-100">
-              <div className="w-8 h-8 bg-[#1e3a8a] rounded-full flex items-center justify-center">
-                <span className="text-white text-xs font-bold">BT</span>
-              </div>
-              <div className="hidden sm:block">
-                <p className="text-sm font-medium text-gray-900">BlueTribe Admin</p>
-                <p className="text-xs text-gray-400">admin@bluetribe.ph</p>
-              </div>
             </div>
+            <p className="text-xs text-slate-400 mt-0.5">Companies awaiting provisioning</p>
           </div>
-        </header>
+          <Link href="/super-admin/companies" className="text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors">View all →</Link>
+        </div>
 
-        <main className="flex-1 px-4 md:px-8 py-6 space-y-6">
-
-          {/* Stats */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard icon={Building2}    label="Total Companies"    value={COMPANIES.length} sub="All time"               iconBg="bg-blue-100 text-blue-600"   />
-            <StatCard icon={CheckCircle2} label="Active"             value={active}           sub="Currently subscribed"  iconBg="bg-green-100 text-green-600" />
-            <StatCard icon={Clock}        label="Pending Approvals"  value={pending.length}   sub="Awaiting review"       iconBg="bg-amber-100 text-amber-600" />
-            <StatCard icon={TrendingUp}   label="Monthly Revenue"    value="₱87,460"          sub="From active subs"      iconBg="bg-indigo-100 text-indigo-600"/>
-          </div>
-
-          {/* Pending warning */}
-          {pending.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex items-start gap-3">
-              <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-bold text-amber-800">
-                  {pending.length} {pending.length === 1 ? "company" : "companies"} pending approval
-                </p>
-                <p className="text-xs text-amber-700 mt-0.5">
-                  {pending.map(c => c.name).join(", ")} — review and approve to provision access.
-                </p>
-              </div>
-            </div>
-          )}
-
-          {/* Table */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-
-            {/* Table header */}
-            <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-              <h2 className="text-base font-bold text-gray-900">All Companies</h2>
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                {/* Search */}
-                <div className="relative flex-1 sm:w-60">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <input
-                    type="text"
-                    placeholder="Search company or email…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#2563eb]/30 focus:border-[#2563eb] transition-all"
-                  />
-                </div>
-                {/* Filter */}
-                <div className="relative">
-                  <button
-                    onClick={() => setShowFilter(!showFilter)}
-                    className="flex items-center gap-2 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-600 hover:bg-gray-50 transition-colors cursor-pointer"
-                  >
-                    {filter === "all" ? "All Status" : STATUS[filter].label}
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  </button>
-                  {showFilter && (
-                    <div className="absolute right-0 mt-1 w-40 bg-white border border-gray-100 rounded-xl shadow-lg py-1 z-20">
-                      {(["all","active","pending","suspended","expired"] as const).map(s => (
-                        <button
-                          key={s}
-                          onClick={() => { setFilter(s); setShowFilter(false); }}
-                          className={`w-full text-left px-4 py-2 text-sm hover:bg-gray-50 capitalize cursor-pointer ${filter===s?"font-semibold text-[#1e3a8a]":"text-gray-700"}`}
-                        >{s === "all" ? "All Status" : s}</button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Table (desktop) */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="bg-[#eff6ff] border-b border-blue-100">
-                    {["Company","Industry","Plan","Status","Admin Email","Renewal",""].map(h => (
-                      <th key={h} className="text-left px-6 py-3 text-[10px] font-bold text-gray-500 uppercase tracking-[0.12em]">{h}</th>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr>
+                {['Company', 'Email', 'Industry', 'Plan', 'Billing', 'Registered', 'Action'].map(h => (
+                  <th key={h} className="text-left px-5 py-3.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {isLoading ? (
+                [...Array(3)].map((_, i) => (
+                  <tr key={i}>
+                    {[60, 100, 80, 50, 60, 70, 50].map((w, j) => (
+                      <td key={j} className="px-5 py-3.5">
+                        <div className="h-4 rounded bg-slate-100 animate-pulse" style={{ width: `${w}%` }} />
+                      </td>
                     ))}
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {filtered.map(co => (
-                    <tr key={co.id} className="hover:bg-[#eff6ff]/50 transition-colors group">
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                            <Building2 className="w-4 h-4 text-[#1e3a8a]" />
-                          </div>
-                          <div>
-                            <p className="font-semibold text-gray-900">{co.name}</p>
-                            <p className="text-xs text-gray-400">Submitted {co.submitted}</p>
-                          </div>
+                ))
+              ) : pending.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="py-12 text-center">
+                    <div className="flex flex-col items-center gap-2">
+                      <CheckCircle2 className="h-8 w-8 text-emerald-400" />
+                      <p className="text-sm font-medium text-slate-500">All caught up!</p>
+                      <p className="text-xs text-slate-400">No pending approvals right now.</p>
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                pending.map(p => (
+                  <tr key={p.registration_id} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-lg bg-blue-50 flex items-center justify-center shrink-0">
+                          <span className="text-xs font-bold text-blue-600">{p.company_name.slice(0, 2).toUpperCase()}</span>
                         </div>
-                      </td>
-                      <td className="px-6 py-4 text-gray-600">{co.industry}</td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-bold ${
-                          co.plan === "annual" ? "bg-blue-100 text-[#1e3a8a]" : "bg-gray-100 text-gray-600"
-                        }`}>
-                          {co.plan === "annual" ? "Annual" : "Monthly"}
+                        <span className="font-semibold text-slate-900">{p.company_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-500 text-xs">{p.email}</td>
+                    <td className="px-5 py-3.5 text-slate-600">{p.industry}</td>
+                    <td className="px-5 py-3.5">
+                      <span className="capitalize bg-blue-50 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-lg">{p.subscription_plan}</span>
+                    </td>
+                    <td className="px-5 py-3.5 text-slate-600 capitalize">{p.billing_cycle}</td>
+                    <td className="px-5 py-3.5 text-slate-400 text-xs">
+                      {p.registered_date ? new Date(p.registered_date).toLocaleDateString('en-PH') : '—'}
+                    </td>
+                    <td className="px-5 py-3.5">
+                      {!p.company_id ? (
+                        <button
+                          onClick={() => setConfirmId({ id: p.registration_id, name: p.company_name })}
+                          disabled={provision.isPending}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-colors disabled:opacity-50"
+                        >
+                          <Zap className="h-3 w-3" /> Provision
+                        </button>
+                      ) : (
+                        <span className="text-xs font-bold text-emerald-600 flex items-center gap-1">
+                          <CheckCircle2 className="h-3 w-3" /> Provisioned
                         </span>
-                      </td>
-                      <td className="px-6 py-4"><StatusBadge status={co.status} /></td>
-                      <td className="px-6 py-4 text-gray-600 text-xs">{co.email}</td>
-                      <td className="px-6 py-4 text-gray-500 text-xs">{co.renewalDate}</td>
-                      <td className="px-6 py-4">
-                        <div className="relative">
-                          <button
-                            onClick={() => setOpenMenu(openMenu === co.id ? null : co.id)}
-                            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 opacity-0 group-hover:opacity-100 transition-all cursor-pointer"
-                          >
-                            <MoreHorizontal className="w-4 h-4" />
-                          </button>
-                          {openMenu === co.id && (
-                            <div className="absolute right-0 mt-1 w-48 bg-white border border-gray-100 rounded-xl shadow-lg py-1 z-20">
-                              <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-gray-50 text-gray-700 cursor-pointer">
-                                <Eye className="w-4 h-4" /> View Details
-                              </button>
-                              {co.status === "pending" && <>
-                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-green-50 text-green-700 cursor-pointer">
-                                  <CheckCircle2 className="w-4 h-4" /> Approve
-                                </button>
-                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-red-50 text-red-600 cursor-pointer">
-                                  <XCircle className="w-4 h-4" /> Reject
-                                </button>
-                              </>}
-                              {co.status === "active" && (
-                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-orange-50 text-orange-600 cursor-pointer">
-                                  <Ban className="w-4 h-4" /> Suspend
-                                </button>
-                              )}
-                              <div className="border-t border-gray-100 mt-1 pt-1">
-                                <button className="w-full flex items-center gap-2 px-4 py-2.5 text-sm hover:bg-blue-50 text-[#1e3a8a] cursor-pointer">
-                                  <ShieldCheck className="w-4 h-4" /> Provision Credentials
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-
-              {filtered.length === 0 && (
-                <div className="text-center py-12">
-                  <Building2 className="w-8 h-8 mx-auto text-gray-300 mb-2" />
-                  <p className="text-sm text-gray-400">No companies match your search.</p>
-                </div>
+                      )}
+                    </td>
+                  </tr>
+                ))
               )}
-            </div>
+            </tbody>
+          </table>
+        </div>
 
-            {/* Cards (mobile) */}
-            <div className="md:hidden divide-y divide-gray-100">
-              {filtered.map(co => (
-                <div key={co.id} className="p-4 space-y-2">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                        <Building2 className="w-4 h-4 text-[#1e3a8a]" />
-                      </div>
-                      <div>
-                        <p className="font-semibold text-gray-900 text-sm">{co.name}</p>
-                        <p className="text-xs text-gray-400">{co.industry}</p>
-                      </div>
-                    </div>
-                    <StatusBadge status={co.status} />
-                  </div>
-                  <div className="flex flex-wrap gap-2 text-xs text-gray-500">
-                    <span className={`px-2 py-0.5 rounded-full font-bold ${co.plan==="annual"?"bg-blue-100 text-[#1e3a8a]":"bg-gray-100 text-gray-600"}`}>
-                      {co.plan === "annual" ? "Annual" : "Monthly"}
-                    </span>
-                    <span>{co.email}</span>
-                    {co.renewalDate !== "—" && <span>Renews {co.renewalDate}</span>}
-                  </div>
-                  {co.status === "pending" && (
-                    <div className="flex gap-2 pt-1">
-                      <button className="flex-1 py-2 rounded-lg bg-green-100 text-green-700 text-xs font-bold cursor-pointer hover:bg-green-200 transition-colors">
-                        Approve
-                      </button>
-                      <button className="flex-1 py-2 rounded-lg bg-red-100 text-red-600 text-xs font-bold cursor-pointer hover:bg-red-200 transition-colors">
-                        Reject
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Pagination */}
-            <div className="px-6 py-3 border-t border-gray-100 flex items-center justify-between">
-              <p className="text-xs text-gray-400">Showing {filtered.length} of {COMPANIES.length}</p>
-              <div className="flex gap-1">
-                {["←","1","2","3","→"].map((p, i) => (
-                  <button key={i} className={`w-8 h-8 text-xs rounded-lg cursor-pointer transition-colors ${
-                    p==="1" ? "bg-[#1e3a8a] text-white" : "border border-gray-200 text-gray-600 hover:bg-gray-50"
-                  }`}>{p}</button>
-                ))}
-              </div>
-            </div>
+        {pending.length > 0 && (
+          <div className="px-6 py-3 border-t border-slate-100 bg-slate-50/60 flex items-center justify-between">
+            <p className="text-xs text-slate-400">Showing {pending.length} pending registration{pending.length !== 1 ? 's' : ''}</p>
+            <Link href="/super-admin/companies" className="text-[10px] font-bold uppercase tracking-widest text-blue-500 hover:text-blue-600 transition-colors">Manage all →</Link>
           </div>
-        </main>
+        )}
       </div>
+
+      {confirmId && (
+        <ConfirmDialog
+          title="Provision Company"
+          message={`This will create the HRIS tenant for ${confirmId.name}. The company gains system access immediately.`}
+          confirmLabel="Provision"
+          onConfirm={() => provision.mutate(confirmId.id)}
+          onCancel={() => setConfirmId(null)}
+          loading={provision.isPending}
+        />
+      )}
     </div>
   );
 }

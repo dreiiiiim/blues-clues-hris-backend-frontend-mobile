@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+﻿import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -14,7 +14,7 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -116,15 +116,6 @@ export function ManagerTeamScreen() {
           />
         )}
         <View style={styles.main}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="manager"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Team"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
             {/* Hero */}
@@ -193,7 +184,9 @@ export function ManagerTeamScreen() {
               ))
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="manager" activeScreen="Team" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Detail Modal */}
@@ -380,3 +373,5 @@ const styles = StyleSheet.create({
   detailLabel: { color: "#94A3B8", fontSize: 10, fontWeight: "700", textTransform: "uppercase" },
   detailValue: { color: "#0F172A", fontSize: 14, fontWeight: "700", marginTop: 2 },
 });
+
+

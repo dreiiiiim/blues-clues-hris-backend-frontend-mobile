@@ -3,10 +3,9 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { loginApi, authFetch, refreshApi } from "@/lib/authApi";
+import { loginApi, refreshApi } from "@/lib/authApi";
 import { setTokens, saveUserInfo, parseJwt, clearAuthStorage, getRememberMe, getUserInfo } from "@/lib/authStorage";
-import { API_BASE_URL } from "@/lib/api";
-import { roleToPath } from "@/lib/roleMap";
+import { roleToPath, portalToPath } from "@/lib/roleMap";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
@@ -21,7 +20,17 @@ export default function EmployeeLoginPage() {
     const userInfo = getUserInfo();
     if (!userInfo || userInfo.role === "applicant") return;
     refreshApi()
-      .then(() => router.replace(`/${userInfo.role}`))
+      .then((result: any) => {
+        const payload = parseJwt(result?.access_token ?? "");
+        const portals = Array.isArray(payload?.available_portals)
+          ? payload.available_portals
+          : [];
+        if (portals.length > 1) {
+          router.replace("/portal-select");
+          return;
+        }
+        router.replace(portalToPath(payload?.active_portal) || `/${userInfo.role}`);
+      })
       .catch(() => clearAuthStorage());
   }, [router]);
 
@@ -36,7 +45,8 @@ export default function EmployeeLoginPage() {
     setError("");
     setIsLoading(true);
     try {
-      const { access_token } = await loginApi({ identifier, password, rememberMe });
+      const login = await loginApi({ identifier, password, rememberMe });
+      const { access_token } = login;
       setTokens({ access_token, rememberMe });
       const payload = parseJwt(access_token);
       if (!payload) throw new Error("Invalid token received from server.");
@@ -48,11 +58,27 @@ export default function EmployeeLoginPage() {
         setIsLoading(false);
         return;
       }
-      const meRes = await authFetch(`${API_BASE_URL}/me`);
-      const me = await meRes.json().catch(() => ({}));
-      const name = [payload.first_name ?? "", payload.last_name ?? ""].filter(Boolean).join(" ") || me.username || identifier;
-      saveUserInfo({ name, email: me.email ?? "", role, user_id: payload.sub_userid });
-      router.push(`/${role}`);
+      const name = [payload.first_name ?? "", payload.last_name ?? ""].filter(Boolean).join(" ") || identifier;
+      saveUserInfo({
+        name,
+        email: String(payload.email ?? identifier),
+        role,
+        role_name: String(payload.role_name ?? ""),
+        active_portal: payload.active_portal,
+        available_portals: Array.isArray(payload.available_portals) ? payload.available_portals : [],
+        role_switch_options: Array.isArray(payload.role_switch_options) ? payload.role_switch_options : [],
+        user_id: payload.sub_userid,
+      });
+
+      const availablePortals = Array.isArray(payload.available_portals)
+        ? payload.available_portals
+        : [];
+      if (availablePortals.length > 1 || login.requires_portal_selection) {
+        router.push("/portal-select");
+        return;
+      }
+
+      router.push(portalToPath(payload.active_portal) || `/${role}`);
     } catch (err: any) {
       setError(err?.message || "Invalid credentials. Please try again.");
     } finally {

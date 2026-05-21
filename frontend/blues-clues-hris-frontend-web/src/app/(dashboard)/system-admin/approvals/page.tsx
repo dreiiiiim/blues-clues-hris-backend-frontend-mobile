@@ -1,8 +1,9 @@
 "use client";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, FilePen } from "lucide-react";
+import { FileText, FilePen, CalendarDays } from "lucide-react";
 import HRDocumentApprovalsView from "@/components/approvals/HRDocumentApprovalsView";
+import LeaveApprovalsView from "@/components/approvals/LeaveApprovalsView";
 import HRProfileChangeRequestsView from "@/components/onboarding/HRProfileChangeRequestsView";
 
 export default function SystemAdminApprovalsPage() {
@@ -17,6 +18,10 @@ export default function SystemAdminApprovalsPage() {
 
       <Tabs defaultValue="documents">
         <TabsList className="mb-4">
+          <TabsTrigger value="leave" className="flex items-center gap-1.5">
+            <CalendarDays className="h-4 w-4" />
+            Leave
+          </TabsTrigger>
           <TabsTrigger value="documents" className="flex items-center gap-1.5">
             <FileText className="h-4 w-4" />
             Document Approvals
@@ -26,6 +31,10 @@ export default function SystemAdminApprovalsPage() {
             Profile Changes
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="leave">
+          <LeaveApprovalsView />
+        </TabsContent>
 
         <TabsContent value="documents">
           <HRDocumentApprovalsView />

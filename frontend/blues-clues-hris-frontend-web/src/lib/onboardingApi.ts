@@ -1,10 +1,12 @@
 import { API_BASE_URL } from './api';
 import { getAccessToken, getUserInfo } from './authStorage';
+import { authFetch } from './authApi';
 import type { OnboardingSession, OnboardingSessionSummary, OnboardingTemplate, ProfileData, TemplateItem } from '@/types/onboarding.types';
 
 function headers() {
+  const token = getAccessToken();
   return {
-    Authorization: `Bearer ${getAccessToken()}`,
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
     'Content-Type': 'application/json',
   };
 }
@@ -41,7 +43,7 @@ export async function uploadDocument(onboardingItemId: string, file: File, isPro
     `${onboardingBase()}/upload-document?isProofOfReceipt=${isProofOfReceipt}`,
     {
       method: 'POST',
-      headers: { Authorization: `Bearer ${getAccessToken()}` },
+      headers: { ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}) },
       body: formData,
     },
   );
@@ -98,14 +100,22 @@ export async function requestEquipment(onboardingItemId: string, is_requested: b
 // ---- HR endpoints ----
 
 export async function getAllSessions(): Promise<OnboardingSessionSummary[]> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/hr/sessions`, { headers: headers() });
-  if (!res.ok) throw new Error('Failed to fetch sessions');
+  const res = await authFetch(`${API_BASE_URL}/onboarding/hr/sessions`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({} as any));
+    const msg = Array.isArray(body?.message) ? body.message.join(', ') : (body?.message || 'Failed to fetch sessions');
+    throw new Error(msg);
+  }
   return res.json();
 }
 
 export async function getSessionById(sessionId: string): Promise<OnboardingSession> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/hr/sessions/${sessionId}`, { headers: headers() });
-  if (!res.ok) throw new Error('Failed to fetch session');
+  const res = await authFetch(`${API_BASE_URL}/onboarding/hr/sessions/${sessionId}`);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({} as any));
+    const msg = Array.isArray(body?.message) ? body.message.join(', ') : (body?.message || 'Failed to fetch session');
+    throw new Error(msg);
+  }
   return res.json();
 }
 
@@ -173,11 +183,31 @@ export async function updateSessionDeadline(sessionId: string, deadline_date: st
 }
 
 export async function approveSession(sessionId: string): Promise<any> {
-  const res = await fetch(`${API_BASE_URL}/onboarding/hr/sessions/${sessionId}/approve`, {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/hr/sessions/${sessionId}/approve`, {
     method: 'POST',
     headers: headers(),
   });
-  if (!res.ok) throw new Error('Failed to approve');
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({} as any));
+    const msg = Array.isArray(body?.message)
+      ? body.message.join(', ')
+      : (body?.message || 'Failed to approve onboarding session');
+    throw new Error(msg);
+  }
+  return res.json();
+}
+
+export async function rejectSession(sessionId: string, reason: string): Promise<any> {
+  const res = await authFetch(`${API_BASE_URL}/onboarding/hr/sessions/${sessionId}/reject`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ reason }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({} as any));
+    const msg = Array.isArray(body?.message) ? body.message.join(', ') : (body?.message || 'Failed to reject session');
+    throw new Error(msg);
+  }
   return res.json();
 }
 
@@ -249,7 +279,7 @@ export async function uploadTemplateImage(file: File): Promise<{ url: string; pa
 
   const res = await fetch(`${API_BASE_URL}/onboarding/system-admin/template-assets/images`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${getAccessToken()}` },
+    headers: { ...(getAccessToken() ? { Authorization: `Bearer ${getAccessToken()}` } : {}) },
     body: formData,
   });
 

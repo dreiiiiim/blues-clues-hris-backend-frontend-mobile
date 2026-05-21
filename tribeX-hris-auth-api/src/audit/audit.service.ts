@@ -79,7 +79,7 @@ export class AuditService {
       .getClient()
       .from('admin_audit_logs')
       .select(
-        '*, performer:user_profile!admin_audit_logs_performed_by_fkey(first_name, last_name)',
+        '*, performer:user_profile!admin_audit_logs_performed_by_fkey(first_name, last_name, email), target:user_profile!admin_audit_logs_target_user_id_fkey(first_name, last_name, email)',
       )
       .eq('company_id', companyId)
       .order('timestamp', { ascending: false })

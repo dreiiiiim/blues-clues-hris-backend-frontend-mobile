@@ -211,6 +211,7 @@ export function ScheduleRosterTable({
   const [assignmentFilter, setAssignmentFilter] = useState<AssignmentFilter>("all");
   const [warningPanel, setWarningPanel] = useState<"custom" | "unset" | null>(null);
   const [page, setPage]               = useState(1);
+  const [groupBy, setGroupBy]         = useState<"department" | "employee">("department");
 
   const fetchRoster = () => {
     setLoading(true);
@@ -465,6 +466,31 @@ export function ScheduleRosterTable({
         </div>
       )}
 
+      {/* Group-by toggle */}
+      <div className="flex items-center gap-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">View by</p>
+        <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
+          <button
+            type="button"
+            onClick={() => setGroupBy("department")}
+            className={`px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+              groupBy === "department" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            }`}
+          >
+            Department
+          </button>
+          <button
+            type="button"
+            onClick={() => setGroupBy("employee")}
+            className={`px-3 py-1.5 text-xs font-bold transition-colors cursor-pointer ${
+              groupBy === "employee" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+            }`}
+          >
+            Employee
+          </button>
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="relative flex-1 min-w-48">
@@ -510,6 +536,7 @@ export function ScheduleRosterTable({
       </div>
 
       {/* Department Schedule View */}
+      {groupBy === "department" && (
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-muted/20">
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
@@ -600,8 +627,10 @@ export function ScheduleRosterTable({
           </div>
         )}
       </div>
+      )}
 
       {/* Table */}
+      {groupBy === "employee" && (
       <div className="rounded-xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border bg-muted/20">
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
@@ -764,6 +793,7 @@ export function ScheduleRosterTable({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }

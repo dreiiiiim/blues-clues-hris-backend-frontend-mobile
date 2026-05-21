@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -12,7 +12,7 @@ import {
   useWindowDimensions,
 } from "react-native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { Header } from "../components/Header";
 import { GradientHero } from "../components/GradientHero";
 import { UserSession, authFetch } from "../services/auth";
@@ -154,15 +154,6 @@ export const ApplicantResumeUploadScreen = ({ route, navigation }: any) => {
           <Header
             title="My Resume"
             subtitle="Upload and manage your resume"
-            rightElement={
-              <MobileRoleMenu
-                role={session.role as any}
-                userName={session.name}
-                email={session.email}
-                activeScreen="ApplicantResumeUpload"
-                navigation={navigation}
-              />
-            }
           />
 
           <GradientHero
@@ -186,7 +177,7 @@ export const ApplicantResumeUploadScreen = ({ route, navigation }: any) => {
                     <>
                       <View style={styles.fileRow}>
                         <View style={styles.fileIcon}>
-                          <Text style={styles.fileIconText}>📄</Text>
+                          <Text style={styles.fileIconText}>ðŸ“„</Text>
                         </View>
                         <View style={styles.fileInfo}>
                           <Text style={styles.fileName} numberOfLines={2}>
@@ -224,7 +215,7 @@ export const ApplicantResumeUploadScreen = ({ route, navigation }: any) => {
                   ) : (
                     <>
                       <View style={styles.emptyResume}>
-                        <Text style={styles.emptyIcon}>📋</Text>
+                        <Text style={styles.emptyIcon}>ðŸ“‹</Text>
                         <Text style={styles.emptyTitle}>No resume uploaded yet</Text>
                         <Text style={styles.emptyText}>
                           Upload your resume so employers can review your qualifications when you apply.
@@ -260,7 +251,9 @@ export const ApplicantResumeUploadScreen = ({ route, navigation }: any) => {
               </>
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="applicant" activeScreen="Resume" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
@@ -363,3 +356,5 @@ const styles = StyleSheet.create({
   },
   backButtonText: { color: "#1D4ED8", fontSize: 14, fontWeight: "800" },
 });
+
+

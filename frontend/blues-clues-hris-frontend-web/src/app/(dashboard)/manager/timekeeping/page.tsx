@@ -393,7 +393,7 @@ export default function ManagerTimekeepingPage() {
       return {
         date,
         status: date > today ? "future" : late > 0 ? "late" : presentTotal > 0 ? "present" : "absent",
-        summary: date > today ? undefined : { present: presentTotal - late, late, absent, total: users.length },
+        summary: date > today ? undefined : { present: presentTotal - late, late, absent, excused: 0, notClockedIn: 0, total: users.length },
       };
     });
   }, [allPunches, users]);

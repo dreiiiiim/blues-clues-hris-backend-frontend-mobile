@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -16,7 +16,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -226,11 +226,7 @@ export function ApplicantJobsScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu role="applicant" userName={session.name} email={session.email} activeScreen="Jobs" navigation={navigation} />
-          )}
-
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]} showsVerticalScrollIndicator={false}>
             {/* Hero */}
             <GradientHero style={styles.heroCard}>
               {/* Decorative circles */}
@@ -382,7 +378,9 @@ export function ApplicantJobsScreen() {
                 );
               })}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="applicant" activeScreen="Jobs" navigation={navigation} session={session} />
+          )}        </View>
       </View>
 
       {/* Job Detail + Apply Modal */}
@@ -823,3 +821,4 @@ const styles = StyleSheet.create({
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { color: "#FFFFFF", fontSize: 16, fontWeight: "800" },
 });
+

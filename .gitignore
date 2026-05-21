@@ -1,4 +1,6 @@
 .claude/
+.agents/
+.codex/
 .planning/
 HANDOFF.md
 ToAsk.md
@@ -17,3 +19,16 @@ tribeX-hris-auth-api\test-emails.mjs
 tribeX-hris-auth-api\sql
 tribeX-hris-auth-api\sql
 .tmp_smurf
+skills-lock.json
+DATABALLS.MD
+offboarding_leave_cnb.zip
+temp_cnb_extract/
+temp_perf_extract/
+temp_smurf_user_stories.txt
+Testing-feat-sprint5*
+The Smurf Village - USER STORIES.pdf
+temp_leave_man/
+node_modules
+.npmrc
+**/.npmrc
+

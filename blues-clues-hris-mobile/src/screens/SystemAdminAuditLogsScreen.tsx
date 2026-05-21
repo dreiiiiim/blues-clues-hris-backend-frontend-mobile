@@ -13,10 +13,16 @@ import {
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
+
+type UserMinProfile = {
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+};
 
 // Matches actual admin_audit_logs table schema
 type AuditLog = {
@@ -25,6 +31,8 @@ type AuditLog = {
   performed_by: string;
   target_user_id: string | null;
   timestamp: string;
+  performer?: UserMinProfile | null;
+  target?: UserMinProfile | null;
 };
 
 const ACTION_COLORS: Record<string, { bg: string; border: string; text: string }> = {
@@ -136,15 +144,6 @@ export function SystemAdminAuditLogsScreen() {
         )}
 
         <View style={styles.main}>
-          {isMobile && (
-            <MobileRoleMenu
-              role={session.role}
-              userName={session.name}
-              email={session.email}
-              activeScreen="AuditLogs"
-              navigation={navigation}
-            />
-          )}
 
           <ScrollView
             style={styles.scroll}
@@ -276,10 +275,87 @@ export function SystemAdminAuditLogsScreen() {
               </>
             )}
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="system_admin" activeScreen="AuditLogs" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );
+}
+
+function getUserDisplayName(profile?: UserMinProfile | null, fallbackId?: string | null): string {
+  if (profile) {
+    const fullName = [profile.first_name, profile.last_name].filter(Boolean).join(" ");
+    if (fullName.trim()) return fullName.trim();
+    if (profile.email) return profile.email;
+  }
+  if (fallbackId) {
+    return fallbackId.slice(0, 8) + "...";
+  }
+  return "System";
+}
+
+function cleanAuditActionText(action: string): string {
+  if (!action) return "";
+
+  // Check if it matches the profile update pattern
+  const match = action.match(/^user profile updated:\s*([^\s-]+)\s*-\s*(.+)$/i);
+  if (!match) return action;
+
+  const email = match[1];
+  const changesRaw = match[2];
+
+  const FIELD_LABELS: Record<string, string> = {
+    first_name: 'First Name',
+    last_name: 'Last Name',
+    role_id: 'Role',
+    department_id: 'Department',
+    start_date: 'Start Date',
+    account_status: 'Account Status',
+    middle_name: 'Middle Name',
+    personal_email: 'Personal Email',
+    date_of_birth: 'Date of Birth',
+    place_of_birth: 'Place of Birth',
+    nationality: 'Nationality',
+    civil_status: 'Civil Status',
+    complete_address: 'Address',
+    bank_name: 'Bank Name',
+    bank_account_number: 'Bank Account Number',
+    bank_account_name: 'Bank Account Name',
+  };
+
+  const parts = changesRaw.split(/,\s*(?=[A-Za-z_]+:)/);
+  const changesArray: string[] = [];
+
+  for (const part of parts) {
+    const partMatch = part.match(/^([A-Za-z_]+):\s*"([^"]*)"\s*[-→]+\s*"([^"]*)"/);
+    if (partMatch) {
+      const field = partMatch[1].toLowerCase();
+      const before = partMatch[2];
+      const after = partMatch[3];
+
+      if (before === after || (before === "null" && after === "None") || (before === "" && after === "None")) {
+        continue;
+      }
+
+      const label = FIELD_LABELS[field] ?? partMatch[1];
+      
+      const formatVal = (val: string) => {
+        if (!val || val === "null" || val === "None") return "None";
+        if (val.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+          return val.slice(0, 8) + "...";
+        }
+        return val;
+      };
+
+      changesArray.push(`${label}: "${formatVal(before)}" → "${formatVal(after)}"`);
+    }
+  }
+
+  if (changesArray.length > 0) {
+    return `User profile updated: ${email.toLowerCase()} - ${changesArray.join(", ")}`;
+  }
+  return `User profile updated: ${email.toLowerCase()}`;
 }
 
 function AuditLogCard({ log }: { readonly log: AuditLog }) {
@@ -289,7 +365,7 @@ function AuditLogCard({ log }: { readonly log: AuditLog }) {
     <View style={styles.logCard}>
       <View style={styles.logTop}>
         <View style={[styles.actionBadge, { backgroundColor: s.bg, borderColor: s.border }]}>
-          <Text style={[styles.actionText, { color: s.text }]}>{log.action}</Text>
+          <Text style={[styles.actionText, { color: s.text }]}>{cleanAuditActionText(log.action)}</Text>
         </View>
         <Text style={styles.timeAgo}>{timeAgo(log.timestamp)}</Text>
       </View>
@@ -298,18 +374,18 @@ function AuditLogCard({ log }: { readonly log: AuditLog }) {
         {!!log.performed_by && (
           <View style={styles.metaRow}>
             <Feather name="user" size={12} color="#94A3B8" />
-            <Text style={styles.metaText}>By: {log.performed_by.slice(0, 8)}…</Text>
+            <Text style={styles.metaText}>By: {getUserDisplayName(log.performer, log.performed_by)}</Text>
           </View>
         )}
         {!!log.target_user_id && (
           <View style={styles.metaRow}>
             <Feather name="target" size={12} color="#94A3B8" />
-            <Text style={styles.metaText}>Target: {log.target_user_id.slice(0, 8)}…</Text>
+            <Text style={styles.metaText}>Target: {getUserDisplayName(log.target, log.target_user_id)}</Text>
           </View>
         )}
         <View style={styles.metaRow}>
           <Feather name="hash" size={12} color="#94A3B8" />
-          <Text style={styles.metaText}>#{shortId}</Text>
+          <Text style={styles.metaText}>Event ID: #{shortId}</Text>
         </View>
       </View>
 
@@ -461,8 +537,10 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 10,
     paddingVertical: 4,
+    flexShrink: 1,
+    marginRight: 8,
   },
-  actionText: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5 },
+  actionText: { fontSize: 11, fontWeight: "800", textTransform: "uppercase", letterSpacing: 0.5, flexShrink: 1 },
   timeAgo: { color: "#94A3B8", fontSize: 11, fontWeight: "600" },
 
   logMeta: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
@@ -492,3 +570,5 @@ const styles = StyleSheet.create({
   },
   loadMoreText: { color: "#1E3A8A", fontSize: 14, fontWeight: "700" },
 });
+
+

@@ -3,7 +3,7 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   Clock, Search, ChevronLeft, ChevronRight, X,
-  Users, TrendingUp, Timer, BarChart2, MapPin, MapPinOff,
+  Users, Timer, MapPin, MapPinOff,
   FileX, CalendarDays, CalendarRange, LayoutGrid, SlidersHorizontal,
   Download, AlertTriangle, Star, Trophy, Award,
   LogIn, LogOut, CheckCircle2, Shield, Calendar, Building2, Check, Pencil,
@@ -19,6 +19,7 @@ import { EmployeeScheduleEditModal } from "@/components/timekeeping/EmployeeSche
 import { AttendanceCalendarGrid, type CalendarDayData, type CalendarViewMode } from "@/components/timekeeping/AttendanceCalendarGrid";
 import { ScheduleRosterTable } from "@/components/timekeeping/ScheduleRosterTable";
 import { CompanyDefaultScheduleCard } from "@/components/timekeeping/CompanyDefaultScheduleCard";
+import { TimekeepingHeader, DayStatRow, PeriodStatRow } from "@/components/timekeeping/TimekeepingHeader";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ type UserRow = {
   department_id: string | null;
   department: { department_name?: string | null } | Array<{ department_name?: string | null }> | null;
   department_name?: string | null;
-  schedule?: { workdays?: string | string[] | null; start_time?: string | null } | null;
+  schedule?: { workdays?: string | string[] | null; start_time?: string | null; end_time?: string | null } | null;
 };
 
 type PunchRow = {
@@ -67,7 +68,7 @@ type RosterEntry = {
   time_in: string | null;
   time_out: string | null;
   hours_worked: number | null;
-  status: "present" | "late" | "clocked-in" | "absent" | "excused" | "rest-day" | "no-schedule";
+  status: "present" | "late" | "clocked-in" | "not-clocked-in" | "absent" | "excused" | "rest-day" | "no-schedule";
   gps_verified: boolean;
   clock_in_latitude: number | null;
   clock_in_longitude: number | null;
@@ -399,6 +400,16 @@ function EmployeeAvatar({
 // ─── Roster builders ──────────────────────────────────────────────────────────
 
 function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): RosterEntry[] {
+  const todayStr = toDateString(new Date());
+  const nowPht = new Date().toLocaleTimeString("en-US", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Manila",
+  });
+  const [nowHour, nowMinute] = nowPht.split(":").map(Number);
+  const nowMinutesPHT = (Number.isNaN(nowHour) || Number.isNaN(nowMinute)) ? 0 : (nowHour * 60 + nowMinute);
+
   const map: Record<string, { ci: PunchRow | null; co: PunchRow | null; ab: PunchRow | null }> = {};
   for (const p of punches) {
     if (!map[p.employee_id]) map[p.employee_id] = { ci: null, co: null, ab: null };
@@ -433,6 +444,19 @@ function buildFullRoster(users: UserRow[], punches: PunchRow[], date: string): R
     if (time_in && time_out)     status = isLate(time_in, ci?.clock_type, u.schedule) ? "late" : "present";
     else if (time_in)            status = isLate(time_in, ci?.clock_type, u.schedule) ? "late" : "clocked-in";
     else if (ab?.absence_reason && String(ab.log_status ?? "").toUpperCase() === "APPROVED") status = "excused";
+    else if (scheduleDayStatus === "workday") {
+      const isFutureDate = date > todayStr;
+      const isTodayDate = date === todayStr;
+      const shiftEndMinutes = parseClockToMinutes(u.schedule?.end_time) ?? ((24 * 60) - 1);
+
+      if (isFutureDate) {
+        status = "not-clocked-in";
+      } else if (isTodayDate && nowMinutesPHT <= shiftEndMinutes) {
+        status = "not-clocked-in";
+      } else {
+        status = "absent";
+      }
+    }
 
     const departmentName =
       (typeof u.department_name === "string" && u.department_name.trim()) ||
@@ -595,6 +619,7 @@ const STATUS_CONFIG: Record<RosterEntry["status"], { label: string; className: s
   "present":    { label: "Present",    className: "bg-green-100 text-green-700 border border-green-200" },
   "late":       { label: "Late",       className: "bg-amber-100 text-amber-700 border border-amber-200" },
   "clocked-in": { label: "Clocked In", className: "bg-blue-100 text-blue-700 border border-blue-200" },
+  "not-clocked-in": { label: "Not Clocked In", className: "bg-orange-100 text-orange-700 border border-orange-200" },
   "absent":     { label: "Absent",     className: "bg-red-100 text-red-700 border border-red-200" },
   "excused":    { label: "Excused",    className: "bg-purple-100 text-purple-700 border border-purple-200" },
   "rest-day":   { label: "Rest Day",   className: "bg-sky-100 text-sky-700 border border-sky-200" },
@@ -626,23 +651,6 @@ function CompliancePill({ rate }: Readonly<{ rate: number }>) {
     <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${color}`}>
       {rate.toFixed(0)}%
     </span>
-  );
-}
-
-// ─── Stat Card ────────────────────────────────────────────────────────────────
-
-function StatCard({ icon: Icon, label, value, sub, colorClass, featured = false }: Readonly<{
-  icon: any; label: string; value: string; sub: string; colorClass: string; featured?: boolean;
-}>) {
-  return (
-    <Card className={`p-5 border-border ${featured ? "bg-gradient-to-br from-primary/5 to-transparent" : ""}`}>
-      <div className="flex items-center gap-3 mb-3">
-        <div className={`p-2 rounded-lg ${colorClass}`}><Icon className="h-4 w-4" /></div>
-        <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{label}</p>
-      </div>
-      <p className="text-2xl font-bold">{value}</p>
-      <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>
-    </Card>
   );
 }
 
@@ -1860,6 +1868,7 @@ function EmployeeSlideOver({
 const FILTER_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "all",        label: "All" },
   { value: "present",    label: "Present" },
+  { value: "not-clocked-in", label: "Not Clocked In" },
   { value: "absent",     label: "Absent" },
   { value: "excused",    label: "Excused" },
   { value: "rest-day",   label: "Rest Day" },
@@ -1874,6 +1883,7 @@ function statusFilterClass(value: StatusFilter, active: boolean): string {
     "present":    { active: "bg-green-600 text-white border-green-600", idle: "bg-green-50 text-green-700 border-green-200 hover:bg-green-100" },
     "late":       { active: "bg-amber-500 text-white border-amber-500", idle: "bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100" },
     "clocked-in": { active: "bg-blue-600 text-white border-blue-600", idle: "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100" },
+    "not-clocked-in": { active: "bg-orange-600 text-white border-orange-600", idle: "bg-orange-50 text-orange-700 border-orange-200 hover:bg-orange-100" },
     "absent":     { active: "bg-red-600 text-white border-red-600", idle: "bg-red-50 text-red-700 border-red-200 hover:bg-red-100" },
     "excused":    { active: "bg-purple-600 text-white border-purple-600", idle: "bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100" },
     "rest-day":   { active: "bg-sky-600 text-white border-sky-600", idle: "bg-sky-50 text-sky-700 border-sky-200 hover:bg-sky-100" },
@@ -2089,6 +2099,50 @@ export default function HRTimekeepingPage() {
   const isDayView  = viewMode === "day";
   const isPeriod   = !isDayView;
 
+  // ─── Pre-shift detection ──────────────────────────────────────────────────
+  // Earliest scheduled start (in minutes-since-midnight PHT) across all users
+  // whose schedule has the selected date as a workday. Drives the empty-state
+  // branch so a pre-9am view of an empty roster doesn't read as "12 absent".
+  const firstShiftMinutesToday = useMemo<number | null>(() => {
+    if (!isDayView || !isToday(selectedDate)) return null;
+    const dayKey = toDateString(selectedDate);
+    let earliest: number | null = null;
+    for (const u of users) {
+      const sched = u.schedule;
+      if (!sched?.start_time) continue;
+      if (getScheduleDayStatus(sched, dayKey) !== "workday") continue;
+      const mins = parseClockToMinutes(sched.start_time);
+      if (mins == null) continue;
+      if (earliest == null || mins < earliest) earliest = mins;
+    }
+    return earliest;
+  }, [users, isDayView, selectedDate]);
+
+  const nowMinutesPHT = useMemo<number>(() => {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "Asia/Manila",
+    }).formatToParts(new Date());
+    const hh = Number(parts.find(p => p.type === "hour")?.value ?? "0");
+    const mm = Number(parts.find(p => p.type === "minute")?.value ?? "0");
+    return ((Number.isNaN(hh) || hh === 24) ? 0 : hh) * 60 + (Number.isNaN(mm) ? 0 : mm);
+    // recompute as liveTime ticks
+  }, [liveTime]);
+
+  const dayStarted =
+    !isDayView ||
+    !isToday(selectedDate) ||
+    firstShiftMinutesToday == null ||
+    nowMinutesPHT >= firstShiftMinutesToday;
+
+  const firstShiftLabel = useMemo<string | null>(() => {
+    if (firstShiftMinutesToday == null) return null;
+    const h24 = Math.floor(firstShiftMinutesToday / 60);
+    const m = firstShiftMinutesToday % 60;
+    const suffix = h24 >= 12 ? "PM" : "AM";
+    const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+    return `${h12}:${String(m).padStart(2, "0")} ${suffix}`;
+  }, [firstShiftMinutesToday]);
+
   // departments is fetched from /users/departments on mount (see useEffect above)
 
   const filteredRoster = useMemo(() => {
@@ -2163,21 +2217,32 @@ export default function HRTimekeepingPage() {
 
   const calendarDays = useMemo<CalendarDayData[]>(() => {
     const today = toDateString(new Date());
+    const nowPht = new Date().toLocaleTimeString("en-US", {
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Manila",
+    });
+    const [nowHour, nowMinute] = nowPht.split(":").map(Number);
+    const nowMinutesPHT = (Number.isNaN(nowHour) || Number.isNaN(nowMinute)) ? 0 : (nowHour * 60 + nowMinute);
     const employeeIds = new Set(filteredUsersForCalendar.map((u) => u.employee_id));
     const userMap = new Map(filteredUsersForCalendar.map((user) => [user.employee_id, user]));
-    const dateMap: Record<string, { presentIds: Set<string>; lateIds: Set<string>; absentIds: Set<string> }> = {};
+    const dateMap: Record<string, { presentIds: Set<string>; lateIds: Set<string>; excusedIds: Set<string> }> = {};
 
     for (const punch of calendarPunches) {
       if (!employeeIds.has(punch.employee_id)) continue;
       const date = punch.timestamp.split("T")[0];
-      if (!dateMap[date]) dateMap[date] = { presentIds: new Set(), lateIds: new Set(), absentIds: new Set() };
+      if (!dateMap[date]) dateMap[date] = { presentIds: new Set(), lateIds: new Set(), excusedIds: new Set() };
+      if (String(punch.log_status ?? "").toUpperCase() === "DENIED") continue;
       if (punch.log_type === "time-in") {
         dateMap[date].presentIds.add(punch.employee_id);
         if (isLate(punch.timestamp, punch.clock_type, userMap.get(punch.employee_id)?.schedule)) {
           dateMap[date].lateIds.add(punch.employee_id);
         }
       }
-      if (punch.log_type === "absence") dateMap[date].absentIds.add(punch.employee_id);
+      if (punch.log_type === "absence" && String(punch.log_status ?? "").toUpperCase() === "APPROVED") {
+        dateMap[date].excusedIds.add(punch.employee_id);
+      }
     }
 
     const totalEmployees = filteredUsersForCalendar.length;
@@ -2185,13 +2250,33 @@ export default function HRTimekeepingPage() {
     return listDatesInRange(calendarRange.from, calendarRange.to).map((date): CalendarDayData => {
       const day = dateMap[date];
       if (date > today) return { date, status: "future" };
+
+      const scheduledEmployeeIds = filteredUsersForCalendar
+        .filter((user) => getScheduleDayStatus(user.schedule, date) === "workday")
+        .map((user) => user.employee_id);
+
       const presentTotal = day?.presentIds.size ?? 0;
       const late = day?.lateIds.size ?? 0;
-      const absent = day?.absentIds.size ?? 0;
-      const summary = { present: presentTotal - late, late, absent, total: totalEmployees };
+      const excused = day?.excusedIds.size ?? 0;
+      let absent = 0;
+      let notClockedIn = 0;
+      for (const employeeId of scheduledEmployeeIds) {
+        if (day?.presentIds.has(employeeId) || day?.excusedIds.has(employeeId)) continue;
+        if (date < today) {
+          absent++;
+          continue;
+        }
+        if (date === today) {
+          const shiftEndMinutes = parseClockToMinutes(userMap.get(employeeId)?.schedule?.end_time) ?? ((24 * 60) - 1);
+          if (nowMinutesPHT > shiftEndMinutes) absent++;
+          else notClockedIn++;
+        }
+      }
+      const summary = { present: presentTotal - late, late, absent, excused, notClockedIn, total: totalEmployees };
       if (late > 0) return { date, status: "late", summary };
       if (presentTotal > 0) return { date, status: "present", summary };
-      if (absent > 0) return { date, status: "absent", summary };
+      if (absent > 0 || excused > 0) return { date, status: "absent", summary };
+      if (scheduledEmployeeIds.length > 0) return { date, status: "no-schedule", summary };
       return { date, status: "no-schedule" };
     });
   }, [calendarPunches, filteredUsersForCalendar, calendarRange.from, calendarRange.to]);
@@ -2233,10 +2318,28 @@ export default function HRTimekeepingPage() {
     : "";
 
   // Table rows
+  const preShiftEmpty =
+    isDayView && !dayStarted && !search && deptFilter === null && statusFilter === "all" &&
+    stats.present + stats.late === 0;
+
   const tableBody = loading ? (
     <tr><td colSpan={colSpan} className="px-6 py-12 text-center text-muted-foreground text-sm">Loading timekeeping data...</td></tr>
   ) : fetchError ? (
     <tr><td colSpan={colSpan} className="px-6 py-12 text-center text-destructive text-sm">Failed to load data. Please refresh or contact support.</td></tr>
+  ) : preShiftEmpty ? (
+    <tr><td colSpan={colSpan} className="px-6 py-16 text-center">
+      <div className="flex flex-col items-center gap-3">
+        <div className="h-12 w-12 rounded-full bg-muted flex items-center justify-center">
+          <Clock className="h-6 w-6 text-muted-foreground" />
+        </div>
+        <div>
+          <p className="text-sm font-semibold text-foreground">Day hasn't started yet</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            First scheduled shift begins at {firstShiftLabel} (Asia/Manila). Punches will appear here as employees clock in.
+          </p>
+        </div>
+      </div>
+    </td></tr>
   ) : activeList.length === 0 ? (
     <tr><td colSpan={colSpan} className="px-6 py-12 text-center text-muted-foreground text-sm">
       {search ? "No records match your search." : "No entries found for this period."}
@@ -2299,7 +2402,7 @@ export default function HRTimekeepingPage() {
           )}
         </td>
         <td className="px-6 py-4">
-          {row.status === "absent" || row.status === "excused" || row.status === "rest-day" || row.status === "no-schedule" ? (
+          {row.status === "absent" || row.status === "excused" || row.status === "rest-day" || row.status === "no-schedule" || row.status === "not-clocked-in" ? (
             <span className="text-muted-foreground text-xs">—</span>
           ) : row.gps_verified ? (
             <div className="flex min-w-0 items-start gap-1.5 text-green-600">
@@ -2497,64 +2600,8 @@ export default function HRTimekeepingPage() {
         />
       )}
 
-      {/* ── Hero Banner ─────────────────────────────────────────────────────── */}
-      <div className="rounded-[22px] border border-white/10 bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 py-6 md:px-8 md:py-7 relative overflow-hidden">
-        {/* Decorative blobs */}
-        <div className="absolute -top-10 -right-10 h-40 w-40 rounded-full bg-blue-500/20 blur-3xl pointer-events-none" />
-        <div className="absolute -bottom-8 left-20 h-32 w-32 rounded-full bg-teal-500/20 blur-3xl pointer-events-none" />
-
-        <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          {/* Left: title + live clock */}
-          <div className="flex items-center gap-4">
-            <div className="p-3 bg-white/10 rounded-xl border border-white/15 shrink-0">
-              <Clock className="h-6 w-6 text-white" />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-white tracking-tight">Timekeeping Management</h1>
-              <p className="text-xs text-white/60 mt-0.5">Company-wide attendance and compliance tracking</p>
-            </div>
-          </div>
-
-          {/* Right: live clock + quick summary */}
-          <div className="flex items-center gap-4">
-            <div className="text-right">
-              <p className="text-2xl font-bold text-white font-mono tabular-nums leading-none">{liveTime}</p>
-              <p className="text-[10px] text-white/50 uppercase tracking-widest font-bold mt-0.5">Asia/Manila</p>
-            </div>
-            {!loading && (
-              <div className="hidden sm:flex items-center gap-2 border-l border-white/15 pl-4">
-                {isDayView ? (
-                  <>
-                    <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-green-500/15 border border-green-400/20">
-                      <span className="text-lg font-bold text-green-300 leading-none">{stats.present + stats.late}</span>
-                      <span className="text-[9px] text-green-300/70 uppercase tracking-widest font-bold">In</span>
-                    </span>
-                    <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-amber-500/15 border border-amber-400/20">
-                      <span className="text-lg font-bold text-amber-300 leading-none">{stats.late}</span>
-                      <span className="text-[9px] text-amber-300/70 uppercase tracking-widest font-bold">Late</span>
-                    </span>
-                    <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-red-500/15 border border-red-400/20">
-                      <span className="text-lg font-bold text-red-300 leading-none">{stats.absent}</span>
-                      <span className="text-[9px] text-red-300/70 uppercase tracking-widest font-bold">Absent</span>
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-blue-500/15 border border-blue-400/20">
-                      <span className="text-lg font-bold text-blue-300 leading-none">{periodStats.avgCompliance.toFixed(0)}%</span>
-                      <span className="text-[9px] text-blue-300/70 uppercase tracking-widest font-bold">Rate</span>
-                    </span>
-                    <span className="flex flex-col items-center px-3 py-1 rounded-lg bg-red-500/15 border border-red-400/20">
-                      <span className="text-lg font-bold text-red-300 leading-none">{periodStats.flaggedCount}</span>
-                      <span className="text-[9px] text-red-300/70 uppercase tracking-widest font-bold">Flagged</span>
-                    </span>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      {/* ── Page Header ──────────────────────────────────────────────────────── */}
+      <TimekeepingHeader liveTime={liveTime} />
 
       {/* ── View Controls ────────────────────────────────────────────────────── */}
       <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
@@ -2710,23 +2757,25 @@ export default function HRTimekeepingPage() {
             <div className="flex items-center border border-border rounded-lg overflow-hidden bg-background shadow-xs">
               <button
                 onClick={() => setLocationDisplayMode("place")}
+                title="Show clock-in address / place name"
                 className={`px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
                   locationDisplayMode === "place"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
                 }`}
               >
-                Place
+                Address
               </button>
               <button
                 onClick={() => setLocationDisplayMode("coordinates")}
+                title="Show raw GPS latitude / longitude"
                 className={`px-3 py-2 text-xs font-bold transition-colors cursor-pointer ${
                   locationDisplayMode === "coordinates"
                     ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
                 }`}
               >
-                Coordinates
+                GPS
               </button>
             </div>
           )}
@@ -2795,23 +2844,28 @@ export default function HRTimekeepingPage() {
       {/* ── Attendance panel (stat cards + calendar + table) ───────────────── */}
       {mainPanel === "attendance" && (<>
 
-      {/* ── Stat Cards ──────────────────────────────────────────────────────── */}
-      {isDayView ? (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <StatCard icon={Users}      label="Total Employees"   value={String(stats.total)}               sub="tracked"                              colorClass="bg-primary/10 text-primary" />
-          <StatCard icon={TrendingUp} label="Attendance Rate"   value={`${stats.attendance_rate}%`}       sub={`${stats.present + stats.late} present`} colorClass="bg-green-100 text-green-700" featured />
-          <StatCard icon={BarChart2}  label="Total Hours"       value={`${stats.totalHours.toFixed(1)}h`} sub={`${stats.avgHours.toFixed(1)}h avg`}  colorClass="bg-blue-50 text-blue-600" />
-          <StatCard icon={Timer}      label="Compliance Issues" value={String(stats.late + stats.absent)} sub={`${stats.late} late · ${stats.absent} absent`} colorClass="bg-red-50 text-red-600" />
-        </div>
+      {/* ── Stat Strip ──────────────────────────────────────────────────────── */}
+      {!loading && (isDayView ? (
+        <DayStatRow
+          total={stats.total}
+          inCount={stats.present + stats.late}
+          late={stats.late}
+          absent={stats.absent}
+          totalHours={stats.totalHours}
+          rate={stats.attendance_rate}
+          dayStarted={dayStarted}
+          firstShiftLabel={firstShiftLabel}
+        />
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <StatCard icon={Users}     label="Employees"      value={String(periodStats.total)}                  sub="in period"          colorClass="bg-primary/10 text-primary" />
-          <StatCard icon={BarChart2} label="Total Hours"    value={`${periodStats.totalHours.toFixed(1)}h`}    sub={periodLabel}        colorClass="bg-blue-50 text-blue-600" />
-          <StatCard icon={Timer}     label="Avg Per Person" value={`${periodStats.avgHours.toFixed(1)}h`}      sub="across period"      colorClass="bg-green-50 text-green-600" />
-          <StatCard icon={TrendingUp} label="Avg Compliance" value={`${periodStats.avgCompliance.toFixed(0)}%`} sub="attendance rate"   colorClass="bg-indigo-100 text-indigo-700" featured />
-          <StatCard icon={AlertTriangle} label="Flagged Employees" value={String(periodStats.flaggedCount)} sub=">3 absent or >2 late" colorClass="bg-red-50 text-red-600" />
-        </div>
-      )}
+        <PeriodStatRow
+          total={periodStats.total}
+          totalHours={periodStats.totalHours}
+          avgHours={periodStats.avgHours}
+          avgCompliance={periodStats.avgCompliance}
+          flaggedCount={periodStats.flaggedCount}
+          periodLabel={periodLabel}
+        />
+      ))}
 
       {/* ── Pending Absence Requests ────────────────────────────────────────── */}
       {absenceRequestsLoading || absenceRequests.length > 0 ? (

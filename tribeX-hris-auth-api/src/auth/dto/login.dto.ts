@@ -12,13 +12,7 @@
 
 // login.dto.ts
 
-import {
-  IsNotEmpty,
-  IsString,
-  MinLength,
-  IsBoolean,
-  Matches,
-} from 'class-validator';
+import { IsNotEmpty, IsString, MinLength, IsBoolean, Matches } from 'class-validator';
 
 export class LoginDto {
   @IsString()

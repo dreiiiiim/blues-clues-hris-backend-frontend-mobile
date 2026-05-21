@@ -6,12 +6,10 @@ import { WelcomeScreen } from "@/components/onboarding/WelcomeScreen";
 import { OnboardingProcess } from "@/components/onboarding/OnboardingProcess";
 import { ReviewScreen } from "@/components/onboarding/ReviewScreen";
 import { CompletedScreen } from "@/components/onboarding/CompletedScreen";
-import { NewHireApprovalForm } from "@/components/onboarding/NewHireApprovalForm";
 import { OnboardingSession } from "@/types/onboarding.types";
 import { getMySession, confirmTask } from "@/lib/onboardingApi";
-import { getMyOnboarding } from "@/lib/authApi";
 
-type Stage = "loading" | "new-hire-form" | "welcome" | "onboarding" | "review" | "completion" | "no-session";
+type Stage = "loading" | "welcome" | "onboarding" | "review" | "completion" | "no-session";
 
 export default function ApplicantOnboardingPage() {
   const router = useRouter();
@@ -20,21 +18,12 @@ export default function ApplicantOnboardingPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([
-      getMySession().catch((err: any) => {
+    getMySession()
+      .catch((err: any) => {
         if (err?.status === 401) router.replace("/applicant/login?converted=true");
         return null;
-      }),
-      getMyOnboarding().catch(() => null),
-    ]).then(([wizardSession, submission]) => {
-      // Show the new-hire form only while the submission is still in draft or was rejected by HR.
-      // Once submitted, fall through to the 5-tab wizard so the applicant can work on
-      // Documents/HR Forms/Tasks/Equipment while HR reviews their profile.
-      if (submission && (submission.status === "pending" || submission.status === "draft" || submission.status === "rejected")) {
-        setStage("new-hire-form");
-        return;
-      }
-      // Otherwise fall through to the wizard session flow
+      })
+      .then((wizardSession) => {
       if (!wizardSession) { setStage("no-session"); return; }
       setSession(wizardSession);
       if (wizardSession.status === "approved") setStage("completion");
@@ -44,18 +33,9 @@ export default function ApplicantOnboardingPage() {
         const welcomed = localStorage.getItem(`onboarding_welcome_done_${wizardSession.session_id}`);
         setStage(welcomed ? "onboarding" : "welcome");
       }
-    });
+      });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const handleFormSubmitted = async () => {
-    const wizardSession = await getMySession().catch(() => null);
-    if (!wizardSession) { setStage("no-session"); return; }
-    setSession(wizardSession);
-    if (wizardSession.status === "approved") setStage("completion");
-    else if (wizardSession.status === "for-review") setStage("review");
-    else setStage("onboarding");
-  };
 
   const handleStart = async (_skip: boolean) => {
     if (session?.session_id) localStorage.setItem(`onboarding_welcome_done_${session.session_id}`, "1");
@@ -68,8 +48,6 @@ export default function ApplicantOnboardingPage() {
   };
 
   if (stage === "loading") return <div className="p-8 text-muted-foreground animate-pulse">Loading onboarding data...</div>;
-
-  if (stage === "new-hire-form") return <div className="w-full h-full animate-in fade-in duration-500"><NewHireApprovalForm onSubmitted={handleFormSubmitted} /></div>;
 
   if (error || stage === "no-session") return (
     <div className="min-h-screen flex items-center justify-center p-8 bg-slate-50">

@@ -41,6 +41,11 @@ export function OnboardingProcess({
   const hrForms = session.hr_forms || [];
   const profileItems: OnboardingItemBase[] = session.profile_items || [];
   const displayTasks = isEmployee ? tasks.filter(t => t.type !== "video") : tasks;
+  const matchesTab = (tabTag: string, target: "Profile" | "Documents" | "Forms" | "Tasks" | "Equipment") => {
+    const v = (tabTag || "").trim().toLowerCase();
+    if (target === "Forms") return v === "forms" || v === "hr forms" || v === "hr_forms";
+    return v === target.toLowerCase();
+  };
 
   useEffect(() => {
     const deadline = new Date(session.deadline_date);
@@ -291,7 +296,7 @@ export function OnboardingProcess({
               ) : (
                 <DocumentUpload
                   documents={documents}
-                  remarks={session.remarks.filter(r => r.tab_tag === "Documents")}
+                  remarks={session.remarks.filter(r => matchesTab(r.tab_tag, "Documents"))}
                   onUpdate={handleUpdateDocuments}
                 />
               )}
@@ -304,7 +309,7 @@ export function OnboardingProcess({
               ) : (
                 <HRForms
                   forms={hrForms}
-                  remarks={session.remarks.filter(r => r.tab_tag === "Forms")}
+                  remarks={session.remarks.filter(r => matchesTab(r.tab_tag, "Forms"))}
                   onUpdate={handleUpdateHRForms}
                 />
               )}
@@ -317,7 +322,7 @@ export function OnboardingProcess({
               ) : (
                 <TaskChecklist
                   tasks={displayTasks}
-                  remarks={session.remarks.filter(r => r.tab_tag === "Tasks")}
+                  remarks={session.remarks.filter(r => matchesTab(r.tab_tag, "Tasks"))}
                   onUpdateTasks={handleUpdateTasks}
                 />
               )}
@@ -330,7 +335,7 @@ export function OnboardingProcess({
               ) : (
                 <EquipmentRequest
                   equipment={equipment}
-                  remarks={session.remarks.filter(r => r.tab_tag === "Equipment")}
+                  remarks={session.remarks.filter(r => matchesTab(r.tab_tag, "Equipment"))}
                   onUpdateEquipment={handleUpdateEquipment}
                 />
               )}

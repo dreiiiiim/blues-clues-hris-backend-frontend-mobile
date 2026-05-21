@@ -2,6 +2,7 @@ import {
   Injectable,
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
   NotFoundException,
   Logger,
 } from '@nestjs/common';
@@ -80,6 +81,12 @@ type CompanyDefaultScheduleRow = {
   updated_by?: string | null;
   updated_by_name?: string | null;
   updated_at?: string | null;
+};
+
+type CompanyHolidayRow = {
+  holiday_date: string;
+  pay_multiplier?: number | null;
+  allow_time_logs?: boolean | null;
 };
 
 type EmployeeDepartmentRelation =
@@ -365,6 +372,49 @@ export class TimekeepingService {
     return data?.employee_id ?? null;
   }
 
+  private async getUserAttendanceProfile(userId: string): Promise<{
+    employee_id: string | null;
+    company_id: string | null;
+  }> {
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('user_profile')
+      .select('employee_id, company_id')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    if (error) throw new Error(error.message);
+    return {
+      employee_id: data?.employee_id ?? null,
+      company_id: data?.company_id ?? null,
+    };
+  }
+
+  private async getCompanyHolidayForDate(
+    companyId: string | null | undefined,
+    dateKey: string,
+  ): Promise<CompanyHolidayRow | null> {
+    if (!companyId) return null;
+
+    const supabase = this.supabaseService.getClient();
+    const { data, error } = await supabase
+      .from('company_holidays')
+      .select('holiday_date, pay_multiplier, allow_time_logs')
+      .eq('company_id', companyId)
+      .eq('holiday_date', dateKey)
+      .maybeSingle<CompanyHolidayRow>();
+
+    if (error) {
+      const message = String(error.message ?? '').toLowerCase();
+      if (message.includes('company_holidays') && message.includes('does not exist')) {
+        return null;
+      }
+      throw new Error(error.message);
+    }
+
+    return data ?? null;
+  }
+
   private getManilaDateString(date = new Date()): string {
     return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(date);
   }
@@ -393,16 +443,23 @@ export class TimekeepingService {
 
   private resolveEffectiveDate(rawDate?: string | null): string {
     const todayInManila = this.getManilaDateString();
-    if (!rawDate) return todayInManila;
+    const tomorrowInManila = this.addDaysInManila(todayInManila, 1);
+    if (!rawDate) return tomorrowInManila;
 
     const normalized = String(rawDate).trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
       throw new BadRequestException('effective_date must be in YYYY-MM-DD format.');
     }
-    if (normalized < todayInManila) {
-      throw new BadRequestException('effective_date cannot be in the past.');
+    if (normalized < tomorrowInManila) {
+      throw new BadRequestException('effective_date must be tomorrow or later.');
     }
     return normalized;
+  }
+
+  private addDaysInManila(dateStr: string, days: number): string {
+    const base = new Date(`${dateStr}T00:00:00+08:00`);
+    base.setUTCDate(base.getUTCDate() + days);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila' }).format(base);
   }
 
   private async getUpdaterName(userId?: string | null): Promise<string | null> {
@@ -738,19 +795,21 @@ export class TimekeepingService {
     const supabase = this.supabaseService.getClient();
     const { date: today } = todayRange();
 
-    const employeeId = await this.getEmployeeId(userId);
+    const profile = await this.getUserAttendanceProfile(userId);
+    const employeeId = profile.employee_id;
     if (!employeeId) {
       throw new BadRequestException(
         'Employee profile not found. Cannot record time-in.',
       );
     }
 
-    const [schedule, existing] = await Promise.all([
+    const [schedule, existing, holiday] = await Promise.all([
       this.getScheduleForToday(employeeId),
       this.getLatestLogForToday(employeeId),
+      this.getCompanyHolidayForDate(profile.company_id, today),
     ]);
 
-    if (!schedule) {
+    if (!schedule && !holiday?.allow_time_logs) {
       throw new ForbiddenException(
         'No schedule has been assigned to you. Contact HR to set up your work schedule.',
       );
@@ -778,21 +837,27 @@ export class TimekeepingService {
     }
 
     const nowDate = new Date();
-    const { shiftEnd } = this.buildScheduleWindow(schedule, nowDate);
+    if (schedule) {
+      const { shiftEnd } = this.buildScheduleWindow(schedule, nowDate);
 
-    if (nowDate.getTime() > shiftEnd.getTime()) {
-      await this.createSystemAbsentLog(
-        employeeId,
-        'Automatically marked absent: attempted clock-in after scheduled shift end.',
-      );
-      throw new BadRequestException(
-        'Clock-in is no longer allowed after your scheduled end time. You were marked absent for today.',
-      );
+      if (nowDate.getTime() > shiftEnd.getTime()) {
+        await this.createSystemAbsentLog(
+          employeeId,
+          'Automatically marked absent: attempted clock-in after scheduled shift end.',
+        );
+        throw new BadRequestException(
+          'Clock-in is no longer allowed after your scheduled end time. You were marked absent for today.',
+        );
+      }
     }
 
     const now = nowDate.toISOString();
     const log_id = crypto.randomUUID();
-    const clockType = schedule ? this.computeClockTypeForTimeIn(nowDate, schedule) : null;
+    const clockType = schedule
+      ? this.computeClockTypeForTimeIn(nowDate, schedule)
+      : holiday
+        ? 'ON-TIME'
+        : null;
 
     const { error: insertError } = await supabase
       .from('attendance_time_logs')
@@ -846,19 +911,21 @@ export class TimekeepingService {
     const supabase = this.supabaseService.getClient();
     const { date: today } = todayRange();
 
-    const employeeId = await this.getEmployeeId(userId);
+    const profile = await this.getUserAttendanceProfile(userId);
+    const employeeId = profile.employee_id;
     if (!employeeId) {
       throw new BadRequestException(
         'Employee profile not found. Cannot record time-out.',
       );
     }
 
-    const [schedule, lastPunch] = await Promise.all([
+    const [schedule, lastPunch, holiday] = await Promise.all([
       this.getScheduleForToday(employeeId),
       this.getLatestLogForToday(employeeId),
+      this.getCompanyHolidayForDate(profile.company_id, today),
     ]);
 
-    if (!schedule) {
+    if (!schedule && !holiday?.allow_time_logs) {
       throw new ForbiddenException(
         'No schedule has been assigned to you. Contact HR to set up your work schedule.',
       );
@@ -885,7 +952,11 @@ export class TimekeepingService {
     const nowDate = new Date();
     const now = nowDate.toISOString();
     const log_id = crypto.randomUUID();
-    const clockType = schedule ? this.computeClockTypeForTimeOut(nowDate, schedule) : null;
+    const clockType = schedule
+      ? this.computeClockTypeForTimeOut(nowDate, schedule)
+      : holiday
+        ? 'ON-TIME'
+        : null;
 
     const { error: insertError } = await supabase
       .from('attendance_time_logs')
@@ -1435,7 +1506,7 @@ export class TimekeepingService {
       .eq('log_id', logId)
       .maybeSingle();
 
-    if (targetError) throw new Error(targetError.message);
+    if (targetError) throw new InternalServerErrorException(targetError.message);
     if (!target || target.log_type !== 'absence') {
       throw new NotFoundException('Absence request not found.');
     }
@@ -1447,8 +1518,11 @@ export class TimekeepingService {
       .eq('company_id', companyId)
       .maybeSingle();
 
-    if (ownerError) throw new Error(ownerError.message);
+    if (ownerError) throw new InternalServerErrorException(ownerError.message);
     if (!owner) throw new NotFoundException('Absence request not found in your company.');
+    if (String(owner.user_id ?? '') === reviewerUserId) {
+      throw new ForbiddenException('You cannot review your own absence request.');
+    }
 
     const nextStatus =
       dto.action === AbsenceReviewAction.APPROVE ? 'APPROVED' : 'DENIED';
@@ -1475,7 +1549,7 @@ export class TimekeepingService {
         .maybeSingle(),
     ]);
 
-    if (updateError) throw new Error(updateError.message);
+    if (updateError) throw new InternalServerErrorException(updateError.message);
     if (!updated) throw new NotFoundException('Absence request not found.');
 
     const reviewerName = reviewer

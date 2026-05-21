@@ -26,6 +26,7 @@ import { ManualRankingItemDto } from './dto/save-manual-ranking.dto';
 import { ScheduleInterviewDto } from './dto/schedule-interview.dto';
 import { InterviewResponseDto } from './dto/interview-response.dto';
 import { OnboardingService } from '../onboarding/onboarding.service';
+import { isAtLeastAge } from '../common/person.utils';
 
 type RankingMode = 'sfia' | 'manual';
 
@@ -586,7 +587,7 @@ export class JobsService {
     const updates = rankings.map((item) =>
       supabase
         .from('job_application_sfia')
-        .update({ manual_rank_position: item.rank, ranking_mode: 'MANUAL' })
+        .update({ manual_rank_position: item.rank, ranking_mode: 'MANUAL', is_manually_processed: true }) // GAP-2.2 FIX: badge persists
         .eq('job_posting_id', jobPostingId)
         .eq('application_id', item.application_id),
     );
@@ -857,6 +858,16 @@ export class JobsService {
 
   async scheduleInterview(applicationId: string, dto: ScheduleInterviewDto, companyId: string) {
     const supabase = this.supabaseService.getClient();
+    const minLeadMinutes = 120;
+    const scheduledAt = new Date(`${dto.scheduled_date}T${dto.scheduled_time}:00+08:00`);
+    if (Number.isNaN(scheduledAt.getTime())) {
+      throw new BadRequestException('Invalid interview schedule date/time.');
+    }
+    const now = new Date();
+    const minAllowed = new Date(now.getTime() + minLeadMinutes * 60 * 1000);
+    if (scheduledAt < minAllowed) {
+      throw new BadRequestException('Interview must be scheduled at least 2 hours ahead.');
+    }
 
     // Verify application belongs to this company
     const { data: app, error: appError } = await supabase
@@ -931,7 +942,7 @@ export class JobsService {
         technical_interview: 'Technical Interview',
         final_interview:     'Final Interview',
       };
-      await this.mailService.sendInterviewScheduleEmail({
+      this.mailService.sendInterviewScheduleEmail({
         to:               profile.email,
         applicantName,
         jobTitle:         posting?.title ?? 'the position',
@@ -946,6 +957,8 @@ export class JobsService {
         interviewerName:  dto.interviewer_name,
         interviewerTitle: dto.interviewer_title,
         notes:            dto.notes,
+      }).catch((err: Error) => {
+        this.logger.error(`Interview schedule email failed for application ${applicationId}: ${err?.message}`);
       });
     }
 
@@ -1015,7 +1028,7 @@ export class JobsService {
 
     if (profile?.email) {
       const applicantName = [profile.first_name, profile.last_name].filter(Boolean).join(' ') || 'Applicant';
-      await this.mailService.sendInterviewCancellationEmail({
+      this.mailService.sendInterviewCancellationEmail({
         to:            profile.email,
         applicantName,
         jobTitle:      posting?.title ?? 'the position',
@@ -1023,6 +1036,8 @@ export class JobsService {
         scheduledTime: schedule.scheduled_time,
         stageLabel:    stageLabelMap[stage] ?? stage,
         reason:        reason ?? null,
+      }).catch((err: Error) => {
+        this.logger.error(`Interview cancellation email failed for application ${applicationId}: ${err?.message}`);
       });
     }
 
@@ -1463,6 +1478,18 @@ export class JobsService {
 
     if (!company) throw new NotFoundException('Company not found');
 
+    const { data: tenantConfig, error: tenantError } = await supabase
+      .from('tenant_config')
+      .select('branding_settings')
+      .eq('company_id', company.company_id)
+      .maybeSingle();
+
+    if (tenantError && !String(tenantError.message ?? '').toLowerCase().includes('branding_settings')) {
+      throw new InternalServerErrorException(tenantError.message);
+    }
+
+    const branding = (tenantConfig?.branding_settings as Record<string, unknown> | null) ?? null;
+
     const { data: jobs } = await supabase
       .from('job_postings')
       .select('job_posting_id, title, description, location, employment_type, salary_range, posted_at, closes_at')
@@ -1474,6 +1501,14 @@ export class JobsService {
     return {
       company_id: company.company_id,
       company_name: company.company_name,
+      company_display_name:
+        typeof branding?.company_display_name === 'string'
+          ? branding.company_display_name
+          : null,
+      company_logo_url:
+        typeof branding?.company_logo_url === 'string'
+          ? branding.company_logo_url
+          : null,
       slug: company.slug,
       jobs: jobs ?? [],
     };
@@ -1525,11 +1560,17 @@ export class JobsService {
     // Block hired/onboarding applicants from applying to new jobs
     const { data: applicantProfile } = await supabase
       .from('applicant_profile')
-      .select('status')
+      .select('status, date_of_birth')
       .eq('applicant_id', applicantId)
       .maybeSingle();
     if (applicantProfile?.status === 'onboarding' || applicantProfile?.status === 'converted_employee') {
       throw new ForbiddenException('You have already been hired and cannot apply to new positions.');
+    }
+    if (!applicantProfile?.date_of_birth) {
+      throw new ForbiddenException('Please add your date of birth to your profile before applying.');
+    }
+    if (!isAtLeastAge(String(applicantProfile.date_of_birth), 18)) {
+      throw new ForbiddenException('Applicants must be at least 18 years old to apply.');
     }
 
     const { data: existing } = await supabase
@@ -2753,4 +2794,3 @@ export class JobsService {
     }
   }
 }
-

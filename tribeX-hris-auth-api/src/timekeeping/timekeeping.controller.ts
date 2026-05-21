@@ -35,13 +35,14 @@ const HR_AND_ABOVE = [
   'Admin',
   'System Admin',
   'HR Officer',
-  'HR Recruiter',
-  'HR Interviewer',
   'Manager',
 ];
 
 // Roles that can create/edit schedules
-const SCHEDULE_MANAGERS = ['System Admin', 'HR Officer', 'HR Recruiter', 'HR Interviewer'];
+const SCHEDULE_MANAGERS = [
+  'System Admin',
+  'HR Officer',
+];
 
 @ApiTags('Timekeeping')
 @ApiBearerAuth()

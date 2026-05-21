@@ -84,8 +84,8 @@ export function ProfileBody({
                 onClick={() => openResume(profile.resume_url!, profile.resume_name)}
               >
                 <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                View Profile Resume
-                <ExternalLink className="ml-auto h-3 w-3" />
+                <span className="font-medium">View Profile Resume</span>
+                <ExternalLink className="ml-auto h-3 w-3 shrink-0" />
               </Button>
               {profile.resume_name && (
                 <p className="truncate px-1 text-[10px] text-muted-foreground" title={profile.resume_name}>

@@ -2,6 +2,7 @@
 
 import { type ElementType, useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   getLifecyclePermissions,
   saveLifecyclePermissions,
@@ -25,11 +26,14 @@ import {
   DollarSign,
   TrendingUp,
   LogOut,
+  Clock3,
   Eye,
   Plus,
   PencilLine,
   Trash2,
   RotateCcw,
+  ChevronRight,
+  SlidersHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -192,7 +196,52 @@ function ModuleCard({
   );
 }
 
-export default function GlobalSettingsPage() {
+const CONFIG_LINKS = [
+  {
+    href: "/system-admin/offboarding",
+    title: "Offboarding Templates",
+    description: "Manage tenant-specific exit checklist templates and custom requirements.",
+    icon: LogOut,
+    accent: "bg-rose-50 text-rose-600",
+  },
+  {
+    href: "/system-admin/onboarding",
+    title: "Onboarding Setup",
+    description: "Review onboarding-related configuration and tenant setup flows.",
+    icon: UserPlus,
+    accent: "bg-blue-50 text-blue-600",
+  },
+  {
+    href: "/system-admin/timekeeping",
+    title: "Timekeeping Rules",
+    description: "Check timekeeping, attendance, and company-wide schedule controls.",
+    icon: Clock3,
+    accent: "bg-violet-50 text-violet-600",
+  },
+  {
+    href: "/system-admin/compensation-settings",
+    title: "Compensation & Benefits",
+    description: "Configure payroll multipliers, statutory deduction defaults, and tax bracket rules.",
+    icon: DollarSign,
+    accent: "bg-fuchsia-50 text-fuchsia-600",
+  },
+  {
+    href: "/system-admin/performance-settings",
+    title: "Performance Settings",
+    description: "Adjust performance module configuration and rating-related controls.",
+    icon: TrendingUp,
+    accent: "bg-emerald-50 text-emerald-600",
+  },
+  {
+    href: "/system-admin/subscriptions",
+    title: "Subscription Plans",
+    description: "Manage tenant subscriptions, billing visibility, and platform access.",
+    icon: DollarSign,
+    accent: "bg-amber-50 text-amber-600",
+  },
+];
+
+export default function RolePermissionsPage() {
   const router = useRouter();
   const [modules, setModules] = useState<LifecycleModule[]>([]);
   const [original, setOriginal] = useState<LifecycleModule[]>([]);
@@ -348,15 +397,14 @@ export default function GlobalSettingsPage() {
   return (
     <>
       <div className="max-w-7xl space-y-6">
-        {/* Welcome card */}
         <section className="relative overflow-hidden rounded-[26px] border border-slate-200 bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-6 py-7 text-white shadow-sm md:px-7 md:py-8">
           <div className="absolute inset-y-0 right-0 w-72 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.20),transparent_60%)]" />
           <div className="relative z-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/70">System Administration</p>
-              <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">HRIS Role Settings</h1>
+              <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">Role Permissions</h1>
               <p className="mt-2 max-w-2xl text-sm text-white/75">
-                Configure lifecycle module access per role. Each toggle controls read, create, update, and delete permissions.
+                Replace vague global settings with concrete system controls. This page manages lifecycle role permissions, while the modules below open dedicated configuration areas.
               </p>
             </div>
             <div className="flex items-center gap-2 shrink-0">
@@ -376,6 +424,46 @@ export default function GlobalSettingsPage() {
                 {saving ? "Saving..." : "Save Changes"}
               </Button>
             </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-border bg-card px-5 py-5 shadow-sm">
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                Configuration Areas
+              </p>
+              <h2 className="mt-1 text-xl font-bold text-foreground">
+                Specific features, not a settings dump
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Use dedicated pages for tenant-specific configurable behavior across the platform.
+              </p>
+            </div>
+            <div className="flex items-center gap-2 rounded-xl border border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+              <SlidersHorizontal className="h-4 w-4 text-foreground" />
+              <span>This page remains the role access control center.</span>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {CONFIG_LINKS.map(({ href, title, description, icon: Icon, accent }) => (
+              <Link
+                key={href}
+                href={href}
+                className="group rounded-2xl border border-border bg-background px-5 py-5 transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-sm"
+              >
+                <div className={`flex h-11 w-11 items-center justify-center rounded-2xl ${accent}`}>
+                  <Icon className="h-5 w-5" />
+                </div>
+                <h3 className="mt-4 text-base font-semibold text-foreground">{title}</h3>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
+                <div className="mt-4 inline-flex items-center gap-1 text-sm font-semibold text-primary">
+                  Open module
+                  <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                </div>
+              </Link>
+            ))}
           </div>
         </section>
 
@@ -448,7 +536,7 @@ export default function GlobalSettingsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Unsaved Changes</AlertDialogTitle>
             <AlertDialogDescription>
-              You have unsaved changes in HRIS Role Settings. Save your changes before leaving this page.
+              You have unsaved changes in Role Permissions. Save your changes before leaving this page.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

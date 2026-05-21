@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Sidebar } from "../components/Sidebar";
-import { MobileRoleMenu } from "../components/MobileRoleMenu";
+import { BottomTabBar, BOTTOM_TAB_HEIGHT } from "../components/BottomTabBar";
 import { GradientHero } from "../components/GradientHero";
 import { authFetch } from "../services/auth";
 import { API_BASE_URL } from "../lib/api";
@@ -31,6 +31,69 @@ function timeAgo(ts: string): string {
   if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
+}
+
+function cleanAuditActionText(action: string): string {
+  if (!action) return "";
+
+  // Check if it matches the profile update pattern
+  const match = action.match(/^user profile updated:\s*([^\s-]+)\s*-\s*(.+)$/i);
+  if (!match) return action;
+
+  const email = match[1];
+  const changesRaw = match[2];
+
+  const FIELD_LABELS: Record<string, string> = {
+    first_name: 'First Name',
+    last_name: 'Last Name',
+    role_id: 'Role',
+    department_id: 'Department',
+    start_date: 'Start Date',
+    account_status: 'Account Status',
+    middle_name: 'Middle Name',
+    personal_email: 'Personal Email',
+    date_of_birth: 'Date of Birth',
+    place_of_birth: 'Place of Birth',
+    nationality: 'Nationality',
+    civil_status: 'Civil Status',
+    complete_address: 'Address',
+    bank_name: 'Bank Name',
+    bank_account_number: 'Bank Account Number',
+    bank_account_name: 'Bank Account Name',
+  };
+
+  const parts = changesRaw.split(/,\s*(?=[A-Za-z_]+:)/);
+  const changesArray: string[] = [];
+
+  for (const part of parts) {
+    const partMatch = part.match(/^([A-Za-z_]+):\s*"([^"]*)"\s*[-→]+\s*"([^"]*)"/);
+    if (partMatch) {
+      const field = partMatch[1].toLowerCase();
+      const before = partMatch[2];
+      const after = partMatch[3];
+
+      if (before === after || (before === "null" && after === "None") || (before === "" && after === "None")) {
+        continue;
+      }
+
+      const label = FIELD_LABELS[field] ?? partMatch[1];
+      
+      const formatVal = (val: string) => {
+        if (!val || val === "null" || val === "None") return "None";
+        if (val.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+          return val.slice(0, 8) + "...";
+        }
+        return val;
+      };
+
+      changesArray.push(`${label}: "${formatVal(before)}" → "${formatVal(after)}"`);
+    }
+  }
+
+  if (changesArray.length > 0) {
+    return `User profile updated: ${email.toLowerCase()} - ${changesArray.join(", ")}`;
+  }
+  return `User profile updated: ${email.toLowerCase()}`;
 }
 
 type Stats = { total: number; active: number; pending: number; inactive: number };
@@ -89,19 +152,9 @@ export function SystemAdminDashboardScreen() {
         )}
 
         <View style={styles.mainContent}>
-          {isMobile && (
-            <MobileRoleMenu
-              role="system_admin"
-              userName={session.name}
-              email={session.email}
-              activeScreen="Dashboard"
-              navigation={navigation}
-            />
-          )}
-
           <ScrollView
             style={styles.container}
-            contentContainerStyle={styles.content}
+            contentContainerStyle={[styles.content, isMobile && { paddingBottom: BOTTOM_TAB_HEIGHT + 8 }]}
             showsVerticalScrollIndicator={false}
           >
             <GradientHero style={styles.heroCard}>
@@ -151,7 +204,7 @@ export function SystemAdminDashboardScreen() {
                   >
                     <View style={styles.activityDot} />
                     <View style={styles.activityTextWrap}>
-                      <Text style={styles.activityTitle}>{log.action}</Text>
+                      <Text style={styles.activityTitle}>{cleanAuditActionText(log.action)}</Text>
                       <Text style={styles.activitySubtitle}>
                         {[log.entity, log.performed_by_name].filter(Boolean).join(" · ")}
                       </Text>
@@ -198,7 +251,9 @@ export function SystemAdminDashboardScreen() {
               </View>
             </View>
           </ScrollView>
-        </View>
+          {isMobile && (
+            <BottomTabBar role="system_admin" activeScreen="Dashboard" navigation={navigation} session={session} />
+          )}        </View>
       </View>
     </SafeAreaView>
   );

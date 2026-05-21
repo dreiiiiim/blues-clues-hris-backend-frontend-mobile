@@ -20,6 +20,10 @@ export type UserRole =
   | "HR Officer"
   | "HR Recruiter"
   | "HR Interviewer"
+  | "HR Compensation and Benefits Officer"
+  | "HR Offboarding Officer/Coordinator"
+  | "HR Onboarding Officer"
+  | "HR Performance Management Officer"
   | "Active Employee"
   | "Manager"
   | "Group Head"
@@ -160,10 +164,15 @@ export async function resendSignupLink(
 
 // GET /admin/companies
 export async function getCompanies(): Promise<Company[]> {
-  return [
-    { company_id: "c1", name: "Blue's Clues Inc." },
-    { company_id: "c2", name: "Acme Corporation" },
-  ];
+  const res = await authFetch(`${API_BASE_URL}/users/companies`);
+  const data = await res.json().catch(() => []);
+  if (!res.ok) throw new Error((data as { message?: string })?.message || "Failed to fetch companies");
+  return Array.isArray(data)
+    ? data.map((item: any) => ({
+        company_id: String(item.company_id),
+        name: String(item.company_name ?? item.name ?? item.company_id),
+      }))
+    : [];
 }
 
 // ─── Subscriptions ────────────────────────────────────────────────────────────

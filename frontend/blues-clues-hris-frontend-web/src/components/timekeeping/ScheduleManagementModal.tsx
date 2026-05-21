@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { X, Building2, Clock, ChevronDown, CheckCircle2, Users, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,7 +43,7 @@ const SCHEDULE_TEMPLATES: ScheduleTemplate[] = [
 
 const WEEKDAYS = ["MON","TUE","WED","THU","FRI","SAT","SUN"];
 const WEEKDAY_LABELS: Record<string, string> = {
-  MON: "M", TUE: "T", WED: "W", THU: "T", FRI: "F", SAT: "S", SUN: "S",
+  MON: "Mo", TUE: "Tu", WED: "We", THU: "Th", FRI: "Fr", SAT: "Sa", SUN: "Su",
 };
 const WEEKDAY_FULL: Record<string, string> = {
   MON: "Mon", TUE: "Tue", WED: "Wed", THU: "Thu", FRI: "Fri", SAT: "Sat", SUN: "Sun",
@@ -67,6 +67,13 @@ function parseWorkdaysInput(value: string | null | undefined): string[] {
 
 function getTodayInManila(): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+}
+function getTomorrowInManila(): string {
+  const now = new Date();
+  const manilaToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(now);
+  const base = new Date(`${manilaToday}T00:00:00+08:00`);
+  base.setUTCDate(base.getUTCDate() + 1);
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(base);
 }
 
 async function readJsonOrNull<T>(res: Response): Promise<T | null> {
@@ -114,6 +121,200 @@ export type EmployeeOption = {
   department_id: string | null;
   department_name: string | null;
 };
+
+// ─── Time Picker Wheel ────────────────────────────────────────────────────────
+
+const DRUM_ITEM_H     = 44;
+const DRUM_VISIBLE    = 5;
+const DRUM_H          = DRUM_ITEM_H * DRUM_VISIBLE;  // 220px total
+const DRUM_PAD        = DRUM_ITEM_H * 2;             // 88px top/bottom spacer
+
+const DRUM_HOURS   = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+const DRUM_MINUTES = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
+const DRUM_AMPM    = ["AM", "PM"];
+
+function ScrollDrum({
+  items,
+  selectedIndex,
+  onSelect,
+}: {
+  items: string[];
+  selectedIndex: number;
+  onSelect: (i: number) => void;
+}) {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const debounce  = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: selectedIndex * DRUM_ITEM_H, behavior: "instant" as ScrollBehavior });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleScroll = () => {
+    if (debounce.current) clearTimeout(debounce.current);
+    debounce.current = setTimeout(() => {
+      const el = scrollRef.current;
+      if (!el) return;
+      const i = Math.max(0, Math.min(Math.round(el.scrollTop / DRUM_ITEM_H), items.length - 1));
+      el.scrollTo({ top: i * DRUM_ITEM_H, behavior: "smooth" });
+      onSelect(i);
+    }, 140);
+  };
+
+  useEffect(() => () => { if (debounce.current) clearTimeout(debounce.current); }, []);
+
+  return (
+    <div className="relative flex-1 overflow-hidden" style={{ height: DRUM_H }}>
+
+      {/* Center highlight pill */}
+      <div
+        className="absolute inset-x-1 rounded-xl pointer-events-none z-10 bg-muted"
+        style={{ top: DRUM_PAD, height: DRUM_ITEM_H }}
+      />
+
+      {/* Top fade */}
+      <div
+        className="absolute inset-x-0 top-0 pointer-events-none z-20"
+        style={{
+          height: DRUM_PAD,
+          background: "linear-gradient(to bottom, hsl(var(--background)) 20%, transparent 100%)",
+        }}
+      />
+      {/* Bottom fade */}
+      <div
+        className="absolute inset-x-0 bottom-0 pointer-events-none z-20"
+        style={{
+          height: DRUM_PAD,
+          background: "linear-gradient(to top, hsl(var(--background)) 20%, transparent 100%)",
+        }}
+      />
+
+      {/* Scroll container */}
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="absolute inset-0 overflow-y-scroll"
+        style={{ scrollSnapType: "y mandatory", scrollbarWidth: "none" } as React.CSSProperties}
+      >
+        <div style={{ height: DRUM_PAD }} aria-hidden />
+
+        {items.map((item, i) => (
+          <div
+            key={item}
+            style={{ height: DRUM_ITEM_H, scrollSnapAlign: "center" } as React.CSSProperties}
+            onClick={() => {
+              scrollRef.current?.scrollTo({ top: i * DRUM_ITEM_H, behavior: "smooth" });
+              onSelect(i);
+            }}
+            className={[
+              "relative z-30 flex items-center justify-center cursor-pointer select-none transition-all duration-150",
+              i === selectedIndex
+                ? "text-foreground font-semibold text-base"
+                : "text-muted-foreground font-normal text-sm",
+            ].join(" ")}
+          >
+            {item}
+          </div>
+        ))}
+
+        <div style={{ height: DRUM_PAD }} aria-hidden />
+      </div>
+    </div>
+  );
+}
+
+function TimePickerWheel({
+  value,
+  onChange,
+  label,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  label?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selHr,  setSelHr]  = useState(0);
+  const [selMin, setSelMin] = useState(0);
+  const [selAP,  setSelAP]  = useState(0);
+
+  const parseValue = (v: string) => {
+    const parts = v.split(":");
+    const h24 = Number.parseInt(parts[0] ?? "9", 10);
+    const m   = Number.parseInt(parts[1] ?? "0", 10);
+    return {
+      h24,
+      m,
+      h12:  h24 % 12 === 0 ? 12 : h24 % 12,
+      isPm: h24 >= 12,
+    };
+  };
+
+  const { h12, m, isPm } = parseValue(value);
+  const displayValue = `${String(h12).padStart(2, "0")}:${String(m).padStart(2, "0")} ${isPm ? "PM" : "AM"}`;
+
+  const handleOpen = () => {
+    const { h12: ch, m: cm, isPm: cp } = parseValue(value);
+    setSelHr(ch - 1);
+    setSelMin(cm);
+    setSelAP(cp ? 1 : 0);
+    setOpen(true);
+  };
+
+  const handleDone = () => {
+    const hr12 = selHr + 1;
+    let hr24   = hr12 % 12;
+    if (selAP === 1) hr24 += 12;
+    onChange(`${String(hr24).padStart(2, "0")}:${String(selMin).padStart(2, "0")}`);
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative">
+      {label && <label className="text-xs text-muted-foreground mb-1 block">{label}</label>}
+
+      <button
+        type="button"
+        onClick={handleOpen}
+        className="w-full h-9 px-3 text-sm border border-border rounded-md bg-background flex items-center gap-2 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/20 hover:border-primary/40 transition-colors"
+      >
+        <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <span className="font-medium text-foreground">{displayValue}</span>
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-[70]" onClick={() => setOpen(false)} />
+          <div className="absolute left-1/2 -translate-x-1/2 top-full mt-2 z-[71] bg-background border border-border/60 rounded-2xl shadow-2xl overflow-hidden w-52 animate-in fade-in slide-in-from-top-2 duration-150">
+
+            {/* Header */}
+            <p className="pt-4 pb-1 text-center text-[10px] font-bold tracking-[0.18em] text-muted-foreground uppercase select-none">
+              Select Time
+            </p>
+
+            {/* Drum columns */}
+            <div className="flex items-center px-2">
+              <ScrollDrum items={DRUM_HOURS}   selectedIndex={selHr}  onSelect={setSelHr}  />
+              <span className="shrink-0 select-none text-lg font-bold text-muted-foreground mb-0.5 px-0.5">:</span>
+              <ScrollDrum items={DRUM_MINUTES} selectedIndex={selMin} onSelect={setSelMin} />
+              <ScrollDrum items={DRUM_AMPM}    selectedIndex={selAP}  onSelect={setSelAP}  />
+            </div>
+
+            {/* Done */}
+            <div className="px-3 pb-4 pt-2">
+              <button
+                type="button"
+                onClick={handleDone}
+                className="w-full h-11 rounded-xl bg-primary text-primary-foreground text-sm font-semibold cursor-pointer hover:opacity-90 active:scale-[0.98] transition-all duration-100"
+              >
+                Done
+              </button>
+            </div>
+
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -163,13 +364,14 @@ export function ScheduleManagementModal({
   const [selectedDeptId, setSelectedDeptId]   = useState(initialDeptId);
   const [skipIndividual, setSkipIndividual]   = useState(true); // default: skip individually-set schedules
   const [templateId, setTemplateId]           = useState(initialTemplateId);
-  const [effectiveDate, setEffectiveDate]     = useState(() => getTodayInManila());
+  const [effectiveDate, setEffectiveDate]     = useState(() => getTomorrowInManila());
   const [confirmed, setConfirmed]             = useState(false);
   const [submitting, setSubmitting]           = useState(false);
   const [done, setDone]                       = useState(false);
   const [applyError, setApplyError]           = useState<string | null>(null);
   const [affectedResult, setAffectedResult]   = useState<number | null>(null);
   const todayInManila = useMemo(() => getTodayInManila(), []);
+  const tomorrowInManila = useMemo(() => getTomorrowInManila(), []);
 
   // Custom template overrides
   const [customStart,      setCustomStart]      = useState(normalizeTimeForInput(initialSchedule?.start_time) ?? "09:00");
@@ -252,8 +454,8 @@ export function ScheduleManagementModal({
 
   const handleApply = async () => {
     if (!confirmed) { setConfirmed(true); return; }
-    if (effectiveDate < todayInManila) {
-      setApplyError("Effectivity date cannot be in the past.");
+    if (effectiveDate < tomorrowInManila) {
+      setApplyError("Effectivity date must be tomorrow or later.");
       setConfirmed(false);
       return;
     }
@@ -334,7 +536,7 @@ export function ScheduleManagementModal({
 
   const applyDisabled =
     submitting ||
-    effectiveDate < todayInManila ||
+    effectiveDate < tomorrowInManila ||
     (scope === "department" && !selectedDeptId) ||
     (scope === "employees" && selectedEmployeeIds.size === 0);
 
@@ -358,24 +560,23 @@ export function ScheduleManagementModal({
           {/* ── Scope selector ────────────────────────────────────────────── */}
           <div>
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-2">Apply To</p>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="flex p-0.5 bg-muted rounded-lg border border-border">
               {([
-                { id: "department", label: "Department",    icon: Building2, desc: `${departments.length} dept${departments.length !== 1 ? "s" : ""}` },
-                { id: "employees",  label: "Employees",     icon: Users,     desc: selectedEmployeeIds.size > 0 ? `${selectedEmployeeIds.size} selected` : "pick employees" },
-              ] as { id: ApplyScope; label: string; icon: React.ElementType; desc: string }[]).map(({ id, label, icon: Icon, desc }) => (
+                { id: "department", label: "Department", icon: Building2 },
+                { id: "employees",  label: "Employees",  icon: Users     },
+              ] as { id: ApplyScope; label: string; icon: React.ElementType }[]).map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
                   onClick={() => setScope(id)}
                   className={[
-                    "flex flex-col items-center gap-1.5 p-3 rounded-xl border text-xs font-semibold transition-all cursor-pointer",
+                    "flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-md text-xs font-semibold transition-all cursor-pointer",
                     scope === id
-                      ? "bg-primary/5 border-primary text-primary"
-                      : "border-border text-muted-foreground hover:border-primary/50",
+                      ? "bg-background text-foreground shadow-sm border border-border"
+                      : "text-muted-foreground hover:text-foreground",
                   ].join(" ")}
                 >
-                  <Icon className="h-5 w-5" />
+                  <Icon className="h-3.5 w-3.5" />
                   {label}
-                  <span className="text-[10px] font-normal opacity-70">{desc}</span>
                 </button>
               ))}
             </div>
@@ -483,6 +684,9 @@ export function ScheduleManagementModal({
                             onChange={() => toggleEmployee(emp.employee_id)}
                             className="h-4 w-4 rounded border-border cursor-pointer accent-primary shrink-0"
                           />
+                          <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[10px] font-bold shrink-0 select-none">
+                            {emp.first_name[0]}{emp.last_name[0]}
+                          </div>
                           <div className="flex-1 min-w-0">
                             <p className="text-xs font-semibold text-foreground truncate">
                               {emp.first_name} {emp.last_name}
@@ -500,6 +704,11 @@ export function ScheduleManagementModal({
                   )}
                 </div>
               </div>
+
+              {/* Inline validation */}
+              {selectedEmployeeIds.size === 0 && (
+                <p className="text-[11px] text-amber-600 mt-1.5">Select at least one employee to apply the schedule.</p>
+              )}
             </div>
           )}
 
@@ -542,26 +751,10 @@ export function ScheduleManagementModal({
               <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Custom Schedule</p>
 
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Start Time</label>
-                  <Input type="time" value={customStart} onChange={e => setCustomStart(e.target.value)} className="h-9 text-sm" />
-                  <p className="text-[10px] text-muted-foreground mt-1">{formatScheduleClock(customStart)}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">End Time</label>
-                  <Input type="time" value={customEnd} onChange={e => setCustomEnd(e.target.value)} className="h-9 text-sm" />
-                  <p className="text-[10px] text-muted-foreground mt-1">{formatScheduleClock(customEnd)}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Break Start</label>
-                  <Input type="time" value={customBreakStart} onChange={e => setCustomBreakStart(e.target.value)} className="h-9 text-sm" />
-                  <p className="text-[10px] text-muted-foreground mt-1">{formatScheduleClock(customBreakStart)}</p>
-                </div>
-                <div>
-                  <label className="text-xs text-muted-foreground mb-1 block">Break End</label>
-                  <Input type="time" value={customBreakEnd} onChange={e => setCustomBreakEnd(e.target.value)} className="h-9 text-sm" />
-                  <p className="text-[10px] text-muted-foreground mt-1">{formatScheduleClock(customBreakEnd)}</p>
-                </div>
+                <TimePickerWheel label="Start Time"  value={customStart}      onChange={setCustomStart}      />
+                <TimePickerWheel label="End Time"    value={customEnd}        onChange={setCustomEnd}        />
+                <TimePickerWheel label="Break Start" value={customBreakStart} onChange={setCustomBreakStart} />
+                <TimePickerWheel label="Break End"   value={customBreakEnd}   onChange={setCustomBreakEnd}   />
               </div>
 
               <div>
@@ -590,23 +783,22 @@ export function ScheduleManagementModal({
 
           {/* ── Schedule preview ──────────────────────────────────────────── */}
           <div className="p-4 rounded-xl bg-primary/5 border border-primary/15 space-y-2">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Preview</p>
-            <div className="flex items-center gap-4 text-sm">
-              <div className="flex items-center gap-1.5 text-foreground font-semibold">
-                <Clock className="h-4 w-4 text-primary" />
-                {formatScheduleClock(previewStart)} -&gt; {formatScheduleClock(previewEnd)}
-                {previewNight && <span className="text-[9px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-bold ml-1">Night</span>}
-              </div>
+            <div className="flex items-center gap-2">
+              <Clock className="h-4 w-4 text-primary shrink-0" />
+              <span className="text-base font-bold text-foreground">
+                {formatScheduleClock(previewStart)} – {formatScheduleClock(previewEnd)}
+              </span>
+              {previewNight && <span className="text-[9px] bg-indigo-100 text-indigo-700 border border-indigo-200 px-1.5 py-0.5 rounded font-bold">Night</span>}
             </div>
             <p className="text-xs text-muted-foreground">
-              Break: {formatScheduleClock(previewBreakStart)} - {formatScheduleClock(previewBreakEnd)}
+              Break: {formatScheduleClock(previewBreakStart)} – {formatScheduleClock(previewBreakEnd)}
             </p>
-            <div className="flex gap-1.5">
+            <div className="grid grid-cols-7 gap-1">
               {WEEKDAYS.map(d => (
                 <span
                   key={d}
                   className={[
-                    "h-6 w-6 rounded-full text-[10px] font-bold flex items-center justify-center",
+                    "rounded-md text-[10px] font-bold flex items-center justify-center py-1",
                     previewDays.includes(d) ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
                   ].join(" ")}
                 >
@@ -622,23 +814,26 @@ export function ScheduleManagementModal({
             <Input
               type="date"
               value={effectiveDate}
-              min={todayInManila}
+              min={tomorrowInManila}
               onChange={e => setEffectiveDate(e.target.value)}
               className="h-9 text-sm w-full"
             />
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              For attendance and payroll consistency, schedule changes take effect starting tomorrow.
+            </p>
           </div>
 
           {/* ── Confirm warning ───────────────────────────────────────────── */}
           {confirmed && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">
-              This will update the schedule for{" "}
+            <div className="px-3 py-2 rounded-lg bg-red-50 border border-red-200 text-xs text-red-700 leading-relaxed">
+              Update schedule for{" "}
               <strong>
                 {scope === "company"
                   ? `all ${employeeCount} employees`
                   : scope === "department"
-                  ? `the ${selectedDept} department`
-                  : `${selectedEmployeeIds.size} selected employee${selectedEmployeeIds.size !== 1 ? "s" : ""}`}
-              </strong>, effective <strong>{effectiveDate}</strong>. This action cannot be undone.
+                  ? `${selectedDept} dept`
+                  : `${selectedEmployeeIds.size} employee${selectedEmployeeIds.size !== 1 ? "s" : ""}`}
+              </strong>{" "}effective <strong>{effectiveDate}</strong>. Cannot be undone.
             </div>
           )}
         </div>
@@ -648,11 +843,6 @@ export function ScheduleManagementModal({
           {applyError && (
             <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
               {applyError}
-            </p>
-          )}
-          {scope === "employees" && selectedEmployeeIds.size === 0 && !applyError && (
-            <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Select at least one employee to apply the schedule.
             </p>
           )}
           <div className="flex items-center justify-between gap-3">

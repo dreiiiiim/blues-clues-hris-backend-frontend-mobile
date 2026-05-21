@@ -8,17 +8,39 @@ export interface UserSession {
   name: string;
   role: UserRole;
   userId: string;
+  activePortal?: string;
+  availablePortals?: string[];
+  roleSwitchOptions?: RoleSwitchOption[];
 }
+
+export type RoleSwitchOption = {
+  role_id: string;
+  role_name: string;
+  portal_key: string;
+};
+
+export type LoginResponse = {
+  ok: true;
+  user: UserSession;
+  role_switch_options?: RoleSwitchOption[];
+  available_portals?: string[];
+  requires_portal_selection?: boolean;
+} | {
+  ok: false;
+  error: string;
+};
 
 const ACCESS_KEY = "access_token";
 const REFRESH_KEY = "refresh_token";
 const IS_APPLICANT_KEY = "is_applicant"; // "true" | "false"
+const SESSION_KEY = "session_payload";
 
 // In-memory store for non-persistent (rememberMe: false) sessions.
 const memoryStore: {
   accessToken?: string;
   refreshToken?: string;
   isApplicant?: boolean;
+  session?: UserSession;
 } = {};
 
 function parseJwt(token: string): Record<string, unknown> | null {
@@ -54,6 +76,38 @@ function roleNameToKey(roleName?: string): UserRole | null {
 
 function cookieStr(name: string, value: string): string {
   return `${name}=${value}`;
+}
+
+function serializeSession(session: UserSession): string {
+  return JSON.stringify(session);
+}
+
+function parseSession(value: string | null): UserSession | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(value) as Partial<UserSession>;
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      email: String(parsed.email ?? ""),
+      name: String(parsed.name ?? ""),
+      role: parsed.role as UserRole,
+      userId: String(parsed.userId ?? ""),
+      activePortal: typeof parsed.activePortal === "string" ? parsed.activePortal : undefined,
+      availablePortals: Array.isArray(parsed.availablePortals) ? parsed.availablePortals.filter((p): p is string => typeof p === "string") : undefined,
+      roleSwitchOptions: Array.isArray(parsed.roleSwitchOptions)
+        ? parsed.roleSwitchOptions.filter(
+            (opt): opt is RoleSwitchOption =>
+              !!opt &&
+              typeof opt === "object" &&
+              typeof opt.role_id === "string" &&
+              typeof opt.role_name === "string" &&
+              typeof opt.portal_key === "string",
+          )
+        : undefined,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function getRefreshEndpoint(isApplicant: boolean): string {
@@ -158,7 +212,43 @@ export async function login(identifier: string, password: string, rememberMe: bo
       memoryStore.isApplicant = false;
     }
 
-    return { ok: true as const, user: { role, name, email: payload.email ?? "", userId } as UserSession };
+    const payloadAvailablePortals = Array.isArray(payload.available_portals)
+      ? (payload.available_portals as string[])
+      : undefined;
+    const payloadRoleSwitchOptions = Array.isArray(payload.role_switch_options)
+      ? (payload.role_switch_options as RoleSwitchOption[])
+      : undefined;
+    const responseAvailablePortals = Array.isArray(data.available_portals)
+      ? (data.available_portals as string[])
+      : undefined;
+    const responseRoleSwitchOptions = Array.isArray(data.role_switch_options)
+      ? (data.role_switch_options as RoleSwitchOption[])
+      : undefined;
+    const role_switch_options = payloadRoleSwitchOptions ?? responseRoleSwitchOptions;
+    const available_portals = payloadAvailablePortals ?? responseAvailablePortals;
+    const requiresPortalSelection =
+      (available_portals?.length ?? 0) > 1 ||
+      payload.requires_portal_selection === true ||
+      data.requires_portal_selection === true;
+    const session: UserSession = {
+      role,
+      name,
+      email: String(payload.email ?? ""),
+      userId,
+      activePortal: typeof payload.active_portal === "string" ? payload.active_portal : undefined,
+      availablePortals: available_portals,
+      roleSwitchOptions: role_switch_options,
+    };
+
+    await saveSession(session, rememberMe);
+
+    return {
+      ok: true as const,
+      user: session,
+      role_switch_options,
+      available_portals,
+      requires_portal_selection: requiresPortalSelection,
+    };
   } catch {
     return { ok: false as const, error: "Network error. Check your connection." };
   }
@@ -221,12 +311,20 @@ export async function applicantLogin(
       memoryStore.isApplicant = true;
     }
 
+    await saveSession({
+      role: "applicant" as UserRole,
+      name,
+      email: String(payload.email ?? email),
+      userId: String(payload.sub_userid ?? payload.applicant_id ?? payload.user_id ?? payload.id ?? ""),
+    }, rememberMe);
+
     return {
       ok: true as const,
       user: {
         role: "applicant" as UserRole,
         name,
         email: payload.email ?? email,
+        userId: String(payload.sub_userid ?? payload.applicant_id ?? payload.user_id ?? payload.id ?? ""),
       } as UserSession,
     };
   } catch {
@@ -235,8 +333,22 @@ export async function applicantLogin(
 }
 
 // Kept for API compatibility with AppNavigator.
-export function saveSession(_session: UserSession, _persist: boolean): void {
-  // no-op: session persistence is handled within login() and applicantLogin()
+export async function saveSession(session: UserSession, persist: boolean): Promise<void> {
+  const normalized: UserSession = {
+    email: session.email ?? "",
+    name: session.name ?? "",
+    role: session.role,
+    userId: session.userId ?? "",
+    activePortal: session.activePortal,
+    availablePortals: Array.isArray(session.availablePortals) ? session.availablePortals : undefined,
+    roleSwitchOptions: Array.isArray(session.roleSwitchOptions) ? session.roleSwitchOptions : undefined,
+  };
+
+  if (persist) {
+    await AsyncStorage.setItem(SESSION_KEY, serializeSession(normalized));
+  } else {
+    memoryStore.session = normalized;
+  }
 }
 
 // ─── Session Restore ──────────────────────────────────────────────────────────
@@ -295,13 +407,23 @@ async function refreshExpiredSession(payload: Record<string, unknown>): Promise<
 
   const name = [newPayload.first_name, newPayload.last_name].filter(Boolean).join(" ");
   const userId = String(newPayload.sub_userid ?? newPayload.applicant_id ?? newPayload.user_id ?? newPayload.id ?? "");
-  return { role, name, email: String(newPayload.email ?? ""), userId };
+  const storedSession = parseSession(await AsyncStorage.getItem(SESSION_KEY)) ?? memoryStore.session ?? null;
+  return {
+    role,
+    name: storedSession?.name ?? name,
+    email: String(newPayload.email ?? storedSession?.email ?? ""),
+    userId,
+    activePortal: storedSession?.activePortal,
+    availablePortals: storedSession?.availablePortals,
+    roleSwitchOptions: storedSession?.roleSwitchOptions,
+  };
 }
 
 export async function getSession(): Promise<UserSession | null> {
   try {
     const persistedAccess = await AsyncStorage.getItem(ACCESS_KEY);
     const accessToken = persistedAccess ?? memoryStore.accessToken ?? null;
+    const storedSession = parseSession(await AsyncStorage.getItem(SESSION_KEY)) ?? memoryStore.session ?? null;
 
     if (!accessToken) return null;
 
@@ -321,9 +443,17 @@ export async function getSession(): Promise<UserSession | null> {
       : (roleNameToKey(String(payload.role_name ?? "")) ?? null);
     if (!role) return null;
 
-    const name = [payload.first_name, payload.last_name].filter(Boolean).join(" ");
+    const name = storedSession?.name || [payload.first_name, payload.last_name].filter(Boolean).join(" ");
     const userId = String(payload.sub_userid ?? payload.applicant_id ?? payload.user_id ?? payload.id ?? "");
-    return { role, name, email: String(payload.email ?? ""), userId };
+    return {
+      role,
+      name,
+      email: String(payload.email ?? storedSession?.email ?? ""),
+      userId,
+      activePortal: storedSession?.activePortal,
+      availablePortals: storedSession?.availablePortals,
+      roleSwitchOptions: storedSession?.roleSwitchOptions,
+    };
   } catch {
     return null;
   }
@@ -422,6 +552,71 @@ export async function applicantRegister(
 
 // ─── Clear Session ────────────────────────────────────────────────────────────
 
+export async function resendApplicantVerification(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/applicants/resend-verification`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Could not resend verification email." };
+    }
+    return {
+      ok: true,
+      message: data?.message || "A new verification email has been sent. Please check your inbox.",
+    };
+  } catch {
+    return { ok: false, error: "Network error. Check your connection." };
+  }
+}
+
+export async function verifyApplicantEmail(
+  token: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${API_BASE_URL}/applicants/verify-email?token=${encodeURIComponent(token)}`,
+      { method: "GET" },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Invalid or expired verification link." };
+    }
+    return {
+      ok: true,
+      message: data?.message || "Your email has been verified. You can now sign in.",
+    };
+  } catch {
+    return { ok: false, error: "Network error. Check your connection." };
+  }
+}
+
+export async function requestPasswordReset(
+  email: string,
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(`${API_BASE_URL}/forgot-password`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return { ok: false, error: data?.message || "Could not send reset instructions." };
+    }
+    return {
+      ok: true,
+      message: data?.message || "If an account exists, reset instructions have been sent.",
+    };
+  } catch {
+    return { ok: false, error: "Network error. Check your connection." };
+  }
+}
+
 export async function clearSession(): Promise<void> {
   try {
     const { refreshToken, isApplicant } = await getRefreshInfo();
@@ -445,5 +640,7 @@ export async function clearSession(): Promise<void> {
     memoryStore.accessToken = undefined;
     memoryStore.refreshToken = undefined;
     memoryStore.isApplicant = undefined;
+    memoryStore.session = undefined;
+    await AsyncStorage.removeItem(SESSION_KEY);
   } catch {}
 }

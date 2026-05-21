@@ -88,9 +88,9 @@ function StatItem({ end, format, label, start }: {
 }) {
   const v = useCountUp(end, 1800, start, false);
   return (
-    <div className="text-center md:px-8">
+    <div className="md:px-8">
       <p className="text-2xl md:text-3xl font-bold text-[#1e3a8a] tabular-nums">{format(v)}</p>
-      <p className="text-xs text-gray-500 mt-0.5 font-medium">{label}</p>
+      <p className="text-[11px] text-slate-400 mt-0.5 font-medium">{label}</p>
     </div>
   );
 }
@@ -103,12 +103,15 @@ function MiniCount({ target, start }: { target: number; start: boolean }) {
 function StatsBar() {
   const { ref, inView } = useInView<HTMLDivElement>(0.3);
   return (
-    <div ref={ref} className="bg-[#f8faff] border-b border-gray-100 px-4 md:px-8 py-6">
+    <div ref={ref} className="bg-white border-b border-slate-100 px-4 md:px-8 py-8">
       <SectionReveal className="max-w-7xl mx-auto">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-0 md:divide-x divide-gray-200">
-          {STATS.map((s) => (
-            <StatItem key={s.label} end={s.end} format={s.format} label={s.label} start={inView} />
-          ))}
+        <div className="flex flex-col md:flex-row items-start md:items-center gap-6 md:gap-0">
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400 md:w-40 shrink-0">By the numbers</p>
+          <div className="flex flex-wrap md:flex-nowrap flex-1 gap-8 md:gap-0 md:divide-x divide-slate-100">
+            {STATS.map((s) => (
+              <StatItem key={s.label} end={s.end} format={s.format} label={s.label} start={inView} />
+            ))}
+          </div>
         </div>
       </SectionReveal>
     </div>
@@ -179,58 +182,100 @@ function Navbar() {
 function HeroSection() {
   return (
     <section className="pt-[70px]">
-      <div className="relative overflow-hidden bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-4 md:px-8 pt-14 md:pt-20 pb-24 md:pb-28">
-        {/* Decorative blobs */}
-        <div className="absolute top-1/2 left-1/4 w-96 h-96 bg-blue-500 rounded-full opacity-[0.07] -translate-y-1/2 blur-3xl pointer-events-none" />
-        <div className="absolute top-0 right-0 w-80 h-80 bg-teal-500 rounded-full opacity-[0.07] -translate-y-1/4 translate-x-1/4 blur-3xl pointer-events-none" />
-        <div className="absolute bottom-0 left-0 w-64 h-64 bg-indigo-500 rounded-full opacity-[0.08] translate-y-1/3 -translate-x-1/4 blur-3xl pointer-events-none" />
+      <div className="relative overflow-hidden bg-[linear-gradient(135deg,#0f172a_0%,#172554_52%,#134e4a_100%)] px-4 md:px-8 pt-14 md:pt-16 pb-16 md:pb-20">
+        {/* Subtle dot grid texture */}
+        <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)', backgroundSize: '28px 28px' }} />
+        {/* Single restrained accent glow */}
+        <div className="absolute bottom-0 right-0 w-[600px] h-[400px] bg-teal-500 rounded-full opacity-[0.05] blur-[100px] translate-x-1/3 translate-y-1/2 pointer-events-none" />
 
         <div className="max-w-7xl mx-auto relative z-10">
-          <div className="max-w-2xl animate-in fade-in slide-in-from-bottom-4 duration-700">
-            {/* Eyebrow */}
-            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/15 rounded-full px-4 py-1.5 mb-6">
-              <span className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-pulse" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-200">HR Management Platform</span>
+          <div className="grid md:grid-cols-[1fr_420px] lg:grid-cols-[1fr_480px] gap-10 md:gap-16 items-center min-h-[420px] md:min-h-[460px]">
+            {/* Left: text */}
+            <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <div className="inline-flex items-center gap-2 bg-white/8 border border-white/12 rounded-full px-3.5 py-1.5 mb-8">
+                <span className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-pulse" />
+                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-200/80">HR Platform · Philippines</span>
+              </div>
+
+              <h1 className="text-[clamp(2.25rem,_5vw_+_0.5rem,_3.75rem)] font-extrabold text-white leading-[1.06] tracking-tight">
+                HR operations,<br />
+                <span className="text-blue-200/85">without the overhead.</span>
+              </h1>
+
+              <p className="mt-5 text-[15px] text-white/60 max-w-[480px] leading-relaxed">
+                Hiring, onboarding, timekeeping, and performance — one platform, no spreadsheets, no patchwork tools.
+              </p>
+
+              <div className="mt-8 flex flex-wrap items-center gap-3">
+                <Link
+                  href="/subscribe"
+                  className="inline-flex items-center gap-2 bg-white text-[#1e3a8a] font-semibold px-6 py-3 rounded-xl hover:bg-blue-50 active:scale-[0.98] transition-all text-sm shadow-[0_6px_20px_rgba(15,23,42,0.20)]"
+                >
+                  Get Started <ArrowRight className="w-4 h-4" />
+                </Link>
+                <a
+                  href="#features"
+                  className="inline-flex items-center gap-2 border border-white/20 text-white/80 font-medium px-5 py-3 rounded-xl hover:bg-white/8 transition-all text-sm"
+                >
+                  See features
+                </a>
+              </div>
+
+              <p className="mt-6 text-[11px] text-white/30 flex items-center gap-2">
+                <Shield className="w-3 h-3 flex-shrink-0" />
+                Setup in 24 hours · No long-term contracts
+              </p>
             </div>
 
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-white leading-[1.1] tracking-tight">
-              Modern HR,{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-300 to-teal-300">
-                built for Philippine companies.
-              </span>
-            </h1>
-
-            <p className="mt-6 text-base md:text-lg text-white/75 max-w-lg leading-relaxed">
-              Blue&apos;s Clues HRIS centralizes your entire HR operation — from hiring and onboarding to timekeeping, payroll, and performance — in one clean, modern platform.
-            </p>
-
-            <div className="mt-8 flex flex-wrap items-center gap-3">
-              <a
-                href="#features"
-                className="inline-flex items-center gap-2 bg-white text-[#1e3a8a] font-semibold px-6 py-3 rounded-xl hover:bg-blue-50 transition-colors text-sm shadow-[0_6px_20px_rgba(15,23,42,0.16)]"
-              >
-                Explore Features <ArrowRight className="w-4 h-4" />
-              </a>
-              <Link
-                href="/subscribe"
-                className="inline-flex items-center gap-2 border border-white/30 bg-white/10 text-white font-medium px-5 py-3 rounded-xl hover:bg-white/15 transition-colors text-sm backdrop-blur-sm"
-              >
-                Get Started
-              </Link>
+            {/* Right: dashboard mockup */}
+            <div className="hidden md:block animate-in fade-in slide-in-from-right-6 duration-700 delay-150">
+              <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm shadow-[0_24px_64px_rgba(0,0,0,0.32)] overflow-hidden">
+                {/* Mockup titlebar */}
+                <div className="flex items-center gap-1.5 px-4 py-3 border-b border-white/8 bg-white/4">
+                  <span className="w-2.5 h-2.5 rounded-full bg-white/15" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-white/15" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-white/15" />
+                  <span className="ml-3 text-[10px] text-white/30 font-medium">Dashboard · Today</span>
+                </div>
+                <div className="p-4 space-y-3">
+                  {/* Headcount row */}
+                  <div className="grid grid-cols-3 gap-2">
+                    {[["Present","142","bg-teal-400/20 text-teal-300"],["On Leave","8","bg-blue-400/20 text-blue-300"],["Late","5","bg-amber-400/20 text-amber-300"]].map(([label, val, cls]) => (
+                      <div key={label} className="rounded-xl bg-white/6 border border-white/8 px-3 py-2.5">
+                        <p className="text-[9px] font-semibold uppercase tracking-widest text-white/40">{label}</p>
+                        <p className={`text-xl font-bold mt-0.5 ${cls.split(' ')[1]}`}>{val}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Pending actions */}
+                  <div className="rounded-xl bg-white/6 border border-white/8 px-3 py-3">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-white/35 mb-2.5">Pending Actions</p>
+                    {[["Leave approvals","3","text-amber-400"],["New applicants","7","text-blue-300"],["Contract renewals","2","text-rose-400"]].map(([label, count, cls]) => (
+                      <div key={label} className="flex items-center justify-between py-1.5 border-b border-white/6 last:border-0">
+                        <span className="text-[11px] text-white/55">{label}</span>
+                        <span className={`text-xs font-bold ${cls}`}>{count}</span>
+                      </div>
+                    ))}
+                  </div>
+                  {/* Mini pipeline */}
+                  <div className="rounded-xl bg-white/6 border border-white/8 px-3 py-3">
+                    <p className="text-[9px] font-bold uppercase tracking-widest text-white/35 mb-2.5">Hiring Pipeline</p>
+                    <div className="space-y-1.5">
+                      {[["Frontend Engineer","Interviewing",68],["HR Generalist","Screening",34],["QA Analyst","Offer",91]].map(([role, stage, pct]) => (
+                        <div key={role} className="flex items-center gap-2">
+                          <span className="text-[10px] text-white/50 w-28 truncate flex-shrink-0">{role}</span>
+                          <div className="flex-1 h-1 rounded bg-white/10 overflow-hidden">
+                            <div className="h-1 rounded bg-teal-400/60" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-[9px] text-white/30 w-16 text-right flex-shrink-0">{stage}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
-
-            <p className="mt-5 text-xs text-white/40 flex items-center gap-2">
-              <Shield className="w-3.5 h-3.5 flex-shrink-0" />
-              Setup in 24 hours · No long-term contracts
-            </p>
           </div>
-        </div>
-
-        {/* Wave divider */}
-        <div className="absolute bottom-0 left-0 right-0">
-          <svg viewBox="0 0 1440 64" className="w-full" preserveAspectRatio="none" height="64">
-            <path d="M0,32 C360,64 1080,0 1440,32 L1440,64 L0,64 Z" fill="#f8faff" />
-          </svg>
         </div>
       </div>
 
@@ -903,6 +948,18 @@ function FeaturePreviewMini({
   );
 }
 
+const FEATURE_SPANS = [
+  "col-span-12 md:col-span-6 lg:col-span-5",
+  "col-span-12 md:col-span-6 lg:col-span-7",
+  "col-span-12 sm:col-span-6 lg:col-span-4",
+  "col-span-12 sm:col-span-6 lg:col-span-4",
+  "col-span-12 sm:col-span-6 lg:col-span-4",
+  "col-span-12 sm:col-span-6 lg:col-span-6",
+  "col-span-12 sm:col-span-6 lg:col-span-6",
+  "col-span-12 sm:col-span-6 lg:col-span-6",
+  "col-span-12 sm:col-span-6 lg:col-span-6",
+] as const;
+
 function FeaturesSection() {
   const reducedMotion = usePrefersReducedMotion();
   const [isClient, setIsClient] = useState(false);
@@ -1016,20 +1073,26 @@ function FeaturesSection() {
         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-white/65 to-transparent" />
       </div>
       <SectionReveal className="max-w-7xl mx-auto">
-        <div className="text-center mb-14 md:mb-16 animate-in fade-in duration-500">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/70 mb-3">Everything HR Needs</p>
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">Built for modern HR teams</h2>
-          <p className="mt-4 text-gray-500 max-w-2xl mx-auto text-sm leading-relaxed">
-            All the tools your HR department needs — no juggling spreadsheets, no switching apps.
-          </p>
+        <div className="mb-12 md:mb-14 animate-in fade-in duration-500">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/60 mb-3">Platform Modules</p>
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <h2 className="text-[clamp(1.7rem,_3vw_+_0.75rem,_2.5rem)] font-extrabold text-gray-900 tracking-tight max-w-sm leading-tight">
+              One platform.<br />Every HR function.
+            </h2>
+            <p className="text-gray-500 max-w-xs text-sm leading-relaxed md:text-right pb-1">
+              No spreadsheet juggling. No switching apps. Click any module to see it in action.
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 md:gap-6">
+        <div className="grid grid-cols-12 gap-5 md:gap-6">
           {FEATURES.map(({ icon: Icon, title, desc, color }, index) => {
             const isOpen = activeFeatureId === title;
             const dialogId = "feature-snippet-modal";
+            const isFeatured = index === 0;
+            const isWide = index === 1;
             return (
-              <div className="relative" key={title}>
+              <div className={`relative ${FEATURE_SPANS[index]}`} key={title}>
                 <button
                   type="button"
                   ref={(node) => {
@@ -1044,16 +1107,25 @@ function FeaturesSection() {
                       setActiveFeatureId(null);
                     }
                   }}
-                  className="group w-full text-left rounded-2xl border border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-6 hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)] hover:border-blue-200/80 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e3a8a]/30 focus-visible:border-[#1e3a8a]"
+                  className={`group w-full h-full text-left rounded-2xl border transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1e3a8a]/30 focus-visible:border-[#1e3a8a] ${
+                    isFeatured
+                      ? "border-blue-200 bg-[linear-gradient(145deg,#eef3ff_0%,#f5f8ff_60%,#ffffff_100%)] p-7 hover:shadow-[0_16px_40px_rgba(30,58,138,0.10)] hover:border-blue-300"
+                      : "border-slate-200/80 bg-[linear-gradient(180deg,#ffffff_0%,#fbfdff_100%)] p-6 hover:shadow-[0_12px_28px_rgba(15,23,42,0.08)] hover:border-blue-200/80"
+                  } ${isWide ? "flex items-start gap-5" : ""}`}
                 >
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center mb-4 ${color}`}>
-                    <Icon className="w-5 h-5" />
+                  <div className={`rounded-xl flex items-center justify-center flex-shrink-0 ${color} ${
+                    isFeatured ? "w-12 h-12 mb-5" : isWide ? "w-11 h-11 mt-0.5" : "w-10 h-10 mb-4"
+                  }`}>
+                    <Icon className={isFeatured ? "w-6 h-6" : "w-5 h-5"} />
                   </div>
-                  <h3 className="font-bold text-gray-900 text-[15px] mb-2.5">{title}</h3>
-                  <p className="text-sm text-gray-600 leading-relaxed">{desc}</p>
-                  <p className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-[#1e3a8a]/75">
-                    Tap to preview
-                  </p>
+                  <div className={isWide ? "flex-1" : ""}>
+                    <h3 className={`font-bold text-gray-900 mb-2.5 ${isFeatured ? "text-base" : "text-[15px]"}`}>{title}</h3>
+                    <p className="text-sm text-gray-600 leading-relaxed">{desc}</p>
+                    <div className="mt-4 flex items-center gap-1 text-[#1e3a8a]/60 group-hover:text-[#1e3a8a] transition-colors">
+                      <span className="text-[11px] font-semibold uppercase tracking-wide">Preview</span>
+                      <ChevronRight className="w-3 h-3 transition-transform duration-200 group-hover:translate-x-0.5" />
+                    </div>
+                  </div>
                 </button>
               </div>
             );
@@ -1226,14 +1298,16 @@ function LifecycleSection() {
       </div>
       <SectionReveal className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="text-center mb-14">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/70 mb-3">Complete Employee Lifecycle</p>
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-            One platform for every HR stage
-          </h2>
-          <p className="mt-4 text-gray-500 max-w-xl mx-auto text-sm leading-relaxed">
-            From the first job posting to the final exit interview — manage every moment that matters.
-          </p>
+        <div className="mb-12">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/60 mb-3">Complete Employee Lifecycle</p>
+          <div className="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+            <h2 className="text-[clamp(1.7rem,_3vw_+_0.75rem,_2.5rem)] font-extrabold text-gray-900 tracking-tight leading-tight max-w-xs">
+              Every stage,<br />one platform.
+            </h2>
+            <p className="text-gray-500 max-w-xs text-sm leading-relaxed md:text-right pb-1">
+              From first job post to final exit — without switching tools.
+            </p>
+          </div>
         </div>
 
         {/* Timeline wrapper */}
@@ -1273,7 +1347,7 @@ function LifecycleSection() {
                   <div className="flex items-center justify-between mb-2">
                     <span className="text-[10px] font-bold tracking-[0.15em] text-gray-400">{num}</span>
                     <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${color}`}>
-                      Stage
+                      {title}
                     </span>
                   </div>
                   <h3 className="font-bold text-gray-900 text-base mb-2">{title}</h3>
@@ -1313,9 +1387,9 @@ function WhySection() {
         <div className="grid md:grid-cols-2 gap-12 md:gap-16 items-center">
           {/* Left: text */}
           <div className="animate-in fade-in duration-500">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/70 mb-3">Why Blue&apos;s Clues</p>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight leading-tight">
-              HR software that actually works for your team.
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/60 mb-3">Why Blue&apos;s Clues</p>
+            <h2 className="text-[clamp(1.7rem,_3vw_+_0.75rem,_2.5rem)] font-extrabold text-gray-900 tracking-tight leading-tight">
+              Built around how your HR team actually works.
             </h2>
             <p className="mt-5 text-gray-600 text-sm leading-relaxed">
               Designed from the ground up for Philippine companies — local compliance, real-time attendance, and workflows that match how your HR team actually operates.
@@ -1424,109 +1498,102 @@ function PricingSection() {
         <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-[#f8fbff]/88 to-transparent" />
       </div>
       <SectionReveal className="max-w-7xl mx-auto">
-        <div className="text-center mb-12">
-          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/70 mb-3">Pricing</p>
-          <h2 className="text-3xl md:text-4xl font-bold text-gray-900 tracking-tight">
-            Simple, transparent pricing.
+        <div className="mb-10">
+          <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-[#1e3a8a]/60 mb-3">Pricing</p>
+          <h2 className="text-[clamp(1.7rem,_3vw_+_0.75rem,_2.5rem)] font-extrabold text-gray-900 tracking-tight leading-tight">
+            One plan.<br />Everything included.
           </h2>
-          <p className="mt-4 text-gray-500 max-w-md mx-auto text-sm leading-relaxed">
-            One plan. Everything included. No hidden fees, no feature gating.
-          </p>
-          <div className="mt-5 flex flex-wrap items-center justify-center gap-2">
-            {["99.9% uptime SLA", "ISO-ready security", "Priority support"].map((chip) => (
-              <span key={chip} className="rounded-full border border-blue-200/70 bg-white/70 px-3 py-1 text-[11px] font-semibold text-[#1e3a8a]/85">
-                {chip}
-              </span>
-            ))}
-          </div>
-
-          {/* Billing toggle */}
-          <div className="flex items-center justify-center mt-8">
-            <div className="flex bg-gray-100 rounded-full p-1 gap-1">
-              {(["monthly", "annual"] as const).map((b) => (
-                <button
-                  key={b}
-                  onClick={() => setBilling(b)}
-                  className={`px-6 py-2 rounded-full text-sm font-medium transition-all cursor-pointer ${
-                    billing === b ? "bg-[#1e3a8a] text-white shadow-sm" : "text-gray-500 hover:text-gray-700"
-                  }`}
-                >
-                  {b === "monthly" ? "Monthly" : "Annual"}
-                  {b === "annual" && (
-                    <span className={`ml-2 text-xs px-1.5 py-0.5 rounded-full font-bold ${
-                      billing === "annual" ? "bg-white/20 text-white" : "bg-green-100 text-green-700"
-                    }`}>
-                      Save 20%
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* Single plan card */}
-        <div className="max-w-lg mx-auto">
-          <div className="relative rounded-2xl border-2 border-[#1e3a8a] bg-gradient-to-br from-blue-50/80 to-white p-8 shadow-[0_18px_44px_rgba(30,58,138,0.14)]">
-            <div className="absolute -top-3.5 left-1/2 -translate-x-1/2">
-              <span className="bg-[#1e3a8a] text-white text-xs font-bold px-4 py-1.5 rounded-full whitespace-nowrap">
-                All-inclusive Plan
-              </span>
-            </div>
-
-            <div className="text-center mb-7 mt-2">
-              <h3 className="text-xl font-bold text-gray-900">Professional</h3>
-              <p className="text-sm text-gray-500 mt-1 mb-6">For growing HR teams</p>
-
-              <div className="flex items-end justify-center gap-1">
-                <span className="text-[10px] font-bold text-gray-500 self-start mt-2.5">₱</span>
-                <span className="text-5xl font-extrabold text-[#1e3a8a] tabular-nums">
-                  {billing === "monthly" ? monthlyPrice.toLocaleString() : annualPrice.toLocaleString()}
+        {/* Two-column pricing card */}
+        <div className="rounded-3xl overflow-hidden shadow-[0_24px_64px_rgba(30,58,138,0.14)] border border-slate-200/60">
+          <div className="grid lg:grid-cols-[400px_1fr]">
+            {/* Left: price + CTA */}
+            <div className="bg-[linear-gradient(160deg,#0f172a_0%,#1e3a8a_100%)] px-8 py-10 flex flex-col justify-between gap-8">
+              <div>
+                <span className="inline-block bg-white/12 border border-white/15 text-white text-[10px] font-bold uppercase tracking-[0.18em] px-3 py-1.5 rounded-full mb-6">
+                  All-inclusive Plan
                 </span>
-                <span className="text-gray-400 text-sm pb-1.5">/mo</span>
+                <h3 className="text-2xl font-extrabold text-white mb-1.5">Professional</h3>
+                <p className="text-sm text-blue-200/60 mb-8">For growing Philippine HR teams</p>
+
+                <div className="flex items-start gap-1 mb-2">
+                  <span className="text-xl font-bold text-white/60 mt-3">₱</span>
+                  <span className="text-[72px] font-black text-white tabular-nums leading-none tracking-tight">
+                    {billing === "monthly" ? monthlyPrice.toLocaleString() : annualPrice.toLocaleString()}
+                  </span>
+                </div>
+                <p className="text-sm text-blue-200/50 mb-1">per month{billing === "annual" ? ", billed annually" : ""}</p>
+                {billing === "annual" && (
+                  <p className="inline-flex items-center gap-1.5 bg-green-500/15 border border-green-400/20 text-green-300 text-xs font-semibold px-2.5 py-1 rounded-full">
+                    <TrendingUp className="w-3 h-3" />
+                    Save ₱{((monthlyPrice - annualPrice) * 12).toLocaleString()} per year
+                  </p>
+                )}
               </div>
 
-              {billing === "annual" && (
-                <p className="text-xs text-gray-400 mt-2">
-                  Billed ₱{(annualPrice * 12).toLocaleString()} per year ·{" "}
-                  <span className="text-green-600 font-semibold">
-                    Save ₱{((monthlyPrice - annualPrice) * 12).toLocaleString()}
-                  </span>
+              <div className="space-y-3">
+                {/* Billing toggle inside card */}
+                <div className="flex bg-white/8 border border-white/10 rounded-xl p-1 gap-1">
+                  {(["monthly", "annual"] as const).map((b) => (
+                    <button
+                      key={b}
+                      onClick={() => setBilling(b)}
+                      className={`flex-1 px-3 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
+                        billing === b ? "bg-white text-[#1e3a8a] shadow-sm" : "text-white/55 hover:text-white/80"
+                      }`}
+                    >
+                      {b === "monthly" ? "Monthly" : "Annual"}
+                      {b === "annual" && billing !== "annual" && (
+                        <span className="ml-1 text-[9px] text-green-400 font-bold">-20%</span>
+                      )}
+                    </button>
+                  ))}
+                </div>
+                <Link
+                  href="/subscribe"
+                  className="flex items-center justify-center gap-2 w-full bg-white text-[#1e3a8a] font-bold py-3.5 rounded-xl hover:bg-blue-50 active:scale-[0.98] transition-all text-sm shadow-[0_4px_16px_rgba(255,255,255,0.12)]"
+                >
+                  Get Started <ArrowRight className="w-4 h-4" />
+                </Link>
+                <p className="text-[11px] text-blue-200/40 text-center flex items-center justify-center gap-1.5">
+                  <Shield className="w-3 h-3" /> Secure checkout · Credentials in 24 hrs
                 </p>
-              )}
+              </div>
             </div>
 
-            <ul className="space-y-2.5 mb-8">
-              {PLAN_FEATURES.map((f) => (
-                <li key={f} className="flex items-start gap-3">
-                  <div className="w-4 h-4 rounded-full bg-[#1e3a8a]/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <Check className="w-2.5 h-2.5 text-[#1e3a8a]" />
-                  </div>
-                  <span className="text-sm text-gray-700">{f}</span>
-                </li>
-              ))}
-            </ul>
+            {/* Right: features */}
+            <div className="bg-white px-8 py-10 flex flex-col justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-[#1e3a8a]/50 mb-5">Everything included</p>
+                <ul className="grid sm:grid-cols-2 gap-x-6 gap-y-3">
+                  {PLAN_FEATURES.map((f) => (
+                    <li key={f} className="flex items-start gap-2.5">
+                      <div className="w-5 h-5 rounded-full bg-[#1e3a8a]/8 flex items-center justify-center flex-shrink-0 mt-0.5">
+                        <Check className="w-3 h-3 text-[#1e3a8a]" />
+                      </div>
+                      <span className="text-sm text-gray-700 leading-snug">{f}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
 
-            <Link
-              href="/subscribe"
-              className="flex items-center justify-center gap-2 w-full bg-[#1e3a8a] text-white font-semibold py-3 rounded-xl hover:bg-[#1e40af] transition-colors text-sm"
-            >
-              Get Started <ArrowRight className="w-4 h-4" />
-            </Link>
-
-            <p className="text-xs text-gray-400 text-center mt-4 flex items-center justify-center gap-1.5">
-              <Shield className="w-3 h-3" />
-              Secure checkout · Credentials in 24 hours
-            </p>
-          </div>
-
-          <div className="mt-5 text-center">
-            <p className="text-sm text-gray-500">
-              Need multi-entity or custom SLAs?{" "}
-              <a href="mailto:sales@bluetribe.ph" className="text-[#1e3a8a] font-medium hover:underline">
-                Contact sales
-              </a>
-            </p>
+              <div className="mt-8 pt-6 border-t border-slate-100 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex flex-wrap gap-2">
+                  {["99.9% uptime SLA", "ISO-ready security", "Priority support"].map((chip) => (
+                    <span key={chip} className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-[11px] font-semibold text-slate-500">
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-500">
+                  Need custom SLAs?{" "}
+                  <a href="mailto:sales@bluetribe.ph" className="text-[#1e3a8a] font-medium hover:underline">
+                    Contact sales
+                  </a>
+                </p>
+              </div>
+            </div>
           </div>
         </div>
       </SectionReveal>
@@ -1538,32 +1605,41 @@ function PricingSection() {
 function CtaBanner() {
   return (
     <section className="px-4 md:px-8 py-20 bg-white">
-      <SectionReveal className="max-w-4xl mx-auto">
-        <div className="relative rounded-[26px] overflow-hidden border border-slate-800/20 bg-[linear-gradient(135deg,#0f172a_0%,#172554_55%,#134e4a_100%)] px-8 md:px-14 py-12 text-center shadow-[0_20px_48px_rgba(15,23,42,0.22)]">
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_48%_32%,rgba(59,130,246,0.2),transparent_45%),radial-gradient(circle_at_88%_84%,rgba(20,184,166,0.16),transparent_42%)]" />
-          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_45%,rgba(2,6,23,0.22)_100%)]" />
-          <div className="pointer-events-none absolute inset-0 opacity-[0.06] [background-image:radial-gradient(rgba(255,255,255,0.9)_0.7px,transparent_0.7px)] [background-size:3px_3px]" />
-          <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400 rounded-full opacity-10 blur-3xl -translate-y-1/2 translate-x-1/4 pointer-events-none" />
-          <div className="absolute bottom-0 left-0 w-56 h-56 bg-teal-400 rounded-full opacity-10 blur-3xl translate-y-1/3 -translate-x-1/4 pointer-events-none" />
+      <SectionReveal className="max-w-7xl mx-auto">
+        <div className="relative rounded-[24px] overflow-hidden border border-slate-800/20 bg-[linear-gradient(135deg,#0f172a_0%,#172554_55%,#134e4a_100%)] shadow-[0_20px_48px_rgba(15,23,42,0.22)]">
+          {/* Dot grid */}
+          <div className="absolute inset-0 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0)', backgroundSize: '24px 24px' }} />
+          {/* Single glow */}
+          <div className="absolute top-0 right-0 w-80 h-80 bg-teal-400 rounded-full opacity-[0.07] blur-[80px] translate-x-1/3 -translate-y-1/3 pointer-events-none" />
 
-          <div className="relative z-10">
-            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-300 mb-4">Get Started Today</p>
-            <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight">
-              Ready to modernize your HR operations?
-            </h2>
-            <p className="mt-4 text-white/60 text-sm max-w-md mx-auto leading-relaxed">
-              Join hundreds of companies using Blue&apos;s Clues HRIS to simplify their HR. Setup takes 24 hours.
-            </p>
-            <div className="mt-8 flex flex-col sm:flex-row gap-3 justify-center">
+          <div className="relative z-10 grid md:grid-cols-[1fr_auto] items-center gap-8 px-8 md:px-12 py-10 md:py-12">
+            {/* Left */}
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-300/70 mb-4">Take the next step</p>
+              <h2 className="text-[clamp(1.4rem,_2.5vw_+_0.75rem,_2rem)] font-extrabold text-white leading-tight max-w-md">
+                HR tools that work as hard as your team does.
+              </h2>
+              <p className="mt-3 text-white/50 text-sm max-w-sm leading-relaxed">
+                Setup takes 24 hours. Credentials delivered same day. No six-month onboarding.
+              </p>
+              <div className="mt-3 flex items-center gap-3 text-[11px] text-white/35">
+                <span className="flex items-center gap-1.5"><Shield className="w-3 h-3" /> Secure checkout</span>
+                <span>·</span>
+                <span>No long-term contract</span>
+              </div>
+            </div>
+
+            {/* Right: CTAs */}
+            <div className="flex flex-col sm:flex-row md:flex-col gap-3 md:min-w-[180px]">
               <Link
                 href="/subscribe"
-                className="inline-flex items-center justify-center gap-2 bg-white text-[#1e3a8a] font-semibold px-7 py-3 rounded-xl hover:bg-blue-50 transition-colors text-sm"
+                className="inline-flex items-center justify-center gap-2 bg-white text-[#1e3a8a] font-semibold px-6 py-3 rounded-xl hover:bg-blue-50 active:scale-[0.98] transition-all text-sm whitespace-nowrap"
               >
                 Get Started <ArrowRight className="w-4 h-4" />
               </Link>
               <Link
                 href="/login"
-                className="inline-flex items-center justify-center gap-2 bg-white/10 border border-white/20 text-white font-medium px-7 py-3 rounded-xl hover:bg-white/15 transition-colors text-sm"
+                className="inline-flex items-center justify-center gap-2 bg-white/8 border border-white/15 text-white/80 font-medium px-6 py-3 rounded-xl hover:bg-white/12 transition-all text-sm whitespace-nowrap"
               >
                 Sign In
               </Link>
@@ -1664,7 +1740,7 @@ function BackToTopButton() {
 /* ─────────────────────────── PAGE ─────────────────────────── */
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-[linear-gradient(180deg,#f7faff_0%,#fbfdff_22%,#f5fbfb_50%,#f8fbff_76%,#f6fbff_100%)] font-sans">
+    <div className="min-h-screen bg-[linear-gradient(180deg,#f7faff_0%,#fbfdff_22%,#f5fbfb_50%,#f8fbff_76%,#f6fbff_100%)] [font-family:var(--font-manrope)]">
       <Navbar />
       <HeroSection />
       <FeaturesSection />

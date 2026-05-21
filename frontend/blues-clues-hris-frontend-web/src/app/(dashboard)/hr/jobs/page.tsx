@@ -16,7 +16,7 @@ import {
   Briefcase, MapPin, Users, XCircle, Loader2, CheckCircle, Link2, Copy, Check,
   MoveRight, GripVertical, Trash2, ChevronDown, Pencil, RefreshCw, FileText,
   KanbanSquare, List, Mail, Phone, Calendar, Clock, Mic, Cpu, Trophy, CheckCircle2,
-  LayoutGrid, Send, RotateCcw, Zap, BookOpen, Heart, Tag, Lightbulb, Sparkles,
+  LayoutGrid, Send, RotateCcw, Zap, BookOpen, Heart, Tag, Lightbulb, Sparkles, ExternalLink,
 } from "lucide-react";
 import { PipelineKanbanView } from "./_components/PipelineKanbanView";
 import { CreateJobModal } from "./_components/CreateJobModal";
@@ -197,6 +197,8 @@ function formatDuration(minutes: number): string {
   const m = minutes % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
 }
+
+const MIN_INTERVIEW_LEAD_MINUTES = 120;
 
 function newQuestion(): Question {
   return {
@@ -1427,6 +1429,122 @@ function InterviewStageHeader({
   );
 }
 
+// ─── Apple-style Time Drum Picker ────────────────────────────────────────────
+
+const DRUM_H = 44;
+
+function Drum({ items, value, onChange }: {
+  items: Array<{ val: string; label: string }>;
+  value: string;
+  onChange: (val: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const firing = useRef(false);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const idx = items.findIndex((i) => i.val === value);
+    if (idx >= 0) el.scrollTop = idx * DRUM_H;
+  }, [items, value]);
+
+  const onScroll = () => {
+    if (firing.current) return;
+    firing.current = true;
+    requestAnimationFrame(() => {
+      const el = ref.current;
+      if (el) {
+        const idx = Math.round(el.scrollTop / DRUM_H);
+        const clamped = Math.max(0, Math.min(idx, items.length - 1));
+        if (items[clamped]) onChange(items[clamped].val);
+      }
+      firing.current = false;
+    });
+  };
+
+  return (
+    <div className="relative flex-1" style={{ height: DRUM_H * 5, overflow: "hidden" }}>
+      <div className="absolute inset-x-0 bg-muted/50 border-y border-border/60 pointer-events-none z-10 rounded-md"
+        style={{ top: DRUM_H * 2, height: DRUM_H }} />
+      <div className="absolute inset-x-0 top-0 pointer-events-none z-20"
+        style={{ height: DRUM_H * 1.5, background: "linear-gradient(to bottom, hsl(var(--background)) 20%, transparent)" }} />
+      <div className="absolute inset-x-0 bottom-0 pointer-events-none z-20"
+        style={{ height: DRUM_H * 1.5, background: "linear-gradient(to top, hsl(var(--background)) 20%, transparent)" }} />
+      <div ref={ref} onScroll={onScroll}
+        style={{ height: "100%", overflowY: "scroll", scrollSnapType: "y mandatory", scrollbarWidth: "none" }}>
+        <div style={{ height: DRUM_H * 2 }} />
+        {items.map((item) => (
+          <div key={item.val}
+            style={{ height: DRUM_H, scrollSnapAlign: "center" }}
+            onClick={() => {
+              const idx = items.findIndex((i) => i.val === item.val);
+              ref.current?.scrollTo({ top: idx * DRUM_H, behavior: "smooth" });
+              onChange(item.val);
+            }}
+            className={`flex items-center justify-center cursor-pointer select-none transition-all duration-100 ${
+              item.val === value ? "text-foreground font-bold text-lg" : "text-muted-foreground text-sm"
+            }`}
+          >
+            {item.label}
+          </div>
+        ))}
+        <div style={{ height: DRUM_H * 2 }} />
+      </div>
+    </div>
+  );
+}
+
+function TimePickerDrum({ value, onChange, onClose }: {
+  value: string;
+  onChange: (v: string) => void;
+  onClose: () => void;
+}) {
+  const parse = (v: string) => {
+    if (!v) return { h: "12", m: "00", ap: "AM" as "AM" | "PM" };
+    const [h24Str, minStr] = v.split(":");
+    const h24 = parseInt(h24Str);
+    const min = parseInt(minStr);
+    const ap: "AM" | "PM" = h24 >= 12 ? "PM" : "AM";
+    const h = String(h24 % 12 || 12);
+    const m = String(Math.round(min / 5) * 5 % 60).padStart(2, "0");
+    return { h, m, ap };
+  };
+
+  const init = parse(value);
+  const [h, setH] = useState(init.h);
+  const [m, setM] = useState(init.m);
+  const [ap, setAp] = useState<"AM" | "PM">(init.ap);
+
+  const to24 = (hh: string, mm: string, aap: string) => {
+    let h24 = parseInt(hh) % 12;
+    if (aap === "PM") h24 += 12;
+    return `${String(h24).padStart(2, "0")}:${mm}`;
+  };
+
+  const HOURS = Array.from({ length: 12 }, (_, i) => ({ val: String(i + 1), label: String(i + 1) }));
+  const MINS  = Array.from({ length: 12 }, (_, i) => { const v = String(i * 5).padStart(2, "0"); return { val: v, label: v }; });
+  const AMPMS = [{ val: "AM", label: "AM" }, { val: "PM", label: "PM" }];
+
+  const upd = (nh: string, nm: string, nap: string) => onChange(to24(nh, nm, nap));
+
+  return (
+    <div className="rounded-2xl border border-border bg-background shadow-2xl shadow-black/10 p-4 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground text-center">Select Time</p>
+      <div className="flex items-center gap-1">
+        <Drum items={HOURS} value={h} onChange={(v) => { setH(v); upd(v, m, ap); }} />
+        <span className="text-xl font-bold text-foreground shrink-0">:</span>
+        <Drum items={MINS} value={m} onChange={(v) => { setM(v); upd(h, v, ap); }} />
+        <div className="w-2 shrink-0" />
+        <Drum items={AMPMS} value={ap} onChange={(v) => { const a = v as "AM" | "PM"; setAp(a); upd(h, m, v); }} />
+      </div>
+      <button type="button" onClick={onClose}
+        className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-sm font-semibold transition-all active:scale-[0.98] cursor-pointer">
+        Done
+      </button>
+    </div>
+  );
+}
+
 // ─── Interview Schedule Form ──────────────────────────────────────────────────
 
 function InterviewScheduleForm({
@@ -1453,6 +1571,8 @@ function InterviewScheduleForm({
     }
   );
 
+  const [timePickerOpen, setTimePickerOpen] = useState<"start" | "end" | null>(null);
+
   function field(k: keyof InterviewSchedule) {
     return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
       setForm((p) => ({ ...p, [k]: e.target.value }));
@@ -1462,13 +1582,19 @@ function InterviewScheduleForm({
   const durationLabel = formatDuration(durationMins);
   const timeInvalid = !!(form.time && form.endTime && durationMins <= 0);
 
-  // Disallow past dates and past times when today is selected
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const nowTimeStr = new Date().toTimeString().slice(0, 5); // HH:MM
+  // Disallow today/past dates for interview scheduling (tomorrow onwards only)
+  const todayStr = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(new Date());
+  const tomorrowDate = new Date(`${todayStr}T00:00:00+08:00`);
+  tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+  const tomorrowStr = tomorrowDate.toISOString().slice(0, 10);
+  const now = new Date();
+  const leadTime = new Date(now.getTime() + MIN_INTERVIEW_LEAD_MINUTES * 60 * 1000);
+  const leadDateStr = leadTime.toISOString().slice(0, 10);
+  const leadTimeStr = leadTime.toTimeString().slice(0, 5);
   const isToday = form.date === todayStr;
-  const minStartTime = isToday ? nowTimeStr : undefined;
+  const minStartTime = isToday ? leadTimeStr : undefined;
   const minEndTime = isToday
-    ? (form.time && form.time > nowTimeStr ? form.time : nowTimeStr)
+    ? (form.time && form.time > leadTimeStr ? form.time : leadTimeStr)
     : form.time || undefined;
 
   const handleSubmit = () => {
@@ -1476,12 +1602,12 @@ function InterviewScheduleForm({
       toast.error("Date, start time, end time, and interviewer name are required.");
       return;
     }
-    if (form.date < todayStr) {
-      toast.error("Interview date cannot be in the past.");
+    if (form.date <= todayStr) {
+      toast.error("Interview date must be tomorrow or later.");
       return;
     }
-    if (form.date === todayStr && form.time < nowTimeStr) {
-      toast.error("Interview start time cannot be in the past.");
+    if (form.date < leadDateStr || (form.date === leadDateStr && form.time < leadTimeStr)) {
+      toast.error(`Interview must be scheduled at least ${MIN_INTERVIEW_LEAD_MINUTES / 60} hours ahead.`);
       return;
     }
     if (durationMins <= 0) {
@@ -1514,52 +1640,108 @@ function InterviewScheduleForm({
 
       {/* Date — full width */}
       <div className="space-y-1.5">
-        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-          Date *
-        </label>
-        <Input type="date" value={form.date} onChange={field("date")} min={todayStr} className="h-9" />
-      </div>
-
-      {/* Time range */}
-      <div className="space-y-1.5">
         <div className="flex items-center justify-between">
           <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-            Interview Time *
+            Interview Date *
           </label>
-          {durationLabel && !timeInvalid && (
-            <span className="inline-flex items-center gap-1 text-[10px] font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded-full">
-              <Clock className="h-3 w-3" />
-              {durationLabel}
+          <div className="flex gap-1">
+            {[
+              { label: "Tomorrow", offset: 1 },
+            ].map(({ label, offset }) => {
+              const d = new Date(); d.setDate(d.getDate() + offset);
+              const val = d.toISOString().slice(0, 10);
+              return (
+                <button key={label} type="button" onClick={() => setForm((p) => ({ ...p, date: val }))}
+                  className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-all cursor-pointer ${
+                    form.date === val
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        <Input type="date" value={form.date} onChange={field("date")} min={tomorrowStr} className="h-9" />
+        {form.date && (
+          <p className="text-xs text-muted-foreground pl-0.5">
+            {new Date(`${form.date}T12:00:00`).toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}
+          </p>
+        )}
+      </div>
+
+      {/* Time — drum pickers (date must be selected first) */}
+      <div className="space-y-2">
+        <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+          Interview Time *
+        </label>
+        {!form.date && (
+          <p className="text-xs text-muted-foreground italic">Pick a date first to set the time.</p>
+        )}
+        <div className={`grid grid-cols-2 gap-2 transition-opacity ${!form.date ? "opacity-40 pointer-events-none" : ""}`}>
+          {/* Start time */}
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Start</p>
+            <button
+              type="button"
+              onClick={() => setTimePickerOpen((p) => p === "start" ? null : "start")}
+              className={`w-full h-9 px-3 flex items-center gap-2 rounded-md border text-sm transition-all cursor-pointer ${
+                timePickerOpen === "start" ? "border-primary ring-1 ring-primary/30 bg-primary/5" : "border-input hover:border-primary/40 bg-background"
+              } ${form.time ? "text-foreground font-medium" : "text-muted-foreground"}`}
+            >
+              <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {form.time ? new Date(`2000-01-01T${form.time}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "Start time"}
+            </button>
+            {timePickerOpen === "start" && (
+              <TimePickerDrum
+                value={form.time}
+                onChange={(v) => setForm((p) => ({ ...p, time: v }))}
+                onClose={() => setTimePickerOpen(null)}
+              />
+            )}
+          </div>
+          {/* End time */}
+          <div className="space-y-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">End</p>
+            <button
+              type="button"
+              onClick={() => {
+                if (!form.time) { toast.error("Set a start time first."); return; }
+                setTimePickerOpen((p) => p === "end" ? null : "end");
+              }}
+              className={`w-full h-9 px-3 flex items-center gap-2 rounded-md border text-sm transition-all cursor-pointer ${
+                !form.time ? "opacity-50 cursor-not-allowed border-input bg-background" :
+                timePickerOpen === "end" ? "border-primary ring-1 ring-primary/30 bg-primary/5" : "border-input hover:border-primary/40 bg-background"
+              } ${form.endTime ? "text-foreground font-medium" : "text-muted-foreground"}`}
+            >
+              <Clock className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+              {form.endTime ? new Date(`2000-01-01T${form.endTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" }) : "End time"}
+            </button>
+            {timePickerOpen === "end" && (
+              <TimePickerDrum
+                value={form.endTime || form.time}
+                onChange={(v) => setForm((p) => ({ ...p, endTime: v }))}
+                onClose={() => setTimePickerOpen(null)}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Duration summary */}
+        {form.time && form.endTime && !timeInvalid && (
+          <div className="flex items-center gap-2 text-xs bg-muted/30 border border-border/60 rounded-lg px-3 py-2">
+            <Clock className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+            <span className="font-semibold text-foreground">
+              {new Date(`2000-01-01T${form.time}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
             </span>
-          )}
-        </div>
-        <div className="grid grid-cols-[1fr_24px_1fr] items-center gap-2">
-          <div className="relative">
-            <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              type="time"
-              value={form.time}
-              onChange={field("time")}
-              min={minStartTime}
-              className="h-10 pl-8 text-sm"
-              placeholder="Start"
-            />
+            <MoveRight className="h-3 w-3 text-muted-foreground" />
+            <span className="font-semibold text-foreground">
+              {new Date(`2000-01-01T${form.endTime}`).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+            </span>
+            <span className="ml-auto text-[11px] font-bold text-primary">{durationLabel}</span>
           </div>
-          <div className="flex items-center justify-center">
-            <MoveRight className="h-4 w-4 text-muted-foreground" />
-          </div>
-          <div className="relative">
-            <Clock className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
-            <Input
-              type="time"
-              value={form.endTime}
-              onChange={field("endTime")}
-              min={minEndTime}
-              className={`h-10 pl-8 text-sm ${timeInvalid ? "border-destructive focus-visible:ring-destructive/50" : ""}`}
-              placeholder="End"
-            />
-          </div>
-        </div>
+        )}
         {timeInvalid && (
           <p className="text-[11px] text-destructive">End time must be after start time.</p>
         )}
@@ -2241,6 +2423,7 @@ function ApplicationDetailModal({
                       >
                         <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
                         View Profile Resume
+                        <ExternalLink className="h-3 w-3 shrink-0 ml-auto" />
                       </Button>
                       {detail.applicant_profile.resume_name && (
                         <p className="mt-1.5 truncate px-1 text-[9px] text-muted-foreground" title={detail.applicant_profile.resume_name}>

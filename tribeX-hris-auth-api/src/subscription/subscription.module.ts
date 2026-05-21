@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
+import { ApiCenterSdkModule } from '../api-center/api-center-sdk.module';
 import { MailModule } from '../mail/mail.module';
 import { SupabaseModule } from '../supabase/supabase.module';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
 
 @Module({
-  imports: [SupabaseModule, MailModule],
+  imports: [SupabaseModule, MailModule, ApiCenterSdkModule],
   controllers: [SubscriptionController],
   providers: [SubscriptionService],
 })

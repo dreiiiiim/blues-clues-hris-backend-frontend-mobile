@@ -54,7 +54,14 @@ export const SignUpScreen = ({ navigation }: any) => {
     setLoading(true);
     const res = await applicantLogin(email.trim(), password, rememberMe);
     setLoading(false);
-    if (!res.ok) { Alert.alert("Sign In Failed", res.error); return; }
+    if (res.ok === false) {
+      if (res.error.toLowerCase().includes("verify your email")) {
+        navigation.navigate("ApplicantVerifyEmail", { email: email.trim() });
+        return;
+      }
+      Alert.alert("Sign In Failed", res.error);
+      return;
+    }
     saveSession(res.user, rememberMe);
     navigation.replace("ApplicantDashboard", { session: res.user });
   }
@@ -62,19 +69,12 @@ export const SignUpScreen = ({ navigation }: any) => {
   async function onCreateAccount() {
     setLoading(true);
     const regRes = await applicantRegister(fullName.trim(), email2.trim(), pw1);
-    if (!regRes.ok) { setLoading(false); Alert.alert("Registration Failed", regRes.error); return; }
-    const loginRes = await applicantLogin(email2.trim(), pw1, rememberMe);
+    if (regRes.ok === false) { setLoading(false); Alert.alert("Registration Failed", regRes.error); return; }
     setLoading(false);
-    if (!loginRes.ok) {
-      Alert.alert(
-        "Account Created",
-        "Your account was created. Please verify your email then sign in.",
-        [{ text: "OK", onPress: () => { setMode("signin"); setEmail(email2.trim()); } }],
-      );
-      return;
-    }
-    saveSession(loginRes.user, rememberMe);
-    navigation.replace("ApplicantDashboard", { session: loginRes.user });
+    navigation.replace("ApplicantVerifyEmail", {
+      email: email2.trim(),
+      source: "signup",
+    });
   }
 
   return (
@@ -275,7 +275,7 @@ export const SignUpScreen = ({ navigation }: any) => {
 
 const styles = StyleSheet.create({
   root:   { flex: 1, backgroundColor: "#F1F5F9" },
-  scroll: { flexGrow: 1 },
+  scroll: { flexGrow: 1, paddingBottom: 40 },
 
   banner: {
     paddingHorizontal: 24,

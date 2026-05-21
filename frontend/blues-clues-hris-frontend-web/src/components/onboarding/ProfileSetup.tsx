@@ -161,7 +161,7 @@ export function ProfileSetup({ profile, sessionId, remarks, onUpdate, profileRej
 
   const profileStatus = profile?.status || "pending";
   const isLocked = !profileRejected && profileStatus !== "pending" && profileStatus !== "rejected" && !isEditing;
-  const profileRemarks = remarks.filter(r => r.tab_tag === "Profile");
+  const profileRemarks = remarks.filter(r => (r.tab_tag || "").trim().toLowerCase() === "profile");
 
   return (
     <div className="space-y-6">
@@ -231,6 +231,14 @@ export function ProfileSetup({ profile, sessionId, remarks, onUpdate, profileRej
         <Alert className="bg-amber-50 border-amber-200">
           <AlertDescription className="text-amber-800 font-medium text-sm">
             HR has requested changes. Please review the note below, correct the information, and save again.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {profileRemarks.length > 0 && (
+        <Alert className="bg-blue-50 border-blue-200">
+          <AlertDescription className="text-blue-900 text-sm">
+            <strong>Latest HR remark (Profile):</strong> {profileRemarks.at(-1)!.remark_text}
           </AlertDescription>
         </Alert>
       )}

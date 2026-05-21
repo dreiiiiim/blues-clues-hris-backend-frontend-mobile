@@ -201,8 +201,8 @@ EXPO_PUBLIC_API_BASE_URL=https://blues-clues-hris-backend-frontend-mobile-produc
 
 Mobile notes:
 - Do not use `localhost` on a physical phone. Use your PC's Wi-Fi IPv4 address.
-- Restart Expo with `npx expo start -c` after changing `.env`.
-- Your phone and development machine must be on the same Wi-Fi network for local backend testing.
+- Restart Expo with `npm start` after changing `.env`.
+- Tunnel mode avoids most Wi-Fi routing issues for Expo Go.
 
 ---
 
@@ -234,9 +234,9 @@ npm run dev
 ```bash
 cd blues-clues-hris-mobile
 npm install
-npx expo start -c
+npm start
 # Scan the QR code with the Expo Go app on your phone
-# Your phone must be on the same Wi-Fi network as your machine
+# Expo uses tunnel mode so the phone does not need to reach your LAN IP directly
 ```
 
 ---
@@ -297,10 +297,10 @@ EXPO_PUBLIC_API_BASE_URL=https://blues-clues-hris-backend-frontend-mobile-produc
 After editing `.env`, always restart with cache cleared:
 
 ```bash
-npx expo start -c
+npm start
 ```
 
-> Your phone and your machine must be on the **same Wi-Fi network** for localhost to work.
+> If you intentionally want LAN mode, use `npx expo start -c --lan`. Tunnel mode is the default now.
 
 ---
 
@@ -456,8 +456,8 @@ chore: remove .claude folder from tracking
 
 | Command             | What it does                         |
 | ------------------- | ------------------------------------ |
-| `npx expo start`    | Start Expo dev server                |
-| `npx expo start -c` | Start with cleared cache (use this!) |
+| `npm start`         | Start Expo dev server in tunnel mode  |
+| `npx expo start -c` | Start with cleared cache in LAN mode  |
 
 ---
 
@@ -517,8 +517,8 @@ A task is considered done only when:
 
 ## Common Gotchas
 
-- **Mobile localhost:** phone + machine on **same Wi-Fi**. Use machine's IPv4 from `ipconfig` (look under Wi-Fi adapter).
-- **Expo cache:** always `npx expo start -c` after `.env` change. Stale cache causes silent failures.
+- **Mobile localhost:** tunnel mode is the safest default; LAN mode needs phone + machine on the same Wi-Fi and a reachable IPv4.
+- **Expo cache:** use `npm start` for normal dev or `npx expo start -c --lan` if you specifically need LAN mode.
 - **Next.js env:** restart dev server after editing `.env.local`. Only `NEXT_PUBLIC_*` vars reach the browser.
 - **Supabase RLS:** if a query returns empty in prod but works locally → RLS policy mismatch. Check policies first, not the query.
 - **Email failures silent:** Brevo HTTP errors (non-2xx, timeouts) swallowed in applicant verification flow. `mail.service.ts → sendMail()` only logs, doesn't propagate. Open issue.

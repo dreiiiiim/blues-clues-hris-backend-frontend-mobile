@@ -8,9 +8,11 @@ import { getInitial } from "../lib/utils";
 import { API_BASE_URL } from "../lib/api";
 
 type Props = {
-  role: UserRole;
-  userName: string;
+  role?: UserRole;
+  userName?: string;
   applicantId?: string;
+  title?: string;
+  subtitle?: string;
 };
 
 type Notification = {
@@ -20,18 +22,20 @@ type Notification = {
   created_at: string;
 };
 
-export const Header = ({ role, userName, applicantId }: Props) => {
-  const initial = getInitial(userName);
+export const Header = ({ role, userName, applicantId, title, subtitle }: Props) => {
+  const safeRole = role ?? "employee";
+  const safeUserName = userName ?? "Blue's Clues User";
+  const initial = getInitial(safeUserName);
   const [notificationOpen, setNotificationOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
 
   useEffect(() => {
-    if (notificationOpen && applicantId && role === "Applicant") {
+    if (notificationOpen && applicantId && safeRole === "applicant") {
       fetchNotifications();
     }
-  }, [notificationOpen, applicantId, role]);
+  }, [notificationOpen, applicantId, safeRole]);
 
   const fetchNotifications = async () => {
     try {
@@ -68,36 +72,68 @@ export const Header = ({ role, userName, applicantId }: Props) => {
 
   return (
     <View
-      style={{ borderBottomColor: Colors.border }}
-      className="bg-white px-4 pt-4 pb-3 flex-row items-center justify-between border-b relative"
+      style={{
+        borderBottomColor: Colors.border,
+        backgroundColor: "#FFFFFF",
+        paddingHorizontal: 16,
+        paddingTop: 16,
+        paddingBottom: 12,
+        gap: 12,
+        borderBottomWidth: 1,
+        position: "relative",
+      }}
     >
+      {(title || subtitle) && (
+        <View style={{ marginBottom: 4 }}>
+          {title ? (
+            <Text style={{ color: Colors.textPrimary, fontSize: 20, fontWeight: "800", lineHeight: 24 }}>
+              {title}
+            </Text>
+          ) : null}
+          {subtitle ? (
+            <Text style={{ color: Colors.textSecondary, fontSize: 12, marginTop: 2 }}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
+      )}
+
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
       {/* Search Bar */}
-      <View className="flex-1 mr-3">
+      <View style={{ flex: 1, marginRight: 12 }}>
         <View
           style={{
             borderColor: Colors.border,
             backgroundColor: Colors.bgMuted,
+            borderRadius: 12,
+            borderWidth: 1,
+            paddingHorizontal: 12,
+            paddingVertical: 10,
           }}
-          className="rounded-xl border px-3 py-2.5"
         >
           <Text
-            style={{ color: Colors.textPlaceholder }}
-            className="text-xs"
+            style={{ color: Colors.textPlaceholder, fontSize: 12 }}
           >
-            {SEARCH_PLACEHOLDERS[role]}
+            {SEARCH_PLACEHOLDERS[safeRole]}
           </Text>
         </View>
       </View>
 
-      <View className="flex-row items-center gap-3 relative z-10">
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 12, position: "relative", zIndex: 10 }}>
         {/* Notification Bell */}
         <Pressable
           onPress={() => setNotificationOpen(!notificationOpen)}
-          className="relative"
+          style={{ position: "relative" }}
         >
           <View
-            style={{ backgroundColor: Colors.primaryLight }}
-            className="h-9 w-9 rounded-full items-center justify-center"
+            style={{
+              backgroundColor: Colors.primaryLight,
+              height: 36,
+              width: 36,
+              borderRadius: 18,
+              alignItems: "center",
+              justifyContent: "center",
+            }}
           >
             <Text>🔔</Text>
           </View>
@@ -106,8 +142,14 @@ export const Header = ({ role, userName, applicantId }: Props) => {
               style={{
                 backgroundColor: Colors.danger,
                 borderColor: Colors.bgCard,
+                position: "absolute",
+                top: -2,
+                right: -2,
+                height: 10,
+                width: 10,
+                borderRadius: 5,
+                borderWidth: 2,
               }}
-              className="absolute -top-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2"
             />
           )}
 
@@ -132,10 +174,20 @@ export const Header = ({ role, userName, applicantId }: Props) => {
               }}
             >
               {/* Header */}
-              <View className="px-4 py-3 border-b border-slate-100">
+              <View
+                style={{
+                  paddingHorizontal: 16,
+                  paddingVertical: 12,
+                  borderBottomWidth: 1,
+                  borderBottomColor: "#F1F5F9",
+                }}
+              >
                 <Text
-                  style={{ color: Colors.textPrimary }}
-                  className="font-bold text-sm"
+                  style={{
+                    color: Colors.textPrimary,
+                    fontWeight: "700",
+                    fontSize: 14,
+                  }}
                 >
                   Notifications
                 </Text>
@@ -143,14 +195,29 @@ export const Header = ({ role, userName, applicantId }: Props) => {
 
               {/* Content */}
               {loadingNotifications ? (
-                <View className="py-8 items-center justify-center">
+                <View
+                  style={{
+                    paddingVertical: 32,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
                   <ActivityIndicator size="small" color={Colors.primary} />
                 </View>
               ) : notifications.length === 0 ? (
-                <View className="py-6 px-4 items-center">
+                <View
+                  style={{
+                    paddingVertical: 24,
+                    paddingHorizontal: 16,
+                    alignItems: "center",
+                  }}
+                >
                   <Text
-                    style={{ color: Colors.textSecondary }}
-                    className="text-xs text-center"
+                    style={{
+                      color: Colors.textSecondary,
+                      fontSize: 12,
+                      textAlign: "center",
+                    }}
                   >
                     No notifications yet
                   </Text>
@@ -164,22 +231,28 @@ export const Header = ({ role, userName, applicantId }: Props) => {
                     <View
                       key={notif.notification_id}
                       style={{
-                        backgroundColor: notif.is_read
-                          ? "#FFFFFF"
-                          : "#F0F9FF",
+                        backgroundColor: notif.is_read ? "#FFFFFF" : "#F0F9FF",
                         borderBottomColor: Colors.border,
+                        paddingHorizontal: 16,
+                        paddingVertical: 12,
+                        borderBottomWidth: 1,
                       }}
-                      className="px-4 py-3 border-b"
                     >
                       <Text
-                        style={{ color: Colors.textPrimary }}
-                        className="text-xs leading-4"
+                        style={{
+                          color: Colors.textPrimary,
+                          fontSize: 12,
+                          lineHeight: 16,
+                        }}
                       >
                         {notif.message}
                       </Text>
                       <Text
-                        style={{ color: Colors.textSecondary }}
-                        className="text-xs mt-1"
+                        style={{
+                          color: Colors.textSecondary,
+                          fontSize: 12,
+                          marginTop: 4,
+                        }}
                       >
                         {formatDate(notif.created_at)}
                       </Text>
@@ -193,11 +266,26 @@ export const Header = ({ role, userName, applicantId }: Props) => {
 
         {/* Avatar */}
         <View
-          style={{ backgroundColor: Colors.primary }}
-          className="h-9 w-9 rounded-full items-center justify-center"
+          style={{
+            backgroundColor: Colors.primary,
+            height: 36,
+            width: 36,
+            borderRadius: 18,
+            alignItems: "center",
+            justifyContent: "center",
+          }}
         >
-          <Text className="text-white font-bold text-sm">{initial}</Text>
+          <Text
+            style={{
+              color: "#FFFFFF",
+              fontWeight: "700",
+              fontSize: 14,
+            }}
+          >
+            {initial}
+          </Text>
         </View>
+      </View>
       </View>
     </View>
   );
