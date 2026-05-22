@@ -382,10 +382,10 @@ export class MailService {
         ${infoCard([
           { label: 'Company', value: companyName },
           { label: 'Plan', value: planLabel },
-          { label: 'Status', value: 'Active' },
+          { label: 'Status', value: 'Payment Confirmed — Provisioning Pending' },
         ], STATUS.success.bg, STATUS.success.border)}
 
-        ${bodyText('Your System Admin credentials are being sent in a separate email. Use them to log in and configure your HR system.', '16px')}
+        ${bodyText('Once our team provisions your account, your System Admin credentials will be sent to this email address.', '16px')}
 
         ${ctaButton(`${appUrl}/login`, 'Go to Login', STATUS.success.badge)}
 

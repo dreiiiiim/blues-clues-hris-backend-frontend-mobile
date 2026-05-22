@@ -16,22 +16,6 @@ import { PaymentConfirmDto } from './dto/payment-confirm.dto';
 import { RegisterCompanyDto } from './dto/register-company.dto';
 import { SelectPlanDto } from './dto/select-plan.dto';
 
-const MODULES = [
-  'recruitment',
-  'onboarding',
-  'compensation',
-  'performance',
-  'offboarding',
-] as const;
-
-function generateSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .trim()
-    .replace(/\s+/g, '-')
-    .replace(/[^a-z0-9-]/g, '')
-    .replace(/-+/g, '-');
-}
 
 @Injectable()
 export class SubscriptionService {
@@ -223,16 +207,8 @@ export class SubscriptionService {
     }
 
     if (registration.payment_status === 'Paid') {
-      if (registration.company_id) {
-        return {
-          message: 'Already processed',
-          registration_id: dto.registration_id,
-        };
-      }
-
-      await this.provisionTenant(registration);
       return {
-        message: 'Payment already marked paid. Tenant provisioning completed.',
+        message: 'Payment already recorded. Awaiting super admin provisioning.',
         registration_id: dto.registration_id,
       };
     }
@@ -274,129 +250,11 @@ export class SubscriptionService {
         payment_status: 'Paid',
         payment_date: new Date().toISOString(),
         transaction_id: transactionId,
-        subscription_status: 'Active',
+        subscription_status: 'Pending',
       })
       .eq('registration_id', dto.registration_id);
 
     if (paymentErr) throw new InternalServerErrorException(paymentErr.message);
-
-    await this.provisionTenant({ ...registration, payment_status: 'Paid' });
-
-    return {
-      message: 'Payment confirmed. Tenant provisioned.',
-      registration_id: dto.registration_id,
-    };
-  }
-
-  private async provisionTenant(registration: Record<string, any>) {
-    const supabase = this.supabaseService.getClient();
-
-    // Guard against concurrent/idempotent calls (e.g. React StrictMode double-invoke)
-    const { data: freshReg } = await supabase
-      .from('company_registrations')
-      .select('company_id')
-      .eq('registration_id', registration.registration_id)
-      .single();
-    if (freshReg?.company_id) return;
-
-    const slug = generateSlug(registration.company_name);
-    const { data: company, error: companyErr } = await supabase
-      .from('company')
-      .insert({ company_name: registration.company_name, slug })
-      .select('company_id')
-      .single();
-
-    let company_id: string;
-    if (companyErr) {
-      // 23505 = unique_violation — concurrent request already created the company
-      if (companyErr.code === '23505') {
-        const { data: existing, error: fetchErr } = await supabase
-          .from('company')
-          .select('company_id')
-          .eq('slug', slug)
-          .single();
-        if (fetchErr || !existing) {
-          throw new InternalServerErrorException(`Company creation failed: ${companyErr.message}`);
-        }
-        // Link the existing company and exit — the other request handles the rest
-        await supabase
-          .from('company_registrations')
-          .update({ company_id: existing.company_id })
-          .eq('registration_id', registration.registration_id);
-        return;
-      }
-      throw new InternalServerErrorException(
-        `Company creation failed: ${companyErr.message}`,
-      );
-    }
-    company_id = company!.company_id;
-
-    await supabase
-      .from('company_registrations')
-      .update({ company_id })
-      .eq('registration_id', registration.registration_id);
-
-    await supabase.from('tenant_config').insert({
-      company_id,
-      timezone: 'Asia/Manila',
-      date_format: 'MM/DD/YYYY',
-      currency: 'PHP',
-    });
-
-    await supabase.from('tenant_modules').upsert(
-      MODULES.map((module) => ({ company_id, module_name: module, status: 'Active' })),
-      { onConflict: 'company_id,module_name' },
-    );
-
-    const roleId = await this.getOrCreateSystemAdminRole(company_id);
-
-    const user_id = crypto.randomUUID();
-    const employee_id = `sa-${company_id.slice(0, 8)}`;
-
-    const { error: userErr } = await supabase.from('user_profile').insert({
-      user_id,
-      email: registration.email,
-      first_name: 'System',
-      last_name: 'Admin',
-      role_id: roleId,
-      company_id,
-      employee_id,
-      username: null,
-      password_hash: null,
-      account_status: 'Pending',
-    });
-
-    if (userErr) {
-      throw new InternalServerErrorException(
-        `System Admin user creation failed: ${userErr.message}`,
-      );
-    }
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
-
-    const { error: inviteErr } = await supabase.from('user_invites').insert({
-      invite_id: crypto.randomUUID(),
-      user_id,
-      token_hash: tokenHash,
-      expires_at: expiresAt,
-    });
-
-    if (inviteErr) {
-      throw new InternalServerErrorException(
-        `Invite creation failed: ${inviteErr.message}`,
-      );
-    }
-
-    const appUrl = this.config.get<string>('APP_URL') ?? 'http://localhost:3000';
-    const inviteLink = `${appUrl}/set-password?token=${rawToken}`;
-
-    if (this.config.get<string>('NODE_ENV') !== 'production') {
-      this.logger.debug(
-        `DEV MODE - System Admin invite | Email: ${registration.email} | Link: ${inviteLink}`,
-      );
-    }
 
     this.mailService
       .sendPaymentConfirmation(
@@ -411,28 +269,12 @@ export class SubscriptionService {
         );
       });
 
-    this.mailService
-      .sendSystemAdminCredentials(registration.email, inviteLink)
-      .catch((err) => {
-        this.logger.error(
-          `Failed to send System Admin credentials to ${registration.email}`,
-          err,
-        );
-      });
-
-    try {
-      await supabase.from('admin_audit_logs').insert({
-        action: `TENANT_PROVISIONED: ${registration.company_name} (${company_id})`,
-        performed_by: null,
-        company_id,
-        target_user_id: user_id,
-        severity: 'WARNING',
-        ip_address: null,
-      });
-    } catch {
-      // non-fatal
-    }
+    return {
+      message: 'Payment confirmed. Awaiting super admin provisioning.',
+      registration_id: dto.registration_id,
+    };
   }
+
 
   private async getOrCreateSystemAdminRole(companyId: string): Promise<string> {
     const supabase = this.supabaseService.getClient();
