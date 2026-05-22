@@ -4,19 +4,25 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { saApi } from '@/lib/superAdminApi';
 import { StatusBadge } from '@/components/super-admin/StatusBadge';
 import { ConfirmDialog } from '@/components/super-admin/ConfirmDialog';
-import { AlertCircle, Building2, Search, ChevronLeft, ChevronRight, Zap, ShieldOff } from 'lucide-react';
+import { AlertCircle, Building2, Search, ChevronLeft, ChevronRight, Zap, ShieldOff, Copy, CheckCheck } from 'lucide-react';
 
 type Company = {
   registration_id: string;
-  company_id: string;
+  company_id: string | null;
   company_name: string;
   email: string;
   industry: string;
   subscription_plan: string;
   subscription_status: string;
+  payment_status: string;
   payment_date: string;
   billing_cycle: string;
+  invite_url: string | null;
 };
+
+function toSlug(name: string) {
+  return name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+}
 
 const STATUS_FILTERS = ['Active', 'Pending', 'Suspended', 'Expired'];
 type ConfirmState = { action: 'provision' | 'suspend'; id: string; name: string } | null;
@@ -28,6 +34,7 @@ export default function CompaniesPage() {
   const [showDetail, setShowDetail] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmState>(null);
   const [errorMsg, setErrorMsg] = useState('');
+  const [inviteCopied, setInviteCopied] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery({
     queryKey: ['sa-companies', filters],
@@ -40,15 +47,20 @@ export default function CompaniesPage() {
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: string } } };
       setErrorMsg(e.response?.data?.message || 'Failed to suspend');
+      setConfirm(null);
     },
   });
 
   const provision = useMutation({
     mutationFn: (id: string) => saApi.post(`/companies/${id}/provision`),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['sa-companies'] }); setConfirm(null); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['sa-companies'] });
+      setConfirm(null);
+    },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { message?: string } } };
       setErrorMsg(e.response?.data?.message || 'Provisioning failed');
+      setConfirm(null);
     },
   });
 
@@ -72,10 +84,18 @@ export default function CompaniesPage() {
     else suspend.mutate(confirm.id);
   }
 
+  function handleCopyInvite(registrationId: string, url: string) {
+    navigator.clipboard.writeText(url).then(() => {
+      setInviteCopied(registrationId);
+      setTimeout(() => setInviteCopied(null), 2000);
+    });
+  }
+
   const isMutating = provision.isPending || suspend.isPending;
 
   return (
     <div className="space-y-6">
+
       <div className="pb-1">
         <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400 mb-1">Tenant Management</p>
         <div className="flex items-center justify-between">
@@ -167,7 +187,28 @@ export default function CompaniesPage() {
                     <td className="px-5 py-3.5 text-slate-600 text-xs">{computeEndDate(c.payment_date, c.billing_cycle)}</td>
                     <td className="px-5 py-3.5">
                       <div className="flex items-center gap-2">
-                        {!c.company_id && (
+                        {c.company_id && (
+                          <a
+                            href={`http://${toSlug(c.company_name)}.localhost:3001/login`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                          >
+                            Open Instance
+                          </a>
+                        )}
+                        {c.company_id && c.invite_url && (
+                          <button
+                            onClick={() => handleCopyInvite(c.registration_id, c.invite_url!)}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold rounded-lg bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 transition-colors"
+                          >
+                            {inviteCopied === c.registration_id
+                              ? <><CheckCheck className="h-3 w-3" /> Copied!</>
+                              : <><Copy className="h-3 w-3" /> Copy Invite</>
+                            }
+                          </button>
+                        )}
+                        {!c.company_id && c.payment_status === 'Paid' && (
                           <button
                             onClick={() => setConfirm({ action: 'provision', id: c.registration_id, name: c.company_name })}
                             disabled={isMutating}

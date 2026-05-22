@@ -15,6 +15,7 @@ import { SuperAdminSubscriptionsController } from './subscriptions/subscriptions
 import { SuperAdminSubscriptionsService } from './subscriptions/subscriptions.service';
 import { SuperAdminSettingsController } from './settings/settings.controller';
 import { SuperAdminSettingsService } from './settings/settings.service';
+import { InternalInstancesController } from './internal/internal-instances.controller';
 
 @Module({
   imports: [SupabaseModule, MailModule, JwtModule],
@@ -25,6 +26,7 @@ import { SuperAdminSettingsService } from './settings/settings.service';
     SuperAdminRenewalsController,
     SuperAdminSubscriptionsController,
     SuperAdminSettingsController,
+    InternalInstancesController,
   ],
   providers: [
     SuperAdminGuard,
