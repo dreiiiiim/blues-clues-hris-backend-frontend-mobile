@@ -1,0 +1,43 @@
+import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import { PaymentConfirmDto } from './dto/payment-confirm.dto';
+import { RegisterCompanyDto } from './dto/register-company.dto';
+import { SelectPlanDto } from './dto/select-plan.dto';
+import { SubscriptionService } from './subscription.service';
+
+@Controller('subscription')
+export class SubscriptionController {
+  constructor(private readonly subscriptionService: SubscriptionService) {}
+
+  @Get('plans')
+  getPlans() {
+    return this.subscriptionService.getPlans();
+  }
+
+  @UseGuards(ThrottlerGuard)
+  @Post('register')
+  register(@Body() dto: RegisterCompanyDto) {
+    return this.subscriptionService.register(dto);
+  }
+
+  @Post('select-plan')
+  selectPlan(@Body() dto: SelectPlanDto) {
+    return this.subscriptionService.selectPlan(dto);
+  }
+
+  @Post('payment/create-checkout')
+  createCheckout(@Body() dto: CreateCheckoutDto) {
+    return this.subscriptionService.createCheckout(dto);
+  }
+
+  @Post('payment/confirm')
+  confirmPayment(@Body() dto: PaymentConfirmDto) {
+    return this.subscriptionService.confirmPayment(dto);
+  }
+
+  @Get('registration/:id/status')
+  getStatus(@Param('id') id: string) {
+    return this.subscriptionService.getRegistrationStatus(id);
+  }
+}

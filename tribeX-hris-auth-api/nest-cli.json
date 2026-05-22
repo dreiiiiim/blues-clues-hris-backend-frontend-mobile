@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/nest-cli.json",
+  "collection": "@nestjs/schematics",
+  "sourceRoot": "apps/api/src",
+  "monorepo": true,
+  "root": "apps/api",
+  "compilerOptions": {
+    "deleteOutDir": true
+  },
+  "projects": {
+    "api": {
+      "type": "application",
+      "root": "apps/api",
+      "sourceRoot": "apps/api/src",
+      "entryFile": "main",
+      "prefix": "api",
+      "tsconfig": "apps/api/tsconfig.app.json"
+    },
+    "common": {
+      "type": "library",
+      "root": "libs/common",
+      "sourceRoot": "libs/common/src",
+      "prefix": "app",
+      "tsconfig": "libs/common/tsconfig.lib.json"
+    },
+    "api-center": {
+      "type": "library",
+      "root": "libs/api-center",
+      "sourceRoot": "libs/api-center/src",
+      "prefix": "app",
+      "tsconfig": "libs/api-center/tsconfig.lib.json"
+    },
+    "supabase": {
+      "type": "library",
+      "root": "libs/supabase",
+      "sourceRoot": "libs/supabase/src",
+      "prefix": "app",
+      "tsconfig": "libs/supabase/tsconfig.lib.json"
+    },
+    "contracts": {
+      "type": "library",
+      "root": "libs/contracts",
+      "sourceRoot": "libs/contracts/src",
+      "prefix": "app",
+      "tsconfig": "libs/contracts/tsconfig.lib.json"
+    }
+  }
+}

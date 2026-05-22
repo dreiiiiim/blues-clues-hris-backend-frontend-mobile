@@ -1,0 +1,12 @@
+{
+  "serviceId": "tribex-hris-auth",
+  "name": "TribeX HRIS Authentication API",
+  "serviceType": "tribe",
+  "baseUrl": "http://localhost:5000",
+  "requiredScopes": ["tribe:tribex-hris-auth:read", "tribe:tribex-hris-auth:write"],
+  "exposes": ["/api/tribeX/auth/v1/health", "/api/tribeX/auth/v1/auth"],
+  "consumes": ["payment", "email"],
+  "healthCheck": "/api/tribeX/auth/v1/health",
+  "version": "1.0.0",
+  "description": "BluesClues HRIS Authentication API built as a NestJS monorepo backend"
+}
