@@ -12,7 +12,7 @@
 
 // login.dto.ts
 
-import { IsNotEmpty, IsString, MinLength, IsBoolean, Matches } from 'class-validator';
+import { IsNotEmpty, IsString, MinLength, IsBoolean, Matches, IsOptional } from 'class-validator';
 
 export class LoginDto {
   @IsString()
@@ -26,4 +26,9 @@ export class LoginDto {
 
   @IsBoolean()
   rememberMe?: boolean; // true = long refresh token lifetime
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^[a-z0-9-]+$/, { message: 'Invalid slug format' })
+  slug?: string; // present when logging in via a company subdomain
 }

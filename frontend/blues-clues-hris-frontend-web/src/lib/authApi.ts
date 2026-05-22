@@ -24,10 +24,27 @@ export type LoginResponse = {
   requires_portal_selection?: boolean;
 };
 
+export type CompanyBranding = {
+  company_id: string;
+  company_name: string;
+  company_display_name: string | null;
+  company_logo_url: string | null;
+  slug: string;
+};
+
+export async function getCompanyBySlug(slug: string): Promise<CompanyBranding> {
+  const res = await fetch(
+    `${API_BASE_URL}/jobs/public/branding/${encodeURIComponent(slug)}`,
+  );
+  if (!res.ok) throw new Error('Company not found');
+  return res.json() as Promise<CompanyBranding>;
+}
+
 export async function loginApi(body: {
   identifier: string;
   password: string;
   rememberMe: boolean;
+  slug?: string;
 }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);

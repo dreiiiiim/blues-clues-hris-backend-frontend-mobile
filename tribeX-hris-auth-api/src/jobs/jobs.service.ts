@@ -1514,6 +1514,27 @@ export class JobsService {
     };
   }
 
+  async getPublicBrandingBySlug(slug: string) {
+    const supabase = this.supabaseService.getClient();
+
+    const { data: company } = await supabase
+      .from('company')
+      .select('company_id, company_name, display_name, logo_url, primary_color, slug')
+      .eq('slug', slug)
+      .maybeSingle();
+
+    if (!company) throw new NotFoundException('Company not found');
+
+    return {
+      company_id: company.company_id,
+      company_name: company.company_name,
+      company_display_name: (company.display_name as string | null) ?? null,
+      company_logo_url: (company.logo_url as string | null) ?? null,
+      primary_color: (company.primary_color as string | null) ?? null,
+      slug: company.slug,
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Applicant-facing methods — scoped by companyId from applicant JWT
   // ---------------------------------------------------------------------------

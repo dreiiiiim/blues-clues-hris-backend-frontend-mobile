@@ -41,6 +41,12 @@ export class JobsController {
   // PUBLIC ROUTES — no auth required
   // ---------------------------------------------------------------------------
 
+  @Get('public/branding/:slug')
+  @ApiOperation({ summary: 'Public: Get company branding by slug' })
+  getPublicBrandingBySlug(@Param('slug') slug: string) {
+    return this.jobsService.getPublicBrandingBySlug(slug);
+  }
+
   @Get('public/careers/:slug')
   @ApiOperation({ summary: 'Public: Get company info + open jobs by slug' })
   getPublicCareersBySlug(@Param('slug') slug: string) {

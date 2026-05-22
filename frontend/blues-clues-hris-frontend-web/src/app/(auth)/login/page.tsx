@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { loginApi, refreshApi } from "@/lib/authApi";
+import { loginApi, refreshApi, getCompanyBySlug, CompanyBranding } from "@/lib/authApi";
 import { setTokens, saveUserInfo, parseJwt, clearAuthStorage, getRememberMe, getUserInfo } from "@/lib/authStorage";
 import { roleToPath, portalToPath } from "@/lib/roleMap";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,16 @@ import { Input } from "@/components/ui/input";
 import { PasswordInput } from "@/components/ui/password-input";
 import { GoogleSignInButton } from "@/components/ui/google-sign-in-button";
 import { AlertCircle, Loader2, Clock, Users, Shield, UserX } from "lucide-react";
+
+function getSubdomainSlug(): string | null {
+  if (typeof window === 'undefined') return null;
+  const hostname = window.location.hostname;
+  if (hostname.endsWith('.localhost')) {
+    const slug = hostname.slice(0, -('.localhost'.length));
+    return slug && slug !== 'www' ? slug : null;
+  }
+  return null;
+}
 
 export default function EmployeeLoginPage() {
   const router = useRouter();
@@ -39,13 +49,24 @@ export default function EmployeeLoginPage() {
   const [error, setError]           = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [isLoading, setIsLoading]   = useState(false);
+  const [companyBranding, setCompanyBranding] = useState<CompanyBranding | null>(null);
+  const [slug, setSlug] = useState<string | null>(null);
+
+  useEffect(() => {
+    const detectedSlug = getSubdomainSlug();
+    if (!detectedSlug) return;
+    setSlug(detectedSlug);
+    getCompanyBySlug(detectedSlug)
+      .then(data => setCompanyBranding(data))
+      .catch(() => {});
+  }, []);
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setError("");
     setIsLoading(true);
     try {
-      const login = await loginApi({ identifier, password, rememberMe });
+      const login = await loginApi({ identifier, password, rememberMe, slug: slug ?? undefined });
       const { access_token } = login;
       setTokens({ access_token, rememberMe });
       const payload = parseJwt(access_token);
@@ -100,11 +121,21 @@ export default function EmployeeLoginPage() {
 
         <div className="mb-auto relative z-10">
           <div className="flex items-center gap-3 mb-14">
-            <div className="h-10 w-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center">
-              <Shield className="h-5 w-5 text-white" />
+            <div className="h-10 w-10 rounded-xl bg-white/10 border border-white/20 flex items-center justify-center overflow-hidden">
+              {companyBranding?.company_logo_url ? (
+                <img
+                  src={companyBranding.company_logo_url}
+                  alt="Company logo"
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <Shield className="h-5 w-5 text-white" />
+              )}
             </div>
             <div>
-              <p className="text-white font-bold text-sm leading-none">Blue&apos;s Clues HRIS</p>
+              <p className="text-white font-bold text-sm leading-none">
+                {companyBranding?.company_display_name ?? companyBranding?.company_name ?? "Blue's Clues HRIS"}
+              </p>
               <p className="text-white/50 text-[10px] uppercase tracking-widest mt-0.5">Internal Staff Portal</p>
             </div>
           </div>
@@ -140,7 +171,14 @@ export default function EmployeeLoginPage() {
       <div className="flex-1 flex flex-col items-center justify-center p-8 bg-card/30">
         <div className="w-full max-w-md space-y-10">
           <div className="text-center space-y-2">
-            <h2 className="text-5xl font-bold tracking-tight">Staff Portal</h2>
+            <h2 className="text-5xl font-bold tracking-tight">
+              {companyBranding ? 'Sign in to' : 'Staff Portal'}
+            </h2>
+            {companyBranding && (
+              <p className="text-xl font-bold text-primary">
+                {companyBranding.company_display_name ?? companyBranding.company_name}
+              </p>
+            )}
             <p className="text-lg text-muted-foreground">Welcome back, please sign in</p>
           </div>
 

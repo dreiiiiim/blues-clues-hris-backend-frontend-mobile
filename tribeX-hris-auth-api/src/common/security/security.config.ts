@@ -23,6 +23,11 @@ function isImplicitDevOrigin(origin: string): boolean {
       return secondOctet >= 16 && secondOctet <= 31;
     }
 
+    // Allow *.localhost subdomains — Chrome resolves them to 127.0.0.1
+    if (hostname.endsWith('.localhost')) {
+      return true;
+    }
+
     return false;
   } catch {
     return false;

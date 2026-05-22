@@ -584,6 +584,23 @@ export class AuthService {
       throw new UnauthorizedException('Incorrect password. Please try again.');
     }
 
+    // Enforce company boundary when logging in via a company subdomain
+    if (loginDto.slug) {
+      const { data: slugCompany } = await supabase
+        .from('company')
+        .select('company_id, company_name')
+        .eq('slug', loginDto.slug)
+        .maybeSingle();
+      if (!slugCompany) {
+        throw new UnauthorizedException('Company not found for this login URL');
+      }
+      if (slugCompany.company_id !== user.company_id) {
+        throw new UnauthorizedException(
+          `This account doesn't belong to ${slugCompany.company_name}`,
+        );
+      }
+    }
+
     // Check company subscription is active before issuing access token
     const { data: reg } = await supabase
       .from('company_registrations')
